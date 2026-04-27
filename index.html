@@ -51,6 +51,7 @@
       <nav class="view-tabs" aria-label="Model views">
         <button id="tab-chart" class="active" type="button">Napkin View</button>
         <button id="tab-table" type="button">Spreadsheet View</button>
+        <button id="tab-new-customers" type="button">New Customers Drilldown</button>
       </nav>
 
       <section id="chart-view" class="view active">
@@ -96,6 +97,98 @@
       <section id="table-view" class="view">
         <div class="table-wrap">
           <table id="driver-table" class="model-table"></table>
+        </div>
+      </section>
+
+      <section id="new-customers-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>New Customers Drilldown</h2>
+            <p>Build the new customer line from property cohort contributions.</p>
+          </div>
+          <div class="source-control">
+            <label for="new-customers-source">Top-Level Source</label>
+            <select id="new-customers-source">
+              <option value="topDown">Use top-down line</option>
+              <option value="bottomUp">Use bottom-up drilldown</option>
+            </select>
+          </div>
+        </div>
+        <div class="output-row">
+          <div>
+            <h2>Revenue Path</h2>
+            <div id="new-customers-drilldown-chart" class="chart chart-output"></div>
+          </div>
+          <div>
+            <h2>Total New Customers</h2>
+            <div id="new-customers-total-chart" class="chart chart-output"></div>
+          </div>
+        </div>
+        <div class="cohort-editor">
+          <div class="cohort-editor-header">
+            <h2>Napkin Editors</h2>
+            <div class="editor-tabs" aria-label="New customer napkin editor modes">
+              <button id="new-customers-editor-per-cohort" class="active" type="button">Per Cohort</button>
+              <button id="new-customers-editor-per-year" type="button">Per Year - Existing Properties</button>
+              <button id="new-customers-editor-new-properties" type="button">Per Year - New Properties</button>
+            </div>
+          </div>
+          <div id="new-customers-per-cohort-editor" class="editor-mode active">
+            <div class="editor-controls">
+              <div class="slider-control">
+                <label for="new-customers-cohort-editor-slider">Property Cohort</label>
+                <input id="new-customers-cohort-editor-slider" type="range" min="0" step="1" />
+                <output id="new-customers-cohort-editor-value" for="new-customers-cohort-editor-slider"></output>
+              </div>
+            </div>
+            <div class="output-row editor-chart-row">
+              <div>
+                <h2>Selected Cohort New Customers</h2>
+                <div id="new-customers-cohort-count-chart" class="chart chart-output"></div>
+              </div>
+              <div>
+                <h2>Selected Cohort YoY % Diff</h2>
+                <div id="new-customers-cohort-yoy-chart" class="chart chart-output"></div>
+              </div>
+            </div>
+          </div>
+          <div id="new-customers-per-year-editor" class="editor-mode">
+            <div class="editor-controls">
+              <div class="slider-control">
+                <label for="new-customers-year-editor-slider">Calendar Year</label>
+                <input id="new-customers-year-editor-slider" type="range" min="0" step="1" />
+                <output id="new-customers-year-editor-value" for="new-customers-year-editor-slider"></output>
+              </div>
+            </div>
+            <div class="output-row editor-chart-row per-year-chart-row">
+              <div>
+                <h2>Existing Properties New Customers</h2>
+                <div id="new-customers-year-existing-chart" class="chart chart-output"></div>
+              </div>
+              <div>
+                <h2>Existing Properties YoY % Diff</h2>
+                <div id="new-customers-year-existing-yoy-chart" class="chart chart-output"></div>
+              </div>
+            </div>
+          </div>
+          <div id="new-customers-new-properties-editor" class="editor-mode">
+            <div class="output-row editor-chart-row">
+              <div>
+                <h2>New Properties New Customers</h2>
+                <div id="new-customers-new-properties-count-chart" class="chart chart-output"></div>
+              </div>
+              <div>
+                <h2>New Properties YoY % Diff</h2>
+                <div id="new-customers-new-properties-yoy-chart" class="chart chart-output"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="new-customers-drilldown-table" class="model-table"></table>
+        </div>
+        <div class="table-wrap">
+          <table id="new-customers-yoy-table" class="model-table"></table>
         </div>
       </section>
     </main>

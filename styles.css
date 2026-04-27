@@ -142,6 +142,95 @@ select {
   margin-bottom: 14px;
 }
 
+.editor-chart-row {
+  grid-template-columns: repeat(2, minmax(460px, 1fr));
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.per-year-chart-row {
+  grid-template-columns: repeat(2, minmax(560px, 1fr));
+}
+
+.drilldown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.source-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider-control {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 300px) minmax(72px, auto);
+  align-items: center;
+  gap: 10px;
+}
+
+.slider-control input[type="range"] {
+  width: 100%;
+}
+
+.slider-control output {
+  min-width: 72px;
+  text-align: right;
+  font-weight: 700;
+}
+
+.cohort-editor {
+  margin-bottom: 14px;
+}
+
+.cohort-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 10px;
+}
+
+.editor-tabs {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.editor-tabs button {
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.editor-tabs button:last-child {
+  border-right: 0;
+}
+
+.editor-tabs button.active {
+  background: var(--text);
+  color: #ffffff;
+}
+
+.editor-mode {
+  display: none;
+}
+
+.editor-mode.active {
+  display: block;
+}
+
+.editor-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
 .driver-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -220,6 +309,11 @@ select {
   font-weight: 700;
 }
 
+.model-table td.linked-highlight {
+  background: #d9e8ff;
+  box-shadow: inset 0 0 0 2px #2f6fed;
+}
+
 .model-table td.historical {
   color: var(--muted);
 }
@@ -286,5 +380,35 @@ select {
   .output-row,
   .driver-grid {
     grid-template-columns: 1fr;
+  }
+
+  .editor-chart-row,
+  .per-year-chart-row {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  .drilldown-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cohort-editor-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .editor-controls {
+    justify-content: flex-start;
+  }
+
+  .slider-control {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .slider-control output {
+    text-align: left;
   }
 }
