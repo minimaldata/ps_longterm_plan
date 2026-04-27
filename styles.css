@@ -1,0 +1,290 @@
+:root {
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --surface-soft: #eef3f8;
+  --text: #17202a;
+  --muted: #647184;
+  --line: #d9dee8;
+  --input: #fff3cc;
+  --output: #dbe8f7;
+  --new: #8ebf86;
+  --returning: #4f7fb8;
+  --danger: #b42318;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  padding: 22px 28px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+h2 {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+p,
+label,
+.summary-band span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+main {
+  padding: 18px 28px 28px;
+}
+
+button,
+select {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+}
+
+button {
+  cursor: pointer;
+  padding: 7px 10px;
+}
+
+select {
+  min-width: 180px;
+  padding: 7px 30px 7px 10px;
+}
+
+.scenario-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scenario-controls button:disabled {
+  color: #98a2b3;
+  cursor: not-allowed;
+  background: #f2f4f7;
+}
+
+.summary-band {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.summary-band > div {
+  background: var(--surface);
+  padding: 14px 16px;
+}
+
+.summary-band strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.view-tabs button.active {
+  background: var(--text);
+  color: #ffffff;
+  border-color: var(--text);
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}
+
+.output-row {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.driver-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.output-row > div,
+.driver-grid section {
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.chart {
+  width: 100%;
+  height: 260px;
+}
+
+.chart-output {
+  height: 330px;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.model-table {
+  width: 100%;
+  min-width: 1180px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.model-table th,
+.model-table td {
+  border: 1px solid var(--line);
+  padding: 7px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.model-table th:first-child,
+.model-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 230px;
+  text-align: left;
+  background: var(--surface-soft);
+}
+
+.model-table thead th {
+  background: #aeb4b8;
+  color: #111827;
+  font-weight: 700;
+}
+
+.model-table tr.section-row td {
+  background: #111827;
+  color: #ffffff;
+  font-weight: 700;
+  text-align: left;
+}
+
+.model-table td.input {
+  background: var(--input);
+}
+
+.model-table td.output {
+  background: var(--output);
+  font-weight: 700;
+}
+
+.model-table td.historical {
+  color: var(--muted);
+}
+
+.model-table input {
+  width: 100%;
+  min-width: 84px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+.negative {
+  color: var(--danger);
+}
+
+.scenario-dialog {
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 72px rgba(15, 23, 42, 0.24);
+}
+
+.scenario-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.dialog-header {
+  margin-bottom: 14px;
+}
+
+.scenario-dialog label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.scenario-dialog input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .summary-band,
+  .output-row,
+  .driver-grid {
+    grid-template-columns: 1fr;
+  }
+}

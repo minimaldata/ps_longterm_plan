@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PetScreening $100M Path</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>PetScreening $100M Path</h1>
+        <p>HHP revenue model, simple driver version</p>
+      </div>
+      <div class="scenario-controls">
+        <label for="scenario-select">Editing</label>
+        <select id="scenario-select"></select>
+        <label for="compare-scenario-select">Compare</label>
+        <select id="compare-scenario-select"></select>
+        <label for="version-select">Version</label>
+        <select id="version-select"></select>
+        <button id="restore-version" type="button" disabled>Restore</button>
+        <button id="undo-change" type="button" disabled>Undo</button>
+        <button id="redo-change" type="button" disabled>Redo</button>
+        <button id="save-as-scenario" type="button">Save As</button>
+        <button id="update-scenario" type="button">Update</button>
+        <button id="reset-scenario" type="button">Reset</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="summary-band" aria-label="Revenue summary">
+        <div>
+          <span>2029 HHP Revenue</span>
+          <strong id="kpi-revenue-2029">$0</strong>
+        </div>
+        <div>
+          <span>2029 Plan Gap</span>
+          <strong id="kpi-gap-2029">$0</strong>
+        </div>
+        <div>
+          <span>2025-2029 CAGR</span>
+          <strong id="kpi-cagr">0.0%</strong>
+        </div>
+        <div>
+          <span>2029 Paid Profiles</span>
+          <strong id="kpi-paid-profiles">0</strong>
+        </div>
+      </section>
+
+      <nav class="view-tabs" aria-label="Model views">
+        <button id="tab-chart" class="active" type="button">Napkin View</button>
+        <button id="tab-table" type="button">Spreadsheet View</button>
+      </nav>
+
+      <section id="chart-view" class="view active">
+        <div class="output-row">
+          <div>
+            <h2>Revenue Path</h2>
+            <div id="revenue-chart" class="chart chart-output"></div>
+          </div>
+          <div>
+            <h2>Plan Gap</h2>
+            <div id="gap-chart" class="chart chart-output"></div>
+          </div>
+        </div>
+
+        <div class="driver-grid">
+          <section>
+            <h2>Retention</h2>
+            <div id="chart-retention" class="chart"></div>
+          </section>
+          <section>
+            <h2>New Customers</h2>
+            <div id="chart-new-customers" class="chart"></div>
+          </section>
+          <section>
+            <h2>Profiles / Returning Customer</h2>
+            <div id="chart-profiles-returning" class="chart"></div>
+          </section>
+          <section>
+            <h2>Profiles / New Customer</h2>
+            <div id="chart-profiles-new" class="chart"></div>
+          </section>
+          <section>
+            <h2>Rev / Returning Profile</h2>
+            <div id="chart-rev-returning" class="chart"></div>
+          </section>
+          <section>
+            <h2>Rev / New Profile</h2>
+            <div id="chart-rev-new" class="chart"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="table-view" class="view">
+        <div class="table-wrap">
+          <table id="driver-table" class="model-table"></table>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="scenario-dialog" class="scenario-dialog">
+      <div class="dialog-header">
+        <h2 id="scenario-dialog-title">Save Scenario</h2>
+      </div>
+      <label id="scenario-dialog-label" for="scenario-dialog-input">Name</label>
+      <input id="scenario-dialog-input" type="text" />
+      <div class="dialog-actions">
+        <button id="scenario-dialog-cancel" type="button">Cancel</button>
+        <button id="scenario-dialog-confirm" type="button">Save</button>
+      </div>
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="./napkinChart.js"></script>
+    <script src="./hhp-simple.js"></script>
+  </body>
+</html>
