@@ -50,9 +50,73 @@
 
       <nav class="view-tabs" aria-label="Model views">
         <button id="tab-chart" class="active" type="button">Napkin View</button>
+        <button id="tab-guided" type="button">Guided Plan</button>
         <button id="tab-table" type="button">Spreadsheet View</button>
-        <button id="tab-new-customers" type="button">New Customers Drilldown</button>
+        <button id="tab-rev-per-unit" type="button">Rev Per Unit Plan</button>
       </nav>
+
+      <section id="guided-view" class="view">
+        <div class="guided-layout">
+          <section class="guided-panel guided-total">
+            <div>
+              <h2>Revenue Equation</h2>
+              <p>Start with the simple bridge, then drill into whichever number needs explanation.</p>
+            </div>
+            <div class="equation-row">
+              <div>
+                <span>Existing Customer Revenue</span>
+                <strong id="guided-existing-revenue">$0</strong>
+              </div>
+              <b>+</b>
+              <div>
+                <span>New Customer Revenue</span>
+                <strong id="guided-new-revenue">$0</strong>
+              </div>
+              <b>=</b>
+              <div>
+                <span>HHP Revenue</span>
+                <strong id="guided-total-revenue">$0</strong>
+              </div>
+            </div>
+            <div class="guided-outline-wrap">
+              <table id="guided-outline-table" class="guided-outline-table"></table>
+            </div>
+          </section>
+
+          <section class="guided-panel">
+            <h2>Existing Customers</h2>
+            <div class="metric-stack">
+              <div><span>Retention</span><strong id="guided-retention">0%</strong></div>
+              <div><span>Returning Customers</span><strong id="guided-returning-customers">0</strong></div>
+              <div><span>Profiles / Customer</span><strong id="guided-existing-profiles-customer">0.00</strong></div>
+              <div><span>Revenue / Profile</span><strong id="guided-existing-rev-profile">$0.00</strong></div>
+            </div>
+            <button class="guided-jump" data-target-view="chart" data-focus-chart="chart-retention" type="button">Open Advanced Drivers</button>
+          </section>
+
+          <section class="guided-panel">
+            <h2>New Customers</h2>
+            <div class="metric-stack">
+              <div><span>New Customers</span><strong id="guided-new-customers">0</strong></div>
+              <div><span>Profiles / Customer</span><strong id="guided-new-profiles-customer">0.00</strong></div>
+              <div><span>Revenue / Profile</span><strong id="guided-new-rev-profile">$0.00</strong></div>
+              <div><span>Paid Profiles</span><strong id="guided-new-paid-profiles">0</strong></div>
+            </div>
+            <button class="guided-jump" data-target-view="newCustomers" type="button">Explain New Customers</button>
+          </section>
+
+          <section class="guided-panel">
+            <h2>Plan Check</h2>
+            <div class="metric-stack">
+              <div><span>Plan Revenue</span><strong id="guided-plan-revenue">$0</strong></div>
+              <div><span>Gap to Plan</span><strong id="guided-plan-gap">$0</strong></div>
+              <div><span>Paid Profiles</span><strong id="guided-paid-profiles">0</strong></div>
+              <div><span>Rev / Paid Profile</span><strong id="guided-rev-paid-profile">$0.00</strong></div>
+            </div>
+            <button class="guided-jump" data-target-view="revPerUnit" type="button">Open Rev / Unit Model</button>
+          </section>
+        </div>
+      </section>
 
       <section id="chart-view" class="view active">
         <div class="output-row">
@@ -72,7 +136,26 @@
             <div id="chart-retention" class="chart"></div>
           </section>
           <section>
-            <h2>New Customers</h2>
+            <div class="chart-heading">
+              <h2>New Customers</h2>
+              <div class="chart-heading-actions">
+                <div class="axis-button-row" data-napkin-y-axis-controls="newCustomers" aria-label="New customers Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                    <span class="axis-triangle axis-triangle-up"></span>
+                  </button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                    <span class="axis-triangle axis-triangle-down"></span>
+                  </button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                    <span class="axis-triangle axis-triangle-up"></span>
+                  </button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                    <span class="axis-triangle axis-triangle-down"></span>
+                  </button>
+                </div>
+                <button id="drilldown-new-customers-from-chart" class="drilldown-button" type="button">Drilldown</button>
+              </div>
+            </div>
             <div id="chart-new-customers" class="chart"></div>
           </section>
           <section>
@@ -101,36 +184,166 @@
       </section>
 
       <section id="new-customers-view" class="view">
-        <div class="drilldown-header">
+        <div class="drilldown-header new-customer-main-panel">
           <div>
             <h2>New Customers Drilldown</h2>
             <p>Build the new customer line from property cohort contributions.</p>
           </div>
-          <div class="source-control">
-            <label for="new-customers-source">Top-Level Source</label>
-            <select id="new-customers-source">
-              <option value="topDown">Use top-down line</option>
-              <option value="bottomUp">Use bottom-up drilldown</option>
-            </select>
-          </div>
         </div>
-        <div class="output-row">
+        <div class="output-row new-customer-main-panel">
           <div>
-            <h2>Revenue Path</h2>
-            <div id="new-customers-drilldown-chart" class="chart chart-output"></div>
-          </div>
-          <div>
-            <h2>Total New Customers</h2>
+            <div class="chart-heading">
+              <h2>Total New Customers</h2>
+              <button id="set-new-customers-total-top-down" class="set-button" type="button">Set</button>
+            </div>
             <div id="new-customers-total-chart" class="chart chart-output"></div>
           </div>
+          <div>
+            <h2>Bottom-Up Delta to Top-Down</h2>
+            <div id="new-customers-drilldown-chart" class="chart chart-output"></div>
+          </div>
         </div>
-        <div class="cohort-editor">
+        <div class="cohort-editor new-customer-main-panel">
           <div class="cohort-editor-header">
-            <h2>Napkin Editors</h2>
+            <h2>New Customer Bridge</h2>
+          </div>
+          <div class="output-row editor-chart-row">
+            <div>
+              <h2>Existing Properties New Customers</h2>
+              <div class="axis-button-row" data-napkin-y-axis-controls="bridgeExisting" aria-label="Existing properties Y axis controls">
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                  <span class="axis-triangle axis-triangle-up"></span>
+                </button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                  <span class="axis-triangle axis-triangle-down"></span>
+                </button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                  <span class="axis-triangle axis-triangle-up"></span>
+                </button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                  <span class="axis-triangle axis-triangle-down"></span>
+                </button>
+              </div>
+              <div id="new-customers-bridge-existing-chart" class="chart chart-output"></div>
+            </div>
+            <div>
+              <div class="chart-heading">
+                <h2>New Properties New Customers</h2>
+                <button id="toggle-new-customers-unit-drilldown" class="drilldown-button" type="button">Drilldown</button>
+              </div>
+              <div class="axis-button-row" data-napkin-y-axis-controls="bridgeNew" aria-label="New properties Y axis controls">
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                  <span class="axis-triangle axis-triangle-up"></span>
+                </button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                  <span class="axis-triangle axis-triangle-down"></span>
+                </button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                  <span class="axis-triangle axis-triangle-up"></span>
+                </button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                  <span class="axis-triangle axis-triangle-down"></span>
+                </button>
+              </div>
+              <div id="new-customers-bridge-new-chart" class="chart chart-output"></div>
+            </div>
+          </div>
+        </div>
+        <div id="new-customers-unit-drilldown" class="cohort-editor nested-drilldown" hidden>
+          <div class="cohort-editor-header unit-drilldown-main-panel">
+            <h2>New Properties Unit Drilldown</h2>
+            <button id="back-new-customers-unit-drilldown" class="back-button" type="button">Back</button>
+          </div>
+          <div class="output-row unit-drilldown-main-panel">
+            <div>
+              <div class="chart-heading">
+                <h2>New Properties Top-Down vs Unit Build</h2>
+                <button id="set-new-customer-unit-top-down" class="set-button" type="button">Set</button>
+              </div>
+              <div id="new-customers-unit-bridge-chart" class="chart chart-output"></div>
+            </div>
+            <div>
+              <h2>Unit Build Delta to Top-Down</h2>
+              <div id="new-customers-unit-delta-chart" class="chart chart-output"></div>
+            </div>
+          </div>
+          <div class="output-row editor-chart-row unit-drilldown-main-panel">
+            <div>
+              <div class="chart-heading">
+                <h2>New Units</h2>
+                <div class="chart-heading-actions">
+                  <button id="match-new-customer-unit-new-units" class="match-button" type="button">Match</button>
+                  <button id="toggle-new-customers-new-units-drilldown" class="drilldown-button" type="button">Drilldown</button>
+                </div>
+              </div>
+              <div id="new-customers-unit-new-units-chart" class="chart chart-output"></div>
+            </div>
+            <div>
+              <div class="chart-heading">
+                <h2>New Customers / New Unit</h2>
+                <button id="match-new-customer-unit-customers-per-unit" class="match-button" type="button">Match</button>
+              </div>
+              <div id="new-customers-unit-customers-per-unit-chart" class="chart chart-output"></div>
+            </div>
+          </div>
+          <div id="new-customers-new-units-drilldown" class="nested-drilldown" hidden>
+            <div class="cohort-editor-header">
+              <h2>New Units Drilldown</h2>
+              <button id="back-new-customers-new-units-drilldown" class="back-button" type="button">Back</button>
+            </div>
+            <div class="output-row">
+              <div>
+                <div class="chart-heading">
+                  <h2>New Units Top-Down vs Property Build</h2>
+                  <button id="set-new-customer-new-units-top-down" class="set-button" type="button">Set</button>
+                </div>
+                <div id="new-customers-new-units-bridge-chart" class="chart chart-output"></div>
+              </div>
+              <div>
+                <h2>Property Build Delta to Top-Down</h2>
+                <div id="new-customers-new-units-delta-chart" class="chart chart-output"></div>
+              </div>
+            </div>
+            <div class="output-row editor-chart-row">
+              <div>
+                <div class="chart-heading">
+                  <h2>New Properties</h2>
+                  <div class="chart-heading-actions">
+                    <div class="axis-button-row" data-napkin-y-axis-controls="newUnitsProperties" aria-label="New properties Y axis controls">
+                      <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                        <span class="axis-triangle axis-triangle-up"></span>
+                      </button>
+                      <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                        <span class="axis-triangle axis-triangle-down"></span>
+                      </button>
+                      <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                        <span class="axis-triangle axis-triangle-up"></span>
+                      </button>
+                      <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                        <span class="axis-triangle axis-triangle-down"></span>
+                      </button>
+                    </div>
+                    <button id="match-new-customer-new-units-properties" class="match-button" type="button">Match</button>
+                  </div>
+                </div>
+                <div id="new-customers-new-units-properties-chart" class="chart chart-output"></div>
+              </div>
+              <div>
+                <div class="chart-heading">
+                  <h2>Units / New Property</h2>
+                  <button id="match-new-customer-new-units-units-per-property" class="match-button" type="button">Match</button>
+                </div>
+                <div id="new-customers-new-units-units-per-property-chart" class="chart chart-output"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cohort-editor new-customer-main-panel">
+          <div class="cohort-editor-header">
+            <h2>Detailed Cohort Drilldown</h2>
             <div class="editor-tabs" aria-label="New customer napkin editor modes">
               <button id="new-customers-editor-per-cohort" class="active" type="button">Per Cohort</button>
-              <button id="new-customers-editor-per-year" type="button">Per Year - Existing Properties</button>
-              <button id="new-customers-editor-new-properties" type="button">Per Year - New Properties</button>
+              <button id="new-customers-editor-all-cohorts" type="button">All Cohorts / Years</button>
             </div>
           </div>
           <div id="new-customers-per-cohort-editor" class="editor-mode active">
@@ -183,12 +396,376 @@
               </div>
             </div>
           </div>
+          <div id="new-customers-all-cohorts-editor" class="editor-mode">
+            <div class="editor-controls">
+              <div class="editor-tabs" aria-label="All cohorts chart type">
+                <button id="new-customers-all-cohorts-line" class="active" type="button">Line</button>
+                <button id="new-customers-all-cohorts-area" type="button">Area</button>
+                <button id="new-customers-all-cohorts-bar" type="button">Bar</button>
+              </div>
+            </div>
+            <div class="output-row">
+              <div>
+                <h2>All Cohorts / All Years</h2>
+                <div id="new-customers-all-cohorts-chart" class="chart chart-output"></div>
+              </div>
+              <div>
+                <h2>Bridge Allocation Locks</h2>
+                <div class="placeholder-panel chart-output lock-summary-panel">
+                  <span id="cohort-lock-summary">All cohorts are unlocked.</span>
+                  <div class="cohort-lock-toolbar">
+                    <button id="unlock-all-cohorts" type="button">Unlock All</button>
+                    <button id="lock-all-cohorts" type="button">Lock All</button>
+                  </div>
+                  <div id="cohort-lock-list" class="cohort-lock-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap new-customer-main-panel">
           <table id="new-customers-drilldown-table" class="model-table"></table>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap new-customer-main-panel">
           <table id="new-customers-yoy-table" class="model-table"></table>
+        </div>
+      </section>
+
+      <section id="rev-per-unit-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>Rev Per Unit Plan</h2>
+            <p>Build an alternate revenue path from units and revenue per unit assumptions.</p>
+          </div>
+          <div class="source-control">
+            <label for="rev-per-unit-source">Planning Source</label>
+            <select id="rev-per-unit-source">
+              <option value="hhp">Use HHP model</option>
+              <option value="unit">Use rev per unit plan</option>
+            </select>
+          </div>
+        </div>
+        <div class="output-row">
+          <div>
+            <h2>Revenue Path</h2>
+            <div id="rev-unit-revenue-comparison-chart" class="chart chart-output"></div>
+          </div>
+          <div>
+            <h2>Rev Per Unit</h2>
+            <div id="rev-unit-aggregate-rpu-chart" class="chart chart-output"></div>
+          </div>
+        </div>
+        <div class="cohort-editor">
+          <div class="cohort-editor-header">
+            <h2>Napkin Editors</h2>
+            <div class="editor-tabs" aria-label="Rev per unit editor modes">
+              <button id="rev-unit-editor-cohort" class="active" type="button">Cohort Lifecycle</button>
+              <button id="rev-unit-editor-all-cohorts" type="button">All Cohorts</button>
+            </div>
+          </div>
+          <div class="editor-controls">
+            <div class="slider-control">
+              <label id="rev-unit-editor-slider-label" for="rev-unit-editor-slider">Calendar Year</label>
+              <input id="rev-unit-editor-slider" type="range" min="0" max="3" value="0" />
+              <output id="rev-unit-editor-slider-value">2026</output>
+            </div>
+            <div id="rev-unit-reference-control" class="slider-control">
+              <label for="rev-unit-reference-cohort-slider">Reference Cohort</label>
+              <input id="rev-unit-reference-cohort-slider" type="range" min="0" max="12" value="8" />
+              <output id="rev-unit-reference-cohort-value">2025</output>
+            </div>
+            <label id="rev-unit-reference-shift-control" class="toggle-control">
+              <input id="rev-unit-reference-shift" type="checkbox" />
+              <span>Match Age</span>
+            </label>
+          </div>
+          <div class="output-row editor-chart-row">
+            <div>
+              <h2>Units</h2>
+              <div id="rev-unit-units-chart" class="chart chart-output"></div>
+            </div>
+            <div>
+              <h2>Revenue / Unit</h2>
+              <div id="rev-unit-rpu-chart" class="chart chart-output"></div>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="rev-unit-table" class="model-table rev-unit-table">
+            <thead>
+              <tr>
+                <th class="unit-section" rowspan="2">YEAR</th>
+                <th class="unit-section" rowspan="2">NEW UNITS</th>
+                <th class="unit-section" rowspan="2">CUMULATIVE_NEW_UNITS</th>
+                <th class="unit-section" rowspan="2">TOTAL_REVENUE</th>
+                <th class="section-divider" colspan="13">REV_PER_UNIT</th>
+              </tr>
+              <tr>
+                <th class="section-divider">2017</th>
+                <th>2018</th>
+                <th>2019</th>
+                <th>2020</th>
+                <th>2021</th>
+                <th>2022</th>
+                <th>2023</th>
+                <th>2024</th>
+                <th>2025</th>
+                <th>2026</th>
+                <th>2027</th>
+                <th>2028</th>
+                <th>2029</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2017</td>
+                <td class="input unit-input">48,442</td>
+                <td class="output unit-output">48,442</td>
+                <td class="output revenue-output">$24,197</td>
+                <td class="section-divider input">$0.50</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2018</td>
+                <td class="input unit-input">304,637</td>
+                <td class="output unit-output">353,079</td>
+                <td class="output revenue-output">$327,354</td>
+                <td class="section-divider output">$2.57</td>
+                <td class="input">$0.67</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2019</td>
+                <td class="input unit-input">376,832</td>
+                <td class="output unit-output">729,911</td>
+                <td class="output revenue-output">$814,808</td>
+                <td class="section-divider output">$2.58</td>
+                <td class="output">$1.40</td>
+                <td class="input">$0.70</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2020</td>
+                <td class="input unit-input">683,294</td>
+                <td class="output unit-output">1,413,205</td>
+                <td class="output revenue-output">$2,197,392</td>
+                <td class="section-divider output">$3.40</td>
+                <td class="output">$1.94</td>
+                <td class="output">$1.99</td>
+                <td class="input">$1.01</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2021</td>
+                <td class="input unit-input">886,312</td>
+                <td class="output unit-output">2,299,517</td>
+                <td class="output revenue-output">$5,045,249</td>
+                <td class="section-divider output">$5.73</td>
+                <td class="output">$3.09</td>
+                <td class="output">$2.96</td>
+                <td class="output">$2.42</td>
+                <td class="input">$1.19</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2022</td>
+                <td class="input unit-input">1,225,709</td>
+                <td class="output unit-output">3,525,226</td>
+                <td class="output revenue-output">$9,935,034</td>
+                <td class="section-divider output">$10.45</td>
+                <td class="output">$4.65</td>
+                <td class="output">$4.15</td>
+                <td class="output">$3.30</td>
+                <td class="output">$2.90</td>
+                <td class="input">$1.32</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2023</td>
+                <td class="input unit-input">1,133,249</td>
+                <td class="output unit-output">4,658,475</td>
+                <td class="output revenue-output">$15,974,367</td>
+                <td class="section-divider output">$12.89</td>
+                <td class="output">$5.85</td>
+                <td class="output">$5.24</td>
+                <td class="output">$3.91</td>
+                <td class="output">$3.80</td>
+                <td class="output">$3.09</td>
+                <td class="input">$1.57</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2024</td>
+                <td class="input unit-input">1,112,682</td>
+                <td class="output unit-output">5,771,157</td>
+                <td class="output revenue-output">$24,769,574</td>
+                <td class="section-divider output">$14.16</td>
+                <td class="output">$7.51</td>
+                <td class="output">$6.63</td>
+                <td class="output">$4.89</td>
+                <td class="output">$5.02</td>
+                <td class="output">$4.45</td>
+                <td class="output">$3.68</td>
+                <td class="input">$1.68</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2025</td>
+                <td class="input unit-input">1,350,383</td>
+                <td class="output unit-output">7,121,540</td>
+                <td class="output revenue-output">$33,349,445</td>
+                <td class="section-divider output">$14.40</td>
+                <td class="output">$8.18</td>
+                <td class="output">$7.23</td>
+                <td class="output">$5.45</td>
+                <td class="output">$5.66</td>
+                <td class="output">$5.24</td>
+                <td class="output">$4.67</td>
+                <td class="output">$3.89</td>
+                <td class="input">$1.95</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2026</td>
+                <td class="input unit-input">-</td>
+                <td class="output unit-output">-</td>
+                <td class="output revenue-output">-</td>
+                <td class="section-divider output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="input">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2027</td>
+                <td class="input unit-input">-</td>
+                <td class="output unit-output">-</td>
+                <td class="output revenue-output">-</td>
+                <td class="section-divider output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="input">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2028</td>
+                <td class="input unit-input">-</td>
+                <td class="output unit-output">-</td>
+                <td class="output revenue-output">-</td>
+                <td class="section-divider output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="input">-</td>
+                <td class="output">-</td>
+              </tr>
+              <tr>
+                <td>2029</td>
+                <td class="input unit-input">-</td>
+                <td class="output unit-output">-</td>
+                <td class="output revenue-output">-</td>
+                <td class="section-divider output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="output">-</td>
+                <td class="input">-</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
     </main>

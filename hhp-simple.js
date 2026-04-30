@@ -8,6 +8,67 @@ const planRevenue = [5546199, 10450032, 16513061, 25376000, 36444600, 46813700, 
 const NEW_CUSTOMER_COHORT_YEARS = [0, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029];
 const NEW_CUSTOMER_BASELINE_YEAR = 2025;
 const NEW_CUSTOMER_BASELINE_VALUE = 536412;
+const REV_UNIT_YEARS = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029];
+const REV_UNIT_LAST_HISTORICAL_YEAR = 2025;
+const baseRevUnitNewUnits = {
+  2017: 48442,
+  2018: 304637,
+  2019: 376832,
+  2020: 683294,
+  2021: 886312,
+  2022: 1225709,
+  2023: 1133249,
+  2024: 1112682,
+  2025: 1350383,
+  2026: 1350383,
+  2027: 1350383,
+  2028: 1350383,
+  2029: 1350383,
+};
+const baseRevUnitNewProperties = {
+  2017: 107,
+  2018: 845,
+  2019: 1426,
+  2020: 3020,
+  2021: 4172,
+  2022: 6085,
+  2023: 6116,
+  2024: 6232,
+  2025: 8009,
+};
+const baseRevUnitRevenue = {
+  2017: 24197,
+  2018: 327354,
+  2019: 814808,
+  2020: 2197392,
+  2021: 5045249,
+  2022: 9935034,
+  2023: 15974367,
+  2024: 24769574,
+  2025: 33349445,
+};
+const baseUnaffiliatedRevenue = {
+  2017: 4678.32,
+  2018: 42180.31,
+  2019: 78895.59,
+  2020: 140791.35,
+  2021: 295783.31,
+  2022: 420943.96,
+  2023: 536146.23,
+  2024: 656841.44,
+  2025: 878901.02,
+};
+const baseRevUnitRpu = {
+  2017: { 2017: 0.5 },
+  2018: { 2017: 2.57, 2018: 0.67 },
+  2019: { 2017: 2.58, 2018: 1.4, 2019: 0.7 },
+  2020: { 2017: 3.4, 2018: 1.94, 2019: 1.99, 2020: 1.01 },
+  2021: { 2017: 5.73, 2018: 3.09, 2019: 2.96, 2020: 2.42, 2021: 1.19 },
+  2022: { 2017: 10.45, 2018: 4.65, 2019: 4.15, 2020: 3.3, 2021: 2.9, 2022: 1.32 },
+  2023: { 2017: 12.89, 2018: 5.85, 2019: 5.24, 2020: 3.91, 2021: 3.8, 2022: 3.09, 2023: 1.57 },
+  2024: { 2017: 14.16, 2018: 7.51, 2019: 6.63, 2020: 4.89, 2021: 5.02, 2022: 4.45, 2023: 3.68, 2024: 1.68 },
+  2025: { 2017: 14.4, 2018: 8.18, 2019: 7.23, 2020: 5.45, 2021: 5.66, 2022: 5.24, 2023: 4.67, 2024: 3.89, 2025: 1.95 },
+};
 
 const baseDrivers = {
   retention: [0.4469, 0.5037, 0.583, 0.5931, 0.607, 0.6, 0.6, 0.6, 0.6],
@@ -37,11 +98,11 @@ const baseNewCustomerCohortCounts = {
 
 const driverMeta = {
   retention: { label: "Retention", format: "percent", chartId: "chart-retention", yMax: 1, color: "#d39b2a" },
-  newCustomers: { label: "New Customers", format: "integer", chartId: "chart-new-customers", yMax: 1000, scale: 1000, suffix: "000s", color: "#6fa76b" },
-  profilesReturning: { label: "Profiles / Returning Cust", format: "decimal", chartId: "chart-profiles-returning", yMax: 1.6, color: "#7b6fb8" },
-  profilesNew: { label: "Profiles / New Cust", format: "decimal", chartId: "chart-profiles-new", yMax: 1.6, color: "#a96c50" },
+  newCustomers: { label: "New Customers", format: "integer", chartId: "chart-new-customers", yMax: 2000, scale: 1000, suffix: "000s", color: "#6fa76b" },
+  profilesReturning: { label: "Profiles / Returning Cust", format: "decimal", chartId: "chart-profiles-returning", yMax: 2, color: "#7b6fb8" },
+  profilesNew: { label: "Profiles / New Cust", format: "decimal", chartId: "chart-profiles-new", yMax: 2, color: "#a96c50" },
   revReturningProfile: { label: "Rev / Returning Cust Profile", format: "currency2", chartId: "chart-rev-returning", yMax: 40, color: "#4f7fb8" },
-  revNewProfile: { label: "Rev / New Cust Profile", format: "currency2", chartId: "chart-rev-new", yMax: 40, color: "#4b9b8e" },
+  revNewProfile: { label: "Rev / New Cust Profile", format: "currency2", chartId: "chart-rev-new", yMax: 50, color: "#4b9b8e" },
 };
 
 const outputRows = [
@@ -64,14 +125,26 @@ const state = {
   charts: {},
   cohortCharts: {},
   outputCharts: {},
+  currentView: "chart",
   syncingCharts: false,
   syncingCohortCharts: false,
   undoStack: [],
   redoStack: [],
+  revUnitCharts: {},
+  syncingRevUnitCharts: false,
   pendingDialogAction: null,
   cohortEditorMode: "perCohort",
   cohortEditorCohortYear: 2025,
   yearEditorYear: 2026,
+  newCustomerAllCohortsChartType: "line",
+  newCustomerAllCohortsHighlights: [],
+  newCustomerAllCohortsHighlightKey: "",
+  newCustomerUnitDrilldownOpen: false,
+  newCustomerNewUnitsDrilldownOpen: false,
+  revUnitEditorMode: "cohort",
+  revUnitEditorCohortYear: 2025,
+  revUnitReferenceCohortYear: 2025,
+  revUnitReferenceShifted: false,
 };
 
 function clone(value) {
@@ -85,6 +158,7 @@ function makeBaseScenario(name = "Finance Base Case") {
     drivers: clone(baseDrivers),
     newCustomerSource: "topDown",
     newCustomerDrilldown: createDefaultNewCustomerDrilldown(),
+    revUnitPlan: createDefaultRevUnitPlan(),
   };
   addScenarioVersion(scenario, "Initial");
   return scenario;
@@ -112,6 +186,33 @@ function normalizeScenario(scenario) {
   if (!scenario.newCustomerDrilldown.controlPoints) {
     scenario.newCustomerDrilldown.controlPoints = {};
   }
+  Object.keys(scenario.newCustomerDrilldown.controlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.newCustomerDrilldown.controlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.newCustomerDrilldown.controlPoints[key];
+    } else {
+      scenario.newCustomerDrilldown.controlPoints[key] = controlPoints;
+    }
+  });
+  if (!Array.isArray(scenario.newCustomerDrilldown.lockedCohorts)) {
+    scenario.newCustomerDrilldown.lockedCohorts = [];
+  }
+  if (!scenario.newCustomerDrilldown.unitPlan) {
+    scenario.newCustomerDrilldown.unitPlan = createDefaultNewCustomerUnitPlan(scenario.newCustomerDrilldown.counts);
+  }
+  normalizeNewCustomerUnitPlan(scenario);
+  if (!scenario.revUnitPlan || !scenario.revUnitPlan.newUnits) {
+    scenario.revUnitPlan = createDefaultRevUnitPlan();
+  }
+  if (!scenario.revUnitPlan.unaffiliatedRevenue) {
+    scenario.revUnitPlan.unaffiliatedRevenue = clone(baseUnaffiliatedRevenue);
+  }
+  if (!scenario.revUnitPlan.controlPoints) {
+    scenario.revUnitPlan.controlPoints = { newUnits: clone(REV_UNIT_YEARS) };
+  }
   enforceNewCustomerBaseline(scenario);
   if (!Array.isArray(scenario.versions) || scenario.versions.length === 0) {
     scenario.versions = [];
@@ -130,6 +231,7 @@ function addScenarioVersion(scenario, label = "Update") {
     drivers: clone(scenario.drivers),
     newCustomerSource: scenario.newCustomerSource,
     newCustomerDrilldown: clone(scenario.newCustomerDrilldown),
+    revUnitPlan: clone(scenario.revUnitPlan),
   };
   scenario.versions.push(version);
   return version;
@@ -154,7 +256,132 @@ function enforceNewCustomerBaseline(scenario) {
 }
 
 function createDefaultNewCustomerDrilldown() {
-  return { counts: clone(baseNewCustomerCohortCounts), controlPoints: {} };
+  const counts = clone(baseNewCustomerCohortCounts);
+  return {
+    counts,
+    controlPoints: {},
+    lockedCohorts: [],
+    unitPlan: createDefaultNewCustomerUnitPlan(counts),
+  };
+}
+
+function createDefaultNewCustomerUnitPlan(counts = baseNewCustomerCohortCounts) {
+  const newUnits = clone(baseRevUnitNewUnits);
+  const customersPerUnit = {};
+  YEARS.forEach(year => {
+    const units = Number(newUnits[String(year)] ?? newUnits[year] ?? 0);
+    const newCustomers = newCustomerCohortValue(counts, year, year);
+    customersPerUnit[String(year)] = units > 0 ? newCustomers / units : 0;
+  });
+  return {
+    newUnits,
+    customersPerUnit,
+    propertyPlan: createDefaultNewCustomerNewUnitsPropertyPlan(newUnits),
+    controlPoints: {
+      newUnits: clone(YEARS),
+      customersPerUnit: clone(YEARS),
+    },
+  };
+}
+
+function baselineNewPropertiesForUnits(year, units) {
+  const historicalProperties = Number(baseRevUnitNewProperties[String(year)] ?? baseRevUnitNewProperties[year]);
+  if (Number.isFinite(historicalProperties) && historicalProperties > 0) return historicalProperties;
+  const latestHistoricalUnits = Number(baseRevUnitNewUnits[REV_UNIT_LAST_HISTORICAL_YEAR] || 0);
+  const latestHistoricalProperties = Number(baseRevUnitNewProperties[REV_UNIT_LAST_HISTORICAL_YEAR] || 0);
+  const latestUnitsPerProperty = latestHistoricalProperties > 0 ? latestHistoricalUnits / latestHistoricalProperties : 0;
+  return latestUnitsPerProperty > 0 && units > 0 ? Math.max(1, Math.round(units / latestUnitsPerProperty)) : 0;
+}
+
+function generatedPropertiesAt250Units(units) {
+  return units > 0 ? Math.max(1, Math.round(units / 250)) : 0;
+}
+
+function isGeneratedNewUnitsPropertyPlan(propertyPlan, newUnits) {
+  if (!propertyPlan?.newProperties || !propertyPlan?.unitsPerNewProperty) return false;
+  return YEARS.every(year => {
+    const units = Number(newUnits[String(year)] ?? newUnits[year] ?? 0);
+    const expectedProperties = generatedPropertiesAt250Units(units);
+    const expectedUnitsPerProperty = expectedProperties > 0 ? units / expectedProperties : 0;
+    const properties = Number(propertyPlan.newProperties[String(year)] ?? propertyPlan.newProperties[year]);
+    const unitsPerProperty = Number(propertyPlan.unitsPerNewProperty[String(year)] ?? propertyPlan.unitsPerNewProperty[year]);
+    return Math.abs(properties - expectedProperties) < 0.5
+      && Math.abs(unitsPerProperty - expectedUnitsPerProperty) < 0.01;
+  });
+}
+
+function createDefaultNewCustomerNewUnitsPropertyPlan(newUnits = baseRevUnitNewUnits) {
+  const newProperties = {};
+  const unitsPerNewProperty = {};
+  YEARS.forEach(year => {
+    const units = Number(newUnits[String(year)] ?? newUnits[year] ?? 0);
+    const properties = baselineNewPropertiesForUnits(year, units);
+    newProperties[String(year)] = properties;
+    unitsPerNewProperty[String(year)] = properties > 0 ? units / properties : 0;
+  });
+  return {
+    newProperties,
+    unitsPerNewProperty,
+    controlPoints: {
+      newProperties: clone(YEARS),
+      unitsPerNewProperty: clone(YEARS),
+    },
+  };
+}
+
+function normalizeNewCustomerUnitPlan(scenario) {
+  const plan = scenario.newCustomerDrilldown.unitPlan;
+  if (!plan.newUnits) plan.newUnits = clone(baseRevUnitNewUnits);
+  if (!plan.customersPerUnit) plan.customersPerUnit = {};
+  if (!plan.propertyPlan) plan.propertyPlan = createDefaultNewCustomerNewUnitsPropertyPlan(plan.newUnits);
+  if (isGeneratedNewUnitsPropertyPlan(plan.propertyPlan, plan.newUnits)) {
+    plan.propertyPlan = createDefaultNewCustomerNewUnitsPropertyPlan(plan.newUnits);
+  }
+  YEARS.forEach(year => {
+    if (!Number.isFinite(Number(plan.newUnits[String(year)] ?? plan.newUnits[year]))) {
+      plan.newUnits[String(year)] = baseRevUnitNewUnits[String(year)] ?? baseRevUnitNewUnits[year] ?? 0;
+    }
+    if (!Number.isFinite(Number(plan.customersPerUnit[String(year)] ?? plan.customersPerUnit[year]))) {
+      const units = Number(plan.newUnits[String(year)] ?? plan.newUnits[year] ?? 0);
+      const newCustomers = newCustomerCohortValue(scenario.newCustomerDrilldown.counts, year, year);
+      plan.customersPerUnit[String(year)] = units > 0 ? newCustomers / units : 0;
+    }
+  });
+  if (!plan.controlPoints) {
+    plan.controlPoints = {
+      newUnits: clone(YEARS),
+      customersPerUnit: clone(YEARS),
+    };
+  }
+  if (!plan.propertyPlan.controlPoints) {
+    plan.propertyPlan.controlPoints = {
+      newProperties: clone(YEARS),
+      unitsPerNewProperty: clone(YEARS),
+    };
+  }
+  if (!plan.propertyPlan.newProperties) plan.propertyPlan.newProperties = {};
+  if (!plan.propertyPlan.unitsPerNewProperty) plan.propertyPlan.unitsPerNewProperty = {};
+  YEARS.forEach(year => {
+    if (!Number.isFinite(Number(plan.propertyPlan.newProperties[String(year)] ?? plan.propertyPlan.newProperties[year]))) {
+      const units = Number(plan.newUnits[String(year)] ?? plan.newUnits[year] ?? 0);
+      plan.propertyPlan.newProperties[String(year)] = baselineNewPropertiesForUnits(year, units);
+    }
+    if (!Number.isFinite(Number(plan.propertyPlan.unitsPerNewProperty[String(year)] ?? plan.propertyPlan.unitsPerNewProperty[year]))) {
+      const units = Number(plan.newUnits[String(year)] ?? plan.newUnits[year] ?? 0);
+      const properties = Number(plan.propertyPlan.newProperties[String(year)] ?? plan.propertyPlan.newProperties[year] ?? 0);
+      plan.propertyPlan.unitsPerNewProperty[String(year)] = properties > 0 ? units / properties : 0;
+    }
+  });
+}
+
+function createDefaultRevUnitPlan() {
+  return {
+    newUnits: clone(baseRevUnitNewUnits),
+    revenue: clone(baseRevUnitRevenue),
+    revPerUnit: clone(baseRevUnitRpu),
+    unaffiliatedRevenue: clone(baseUnaffiliatedRevenue),
+    controlPoints: { newUnits: clone(REV_UNIT_YEARS) },
+  };
 }
 
 function newCustomerCohortTotal(counts, year) {
@@ -166,6 +393,15 @@ function newCustomerCohortTotal(counts, year) {
 
 function newCustomerCohortValue(counts, year, cohortYear) {
   return Number((counts[String(year)] || {})[String(cohortYear)] || 0);
+}
+
+function newCustomerCohortStackValue(counts, year, cohortYear) {
+  const targetIndex = NEW_CUSTOMER_COHORT_YEARS.indexOf(Number(cohortYear));
+  if (targetIndex < 0) return 0;
+  return NEW_CUSTOMER_COHORT_YEARS.slice(0, targetIndex + 1).reduce((sum, stackedCohortYear) => {
+    if (!newCustomerCohortApplies(stackedCohortYear, year)) return sum;
+    return sum + newCustomerCohortValue(counts, year, stackedCohortYear);
+  }, 0);
 }
 
 function setNewCustomerCohortValue(counts, year, cohortYear, value) {
@@ -186,6 +422,12 @@ function newCustomerCohortApplies(cohortYear, year) {
 
 function cohortLabel(cohortYear) {
   return cohortYear === 0 ? "Legacy / Unknown" : String(cohortYear);
+}
+
+function newCustomerCohortColor(cohortYear) {
+  const colors = ["#647184", "#4f7fb8", "#6fa76b", "#d39b2a", "#7b6fb8", "#a96c50", "#4b9b8e", "#8e6bb0", "#c47a5a", "#5f9ea0", "#9a8c55", "#5875a4", "#76a46b", "#b66f8f"];
+  const index = Math.max(0, NEW_CUSTOMER_COHORT_YEARS.indexOf(cohortYear));
+  return colors[index % colors.length];
 }
 
 function selectedNewCustomerCohortYear() {
@@ -216,6 +458,48 @@ function existingPropertyCohortsForYear(year) {
   });
 }
 
+function existingPropertyNewCustomersTotal(counts, year) {
+  return existingPropertyCohortsForYear(year).reduce((sum, cohortYear) => {
+    return sum + newCustomerCohortValue(counts, year, cohortYear);
+  }, 0);
+}
+
+function lockedNewCustomerCohorts(scenario = activeScenario()) {
+  return new Set((scenario.newCustomerDrilldown.lockedCohorts || []).map(Number));
+}
+
+function sameNumberList(left, right) {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function isNewCustomerCohortLocked(cohortYear, scenario = activeScenario()) {
+  return lockedNewCustomerCohorts(scenario).has(Number(cohortYear));
+}
+
+function setExistingPropertyNewCustomersTotal(counts, year, targetTotal) {
+  const cohorts = existingPropertyCohortsForYear(year);
+  if (!cohorts.length) return;
+  const unlockedCohorts = cohorts.filter(cohortYear => !isNewCustomerCohortLocked(cohortYear));
+  if (!unlockedCohorts.length) return;
+  const lockedTotal = cohorts
+    .filter(cohortYear => isNewCustomerCohortLocked(cohortYear))
+    .reduce((sum, cohortYear) => sum + newCustomerCohortValue(counts, year, cohortYear), 0);
+  const unlockedTargetTotal = Math.max(0, targetTotal - lockedTotal);
+  const currentUnlockedTotal = unlockedCohorts.reduce((sum, cohortYear) => {
+    return sum + newCustomerCohortValue(counts, year, cohortYear);
+  }, 0);
+  if (currentUnlockedTotal > 0) {
+    unlockedCohorts.forEach(cohortYear => {
+      const current = newCustomerCohortValue(counts, year, cohortYear);
+      setNewCustomerCohortValuePreservingFutureYoy(counts, year, cohortYear, (current / currentUnlockedTotal) * unlockedTargetTotal);
+    });
+    return;
+  }
+  const equalValue = unlockedTargetTotal / unlockedCohorts.length;
+  unlockedCohorts.forEach(cohortYear => setNewCustomerCohortValuePreservingFutureYoy(counts, year, cohortYear, equalValue));
+}
+
 function newPropertyCohortValue(counts, year) {
   return newCustomerCohortValue(counts, year, year);
 }
@@ -235,7 +519,10 @@ function controlledNapkinPairs(key, pairs) {
   const stored = activeScenario().newCustomerDrilldown.controlPoints?.[key];
   if (!Array.isArray(stored)) return pairs;
   const visibleX = new Set(stored.map(Number));
-  return pairs.filter(([x]) => visibleX.has(Number(x)));
+  const visiblePairs = pairs.filter(([x]) => visibleX.has(Number(x)));
+  if (visiblePairs.length >= 2) return visiblePairs;
+  if (pairs.length <= 2) return pairs;
+  return [pairs[0], pairs[pairs.length - 1]];
 }
 
 function rememberNapkinControlPoints(key, data) {
@@ -259,6 +546,33 @@ function addNapkinControlPoint(key, x) {
   activeScenario().newCustomerDrilldown.controlPoints[key] = Array.from(next).sort((left, right) => left - right);
 }
 
+function hasNapkinControlPointSet(key) {
+  return Array.isArray(activeScenario().newCustomerDrilldown.controlPoints?.[key]);
+}
+
+function addNapkinControlPointIfControlled(key, x) {
+  if (hasNapkinControlPointSet(key)) addNapkinControlPoint(key, x);
+}
+
+function ensureBridgeExistingPointsForActuals() {
+  const scenario = activeScenario();
+  const key = napkinControlKey("bridgeExistingProperties");
+  const stored = scenario.newCustomerDrilldown.controlPoints?.[key];
+  if (!Array.isArray(stored)) return;
+  const counts = scenario.newCustomerDrilldown.counts;
+  const visibleYears = new Set(stored.map(Number));
+  const actualPairs = YEARS.map(year => [year, existingPropertyNewCustomersTotal(counts, year)]);
+  const visiblePairs = actualPairs.filter(([year]) => visibleYears.has(Number(year)));
+  YEARS.filter(editableYear).forEach(year => {
+    if (visibleYears.has(year)) return;
+    const actual = existingPropertyNewCustomersTotal(counts, year);
+    const interpolated = interpolateNapkinLineValue(visiblePairs, year);
+    if (interpolated === null || Math.abs(actual - interpolated) > 0.5) {
+      addNapkinControlPoint(key, year);
+    }
+  });
+}
+
 function changedNapkinXs(beforeData, afterData) {
   const before = new Map((beforeData || []).map(([x, y]) => [Number(x), Number(y)]));
   const changed = [];
@@ -271,6 +585,20 @@ function changedNapkinXs(beforeData, afterData) {
     }
   });
   return changed;
+}
+
+function removedNapkinXs(beforeData, afterData) {
+  const after = new Set((afterData || []).map(([x]) => Number(x)));
+  return (beforeData || [])
+    .map(([x]) => Number(x))
+    .filter(x => Number.isFinite(x) && !after.has(x));
+}
+
+function affectedNapkinXs(beforeData, afterData) {
+  return Array.from(new Set([
+    ...changedNapkinXs(beforeData, afterData),
+    ...removedNapkinXs(beforeData, afterData),
+  ])).sort((left, right) => left - right);
 }
 
 function yearEditorXForCohort(cohorts, cohortYear) {
@@ -303,15 +631,67 @@ function applyNewCustomerCohortYoy(counts, year, cohortYear, yoy) {
   });
 }
 
+function setNewCustomerCohortValuePreservingFutureYoy(counts, year, cohortYear, value) {
+  const preservedFutureYoy = new Map();
+  YEARS.forEach(candidateYear => {
+    if (candidateYear > year && newCustomerCohortApplies(cohortYear, candidateYear)) {
+      preservedFutureYoy.set(candidateYear, newCustomerCohortYoy(counts, candidateYear, cohortYear));
+    }
+  });
+
+  setNewCustomerCohortValue(counts, year, cohortYear, value);
+
+  YEARS.forEach(candidateYear => {
+    const futureYoy = preservedFutureYoy.get(candidateYear);
+    const futurePrior = newCustomerCohortValue(counts, candidateYear - 1, cohortYear);
+    if (candidateYear > year && futureYoy !== null && futurePrior) {
+      setNewCustomerCohortValue(counts, candidateYear, cohortYear, futurePrior * (1 + futureYoy));
+    }
+  });
+}
+
 function bottomUpNewCustomers(scenario) {
   const counts = scenario.newCustomerDrilldown?.counts || {};
   return YEARS.map(year => newCustomerCohortTotal(counts, year));
 }
 
+function visibleNewCustomerBridgeValue(key, pairs, year, fallback) {
+  const value = interpolateNapkinLineValue(controlledNapkinPairs(key, pairs), year);
+  return value === null ? fallback : value;
+}
+
+function visibleExistingPropertyNewCustomersValue(year) {
+  const counts = activeScenario().newCustomerDrilldown.counts;
+  const key = napkinControlKey("bridgeExistingProperties");
+  const fallback = existingPropertyNewCustomersTotal(counts, year);
+  const pairs = YEARS.map(candidateYear => [
+    candidateYear,
+    existingPropertyNewCustomersTotal(counts, candidateYear),
+  ]);
+  return visibleNewCustomerBridgeValue(key, pairs, year, fallback);
+}
+
+function visibleNewPropertyNewCustomersValue(year) {
+  const counts = activeScenario().newCustomerDrilldown.counts;
+  const key = napkinControlKey("bridgeNewProperties");
+  const fallback = newPropertyCohortValue(counts, year);
+  const pairs = YEARS.map(candidateYear => [
+    candidateYear,
+    newPropertyCohortValue(counts, candidateYear),
+  ]);
+  return visibleNewCustomerBridgeValue(key, pairs, year, fallback);
+}
+
+function visibleBottomUpNewCustomersValue(year) {
+  return visibleExistingPropertyNewCustomersValue(year) + visibleNewPropertyNewCustomersValue(year);
+}
+
+function visibleBottomUpNewCustomers() {
+  return YEARS.map(visibleBottomUpNewCustomersValue);
+}
+
 function effectiveNewCustomers(scenario) {
-  return scenario.newCustomerSource === "bottomUp"
-    ? bottomUpNewCustomers(scenario)
-    : scenario.drivers.newCustomers;
+  return scenario.drivers.newCustomers;
 }
 
 function driverValues(scenario, key) {
@@ -361,6 +741,7 @@ function restoreSnapshot(snapshot) {
   saveScenarios();
   renderScenarioSelect();
   syncDriverCharts();
+  syncRevUnitCharts();
   renderAll();
   updateHistoryControls();
 }
@@ -405,6 +786,10 @@ function formatCurrency(value, decimals = 0) {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })}`;
+}
+
+function formatOptionalCurrency(value, decimals = 0) {
+  return Number.isFinite(value) ? formatCurrency(value, decimals) : "-";
 }
 
 function formatCompactCurrency(value) {
@@ -454,6 +839,59 @@ function formatAxisYear(value) {
 function tooltipHeader(axisValue) {
   const year = Array.isArray(axisValue) ? axisValue[0] : axisValue;
   return `<strong>${year}</strong>`;
+}
+
+function napkinChartByKey(key) {
+  return state.cohortCharts[key] || state.revUnitCharts[key] || state.charts[key] || null;
+}
+
+function stepYAxisLeadingDigit(value, direction) {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const rounded = Math.max(1, Math.round(value));
+  const place = Math.pow(10, Math.floor(Math.log10(rounded)));
+  const lead = Math.floor(rounded / place);
+  if (direction === "up") {
+    return lead >= 9 ? 10 * place : (lead + 1) * place;
+  }
+  if (direction === "down") {
+    if (lead > 1) return (lead - 1) * place;
+    if (place === 1) return Math.max(1, rounded - 1);
+    return 9 * (place / 10);
+  }
+  return null;
+}
+
+function applyNapkinYAxisMax(chart, nextYMax) {
+  if (!chart?.baseOption?.yAxis || !Number.isFinite(nextYMax)) return;
+  const yMin = Number(chart.baseOption.yAxis.min);
+  if (Number.isFinite(yMin) && nextYMax <= yMin) return;
+  chart.baseOption.yAxis.max = nextYMax;
+  chart.chart.setOption({ yAxis: { max: nextYMax } }, false);
+  chart._refreshChart();
+}
+
+function handleNapkinYAxisAction(chart, action) {
+  const yMax = Number(chart?.baseOption?.yAxis?.max);
+  if (!Number.isFinite(yMax)) return;
+  if (action === "large-up") {
+    applyNapkinYAxisMax(chart, yMax * 10);
+  } else if (action === "large-down") {
+    applyNapkinYAxisMax(chart, yMax / 10);
+  } else if (action === "small-up") {
+    applyNapkinYAxisMax(chart, stepYAxisLeadingDigit(yMax, "up"));
+  } else if (action === "small-down") {
+    applyNapkinYAxisMax(chart, stepYAxisLeadingDigit(yMax, "down"));
+  }
+}
+
+function bindNapkinYAxisControls() {
+  document.querySelectorAll("[data-napkin-y-axis-controls]").forEach(row => {
+    row.addEventListener("click", event => {
+      const button = event.target.closest("[data-y-axis-action]");
+      if (!button || !row.contains(button)) return;
+      handleNapkinYAxisAction(napkinChartByKey(row.dataset.napkinYAxisControls), button.dataset.yAxisAction);
+    });
+  });
 }
 
 function parseInput(value, format) {
@@ -515,7 +953,7 @@ function chartPairs(values, meta) {
 
 function makeEditableLine(key, scenario) {
   const meta = driverMeta[key];
-  const lineIsEditable = !(key === "newCustomers" && scenario.newCustomerSource === "bottomUp");
+  const lineIsEditable = true;
   return {
     name: scenario.name,
     color: meta.color,
@@ -654,14 +1092,9 @@ function initDriverChart(key) {
       pushUndoSnapshot(chart._appEditSnapshot);
       chart._appEditCommitted = true;
     }
-    const next = Array(YEARS.length).fill(null);
-    chart.lines[0].data.forEach(([year, value]) => {
-      const index = YEARS.indexOf(Number(year));
-      if (index >= 0) next[index] = Number(value) * (meta.scale || 1);
-    });
-    next.forEach((value, index) => {
-      if (key === "newCustomers" && activeScenario().newCustomerSource === "bottomUp") return;
-      if (value !== null && editableYear(YEARS[index])) activeScenario().drivers[key][index] = value;
+    YEARS.forEach((year, index) => {
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      if (value !== null && editableYear(year)) activeScenario().drivers[key][index] = value * (meta.scale || 1);
     });
     saveScenarios();
     styleComparisonSeries(chart);
@@ -687,11 +1120,25 @@ function initOutputCharts() {
   state.outputCharts.gap = echarts.init(document.getElementById("gap-chart"));
   state.outputCharts.newCustomerDrilldown = echarts.init(document.getElementById("new-customers-drilldown-chart"));
   state.outputCharts.newCustomerTotal = echarts.init(document.getElementById("new-customers-total-chart"));
+  state.outputCharts.newCustomerUnitBridge = echarts.init(document.getElementById("new-customers-unit-bridge-chart"));
+  state.outputCharts.newCustomerUnitDelta = echarts.init(document.getElementById("new-customers-unit-delta-chart"));
+  state.outputCharts.newCustomerNewUnitsBridge = echarts.init(document.getElementById("new-customers-new-units-bridge-chart"));
+  state.outputCharts.newCustomerNewUnitsDelta = echarts.init(document.getElementById("new-customers-new-units-delta-chart"));
+  state.outputCharts.newCustomerAllCohorts = echarts.init(document.getElementById("new-customers-all-cohorts-chart"));
+  state.outputCharts.revUnitRevenueComparison = echarts.init(document.getElementById("rev-unit-revenue-comparison-chart"));
+  state.outputCharts.revUnitAggregateRpu = echarts.init(document.getElementById("rev-unit-aggregate-rpu-chart"));
   window.addEventListener("resize", () => {
     state.outputCharts.revenue.resize();
     state.outputCharts.gap.resize();
     state.outputCharts.newCustomerDrilldown.resize();
     state.outputCharts.newCustomerTotal.resize();
+    state.outputCharts.newCustomerUnitBridge.resize();
+    state.outputCharts.newCustomerUnitDelta.resize();
+    state.outputCharts.newCustomerNewUnitsBridge.resize();
+    state.outputCharts.newCustomerNewUnitsDelta.resize();
+    state.outputCharts.newCustomerAllCohorts.resize();
+    state.outputCharts.revUnitRevenueComparison.resize();
+    state.outputCharts.revUnitAggregateRpu.resize();
   });
 }
 
@@ -798,8 +1245,110 @@ function initNewCustomerCohortEditors() {
     "none",
     false
   );
+  const bridgeExistingChart = new NapkinChart(
+    "new-customers-bridge-existing-chart",
+    [],
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 1000000, axisLabel: { formatter: formatCompactNumber } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+      },
+    },
+    "none",
+    false
+  );
+  const bridgeNewChart = new NapkinChart(
+    "new-customers-bridge-new-chart",
+    [],
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 150000, axisLabel: { formatter: formatCompactNumber } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+      },
+    },
+    "none",
+    false
+  );
+  const unitNewUnitsChart = new NapkinChart(
+    "new-customers-unit-new-units-chart",
+    [],
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 2000000, axisLabel: { formatter: formatCompactNumber } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+      },
+    },
+    "none",
+    false
+  );
+  const unitCustomersPerUnitChart = new NapkinChart(
+    "new-customers-unit-customers-per-unit-chart",
+    [],
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 0.12, axisLabel: { formatter: value => trimNumber(value, 2) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatCohortNapkinTooltip(params, value => trimNumber(value, 4)),
+      },
+    },
+    "none",
+    false
+  );
+  const newUnitsPropertiesChart = new NapkinChart(
+    "new-customers-new-units-properties-chart",
+    [],
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 8000, axisLabel: { formatter: formatCompactNumber } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+      },
+    },
+    "none",
+    false
+  );
+  const newUnitsUnitsPerPropertyChart = new NapkinChart(
+    "new-customers-new-units-units-per-property-chart",
+    [],
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 500, axisLabel: { formatter: value => trimNumber(value, 0) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatCohortNapkinTooltip(params, value => trimNumber(value, 1)),
+      },
+    },
+    "none",
+    false
+  );
 
-  [countChart, yoyChart, yearChart, yearYoyChart, newPropertiesCountChart, newPropertiesYoyChart].forEach(chart => {
+  [countChart, yoyChart, yearChart, yearYoyChart, newPropertiesCountChart, newPropertiesYoyChart, bridgeExistingChart, bridgeNewChart, unitNewUnitsChart, unitCustomersPerUnitChart, newUnitsPropertiesChart, newUnitsUnitsPerPropertyChart].forEach(chart => {
     chart.windowStartX = YEARS[0];
     chart.windowEndX = YEARS[YEARS.length - 1];
     chart.globalMaxX = YEARS[YEARS.length - 1];
@@ -812,7 +1361,19 @@ function initNewCustomerCohortEditors() {
       chart._appEditCommitted = false;
     });
     chart.chart.getZr().on("mousemove", () => highlightCellsForNapkinDrag(chart));
+    chart.chart.getZr().on("mouseup", () => {
+      if (!chart._appEditCommitted) return;
+      setTimeout(() => {
+        syncNewCustomerCohortEditors();
+        renderNewCustomerDrilldownTable();
+        renderNewCustomerYoyTable();
+        chart._appEditSnapshot = null;
+        chart._appEditLineSnapshot = null;
+        chart._appEditCommitted = false;
+      }, 0);
+    });
     chart.chart.on("mouseover", params => highlightCellsForNapkinPoint(chart, params));
+    chart.chart.on("click", params => highlightCellsForNapkinPoint(chart, params));
     chart.chart.on("mouseout", clearNewCustomerCellHighlights);
     chart.chart.getZr().on("globalout", clearNewCustomerCellHighlights);
   });
@@ -823,14 +1384,34 @@ function initNewCustomerCohortEditors() {
   yearYoyChart.onDataChanged = () => handleYearExistingYoyChartChange(yearYoyChart);
   newPropertiesCountChart.onDataChanged = () => handleNewPropertiesCountChartChange(newPropertiesCountChart);
   newPropertiesYoyChart.onDataChanged = () => handleNewPropertiesYoyChartChange(newPropertiesYoyChart);
+  bridgeExistingChart.onDataChanged = () => handleBridgeExistingChartChange(bridgeExistingChart);
+  bridgeNewChart.onDataChanged = () => handleBridgeNewChartChange(bridgeNewChart);
+  unitNewUnitsChart.onDataChanged = () => handleNewCustomerUnitNewUnitsChartChange(unitNewUnitsChart);
+  unitCustomersPerUnitChart.onDataChanged = () => handleNewCustomerUnitCustomersPerUnitChartChange(unitCustomersPerUnitChart);
+  newUnitsPropertiesChart.onDataChanged = () => handleNewCustomerNewUnitsPropertiesChartChange(newUnitsPropertiesChart);
+  newUnitsUnitsPerPropertyChart.onDataChanged = () => handleNewCustomerNewUnitsUnitsPerPropertyChartChange(newUnitsUnitsPerPropertyChart);
   state.cohortCharts.count = countChart;
   state.cohortCharts.yoy = yoyChart;
   state.cohortCharts.yearExisting = yearChart;
   state.cohortCharts.yearExistingYoy = yearYoyChart;
   state.cohortCharts.newPropertiesCount = newPropertiesCountChart;
   state.cohortCharts.newPropertiesYoy = newPropertiesYoyChart;
-  countChart._appHighlightMapper = point => ({ countYear: Number(point[0]), countCohortYear: selectedNewCustomerCohortYear() });
-  yoyChart._appHighlightMapper = point => ({ countYear: Number(point[0]), countCohortYear: selectedNewCustomerCohortYear(), yoyYear: Number(point[0]), yoyCohortYear: selectedNewCustomerCohortYear() });
+  state.cohortCharts.bridgeExisting = bridgeExistingChart;
+  state.cohortCharts.bridgeNew = bridgeNewChart;
+  state.cohortCharts.unitNewUnits = unitNewUnitsChart;
+  state.cohortCharts.unitCustomersPerUnit = unitCustomersPerUnitChart;
+  state.cohortCharts.newUnitsProperties = newUnitsPropertiesChart;
+  state.cohortCharts.newUnitsUnitsPerProperty = newUnitsUnitsPerPropertyChart;
+  countChart._appHighlightMapper = (point, index, chart) => ({
+    countYears: napkinInfluenceYears(chart, index),
+    countCohortYear: selectedNewCustomerCohortYear(),
+  });
+  yoyChart._appHighlightMapper = (point, index, chart) => ({
+    countYears: napkinInfluenceYears(chart, index),
+    countCohortYear: selectedNewCustomerCohortYear(),
+    yoyYears: napkinInfluenceYears(chart, index),
+    yoyCohortYear: selectedNewCustomerCohortYear(),
+  });
   yearChart._appHighlightMapper = (point, index) => {
     const year = selectedNewCustomerYearEditorYear();
     const cohortYear = existingPropertyCohortsForYear(year)[index];
@@ -841,8 +1422,25 @@ function initNewCustomerCohortEditors() {
     const cohortYear = existingPropertyCohortsForYear(year)[index];
     return { countYear: year, countCohortYear: cohortYear, yoyYear: year, yoyCohortYear: cohortYear };
   };
-  newPropertiesCountChart._appHighlightMapper = point => ({ countYear: Number(point[0]), countCohortYear: Number(point[0]) });
-  newPropertiesYoyChart._appHighlightMapper = point => ({ countYear: Number(point[0]), countCohortYear: Number(point[0]) });
+  newPropertiesCountChart._appHighlightMapper = point => {
+    const year = Number(point[0]);
+    return { countYears: YEARS.filter(item => item >= year), countCohortYear: year };
+  };
+  newPropertiesYoyChart._appHighlightMapper = point => {
+    const year = Number(point[0]);
+    return { countYears: YEARS.filter(item => item >= year), countCohortYear: year };
+  };
+  bridgeExistingChart._appHighlightMapper = point => {
+    const year = Number(point[0]);
+    return {
+      countYear: year,
+      countCohortYears: existingPropertyCohortsForYear(year).filter(cohortYear => !isNewCustomerCohortLocked(cohortYear)),
+    };
+  };
+  bridgeNewChart._appHighlightMapper = point => {
+    const year = Number(point[0]);
+    return { countYears: YEARS.filter(item => item >= year), countCohortYear: year };
+  };
 }
 
 function highlightCellsForNapkinPoint(chart, params) {
@@ -852,7 +1450,7 @@ function highlightCellsForNapkinPoint(chart, params) {
   const pointIndex = Number(params.dataIndex);
   const point = chart.lines?.[0]?.data?.[pointIndex];
   if (!point) return;
-  highlightNewCustomerCells(chart._appHighlightMapper(point, pointIndex));
+  highlightNewCustomerCells(chart._appHighlightMapper(point, pointIndex, chart));
 }
 
 function highlightCellsForNapkinDrag(chart) {
@@ -860,7 +1458,15 @@ function highlightCellsForNapkinDrag(chart) {
   const pointIndex = Number(chart._draggingPointIndex);
   const point = chart.lines?.[0]?.data?.[pointIndex];
   if (!point) return;
-  highlightNewCustomerCells(chart._appHighlightMapper(point, pointIndex));
+  highlightNewCustomerCells(chart._appHighlightMapper(point, pointIndex, chart));
+}
+
+function napkinInfluenceYears(chart, pointIndex) {
+  const data = chart?.lines?.[0]?.data || [];
+  const point = data[pointIndex];
+  if (!point) return [];
+  const pointYear = Number(point[0]);
+  return YEARS.filter(year => editableYear(year) && year >= pointYear);
 }
 
 function formatCohortNapkinTooltip(params, formatter) {
@@ -1005,6 +1611,75 @@ function renderKpis(outputs) {
   document.getElementById("kpi-paid-profiles").textContent = Math.round(outputs.paidProfiles[last]).toLocaleString("en-US");
 }
 
+function setText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
+}
+
+function renderGuidedPlan(outputs) {
+  const year = 2025;
+  const index = YEARS.indexOf(year);
+  if (index < 0) return;
+  const scenario = activeScenario();
+  const drivers = scenario.drivers;
+  const newCustomers = effectiveNewCustomers(scenario)[index];
+  const newPaidProfiles = newCustomers * drivers.profilesNew[index];
+  const totalRevenue = outputs.revenue[index];
+  const revPerPaidProfile = outputs.paidProfiles[index] ? totalRevenue / outputs.paidProfiles[index] : 0;
+
+  setText("guided-existing-revenue", formatCurrency(outputs.revenueExisting[index], 0));
+  setText("guided-new-revenue", formatCurrency(outputs.revenueNew[index], 0));
+  setText("guided-total-revenue", formatCurrency(totalRevenue, 0));
+  setText("guided-retention", formatValue(drivers.retention[index], "percent"));
+  setText("guided-returning-customers", Math.round(outputs.returningCustomers[index]).toLocaleString("en-US"));
+  setText("guided-existing-profiles-customer", formatValue(drivers.profilesReturning[index], "decimal"));
+  setText("guided-existing-rev-profile", formatValue(drivers.revReturningProfile[index], "currency2"));
+  setText("guided-new-customers", Math.round(newCustomers).toLocaleString("en-US"));
+  setText("guided-new-profiles-customer", formatValue(drivers.profilesNew[index], "decimal"));
+  setText("guided-new-rev-profile", formatValue(drivers.revNewProfile[index], "currency2"));
+  setText("guided-new-paid-profiles", Math.round(newPaidProfiles).toLocaleString("en-US"));
+  setText("guided-plan-revenue", formatCurrency(outputs.planRevenue[index], 0));
+  setText("guided-plan-gap", formatCurrency(outputs.delta[index], 0));
+  document.getElementById("guided-plan-gap")?.classList.toggle("negative", outputs.delta[index] < 0);
+  setText("guided-paid-profiles", Math.round(outputs.paidProfiles[index]).toLocaleString("en-US"));
+  setText("guided-rev-paid-profile", formatCurrency(revPerPaidProfile, 2));
+  renderGuidedOutline(outputs);
+}
+
+function renderGuidedOutline(outputs) {
+  const table = document.getElementById("guided-outline-table");
+  if (!table) return;
+  const outlineYears = YEARS.filter(year => year >= 2025);
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Year</th>
+        <th>Existing Revenue</th>
+        <th>New Revenue</th>
+        <th>HHP Revenue</th>
+        <th>Plan</th>
+        <th>Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${outlineYears.map(year => {
+        const yearIndex = YEARS.indexOf(year);
+        const gap = outputs.delta[yearIndex];
+        return `
+          <tr>
+            <td>${year}</td>
+            <td>${formatCurrency(outputs.revenueExisting[yearIndex], 0)}</td>
+            <td>${formatCurrency(outputs.revenueNew[yearIndex], 0)}</td>
+            <td><strong>${formatCurrency(outputs.revenue[yearIndex], 0)}</strong></td>
+            <td>${formatCurrency(outputs.planRevenue[yearIndex], 0)}</td>
+            <td class="${gap < 0 ? "negative" : ""}">${formatCurrency(gap, 0)}</td>
+          </tr>
+        `;
+      }).join("")}
+    </tbody>
+  `;
+}
+
 function renderTable(outputs) {
   const table = document.getElementById("driver-table");
   const driverRows = Object.entries(driverMeta).map(([key, meta]) => ({
@@ -1012,7 +1687,7 @@ function renderTable(outputs) {
     label: meta.label,
     format: meta.format,
     values: driverValues(activeScenario(), key),
-    editable: !(key === "newCustomers" && activeScenario().newCustomerSource === "bottomUp"),
+    editable: true,
   }));
 
   const rows = [
@@ -1078,15 +1753,895 @@ function renderCell(row, year, index) {
   return `<td class="${classes}">${formatValue(value, row.format)}</td>`;
 }
 
-function renderNewCustomerDrilldown() {
+function renderNewCustomerDrilldown({ syncEditors = true, excludeEditor = null } = {}) {
   renderNewCustomerSourceControl();
   renderNewCustomerEditorMode();
+  renderNewCustomerUnitDrilldownToggle();
+  renderCohortLockSummary();
+  renderCohortLockControls();
   renderNewCustomerCohortEditorControl();
   renderNewCustomerYearEditorControl();
   renderNewCustomerDrilldownCharts();
-  syncNewCustomerCohortEditors();
+  renderNewCustomerUnitDrilldown();
+  renderNewCustomerAllCohortsChart();
+  if (syncEditors) syncNewCustomerCohortEditors({ excludeChart: excludeEditor });
   renderNewCustomerDrilldownTable();
   renderNewCustomerYoyTable();
+}
+
+function renderNewCustomerUnitDrilldownToggle() {
+  const panel = document.getElementById("new-customers-unit-drilldown");
+  const drilldownButton = document.getElementById("toggle-new-customers-unit-drilldown");
+  const backButton = document.getElementById("back-new-customers-unit-drilldown");
+  const newUnitsPanel = document.getElementById("new-customers-new-units-drilldown");
+  const newUnitsDrilldownButton = document.getElementById("toggle-new-customers-new-units-drilldown");
+  const newUnitsBackButton = document.getElementById("back-new-customers-new-units-drilldown");
+  const view = document.getElementById("new-customers-view");
+  if (!panel || !drilldownButton || !backButton || !view || !newUnitsPanel || !newUnitsDrilldownButton || !newUnitsBackButton) return;
+  if (!state.newCustomerUnitDrilldownOpen) state.newCustomerNewUnitsDrilldownOpen = false;
+  drilldownButton.hidden = state.currentView !== "newCustomers" || state.newCustomerUnitDrilldownOpen;
+  backButton.hidden = !state.newCustomerUnitDrilldownOpen || state.newCustomerNewUnitsDrilldownOpen;
+  newUnitsDrilldownButton.hidden = !state.newCustomerUnitDrilldownOpen || state.newCustomerNewUnitsDrilldownOpen;
+  newUnitsBackButton.hidden = !state.newCustomerNewUnitsDrilldownOpen;
+  panel.hidden = !state.newCustomerUnitDrilldownOpen;
+  newUnitsPanel.hidden = !state.newCustomerNewUnitsDrilldownOpen;
+  view.classList.toggle("new-customers-unit-mode", state.newCustomerUnitDrilldownOpen);
+  view.classList.toggle("new-customers-new-units-mode", state.newCustomerNewUnitsDrilldownOpen);
+}
+
+function resizeNewCustomerUnitDrilldownCharts() {
+  state.outputCharts.newCustomerUnitBridge?.resize();
+  state.outputCharts.newCustomerUnitDelta?.resize();
+  state.cohortCharts.unitNewUnits?.resize();
+  state.cohortCharts.unitCustomersPerUnit?.resize();
+}
+
+function resizeNewCustomerNewUnitsDrilldownCharts() {
+  state.outputCharts.newCustomerNewUnitsBridge?.resize();
+  state.outputCharts.newCustomerNewUnitsDelta?.resize();
+  state.cohortCharts.newUnitsProperties?.resize();
+  state.cohortCharts.newUnitsUnitsPerProperty?.resize();
+}
+
+function renderCohortLockSummary() {
+  const summary = document.getElementById("cohort-lock-summary");
+  if (!summary) return;
+  const locked = Array.from(lockedNewCustomerCohorts()).sort((left, right) => left - right);
+  if (!locked.length) {
+    summary.textContent = "All cohorts are unlocked. Bridge changes can flow through every cohort.";
+    return;
+  }
+  summary.textContent = `${locked.length} locked: ${locked.map(cohortLabel).join(", ")}`;
+}
+
+function renderCohortLockControls() {
+  const list = document.getElementById("cohort-lock-list");
+  if (!list) return;
+  const locked = lockedNewCustomerCohorts();
+  list.innerHTML = NEW_CUSTOMER_COHORT_YEARS.map(cohortYear => `
+    <label class="cohort-lock-item">
+      <input type="checkbox" data-lock-cohort="${cohortYear}" ${locked.has(Number(cohortYear)) ? "checked" : ""} />
+      <span>${cohortLabel(cohortYear)}</span>
+    </label>
+  `).join("");
+  list.querySelectorAll("input[data-lock-cohort]").forEach(input => {
+    input.addEventListener("change", saveCohortLocks);
+  });
+}
+
+function saveCohortLocks() {
+  const locked = Array.from(document.querySelectorAll("#cohort-lock-list input[data-lock-cohort]:checked"))
+    .map(input => Number(input.dataset.lockCohort))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const current = Array.from(lockedNewCustomerCohorts()).sort((left, right) => left - right);
+  if (sameNumberList(current, locked)) return;
+  pushUndoSnapshot();
+  activeScenario().newCustomerDrilldown.lockedCohorts = locked;
+  saveScenarios();
+  renderCohortLockSummary();
+  syncNewCustomerCohortEditors();
+}
+
+function setCohortLockSelection(predicate) {
+  document.querySelectorAll("#cohort-lock-list input[data-lock-cohort]").forEach(input => {
+    input.checked = predicate(Number(input.dataset.lockCohort));
+  });
+  saveCohortLocks();
+}
+
+function newCustomerUnitPlan(scenario = activeScenario()) {
+  if (!scenario.newCustomerDrilldown.unitPlan) {
+    scenario.newCustomerDrilldown.unitPlan = createDefaultNewCustomerUnitPlan(scenario.newCustomerDrilldown.counts);
+  }
+  return scenario.newCustomerDrilldown.unitPlan;
+}
+
+function newCustomerUnitNewUnitsValue(scenario, year) {
+  const plan = newCustomerUnitPlan(scenario);
+  return Number(plan.newUnits?.[String(year)] ?? plan.newUnits?.[year] ?? 0);
+}
+
+function newCustomerUnitCustomersPerUnitValue(scenario, year) {
+  const plan = newCustomerUnitPlan(scenario);
+  return Number(plan.customersPerUnit?.[String(year)] ?? plan.customersPerUnit?.[year] ?? 0);
+}
+
+function newCustomerUnitBottomUpValue(scenario, year) {
+  return newCustomerUnitNewUnitsValue(scenario, year) * newCustomerUnitCustomersPerUnitValue(scenario, year);
+}
+
+function setNewCustomerUnitNewUnits(year, value, { exact = false } = {}) {
+  const plan = newCustomerUnitPlan();
+  if (!plan.newUnits) plan.newUnits = {};
+  plan.newUnits[String(year)] = exact ? Math.max(0, value) : Math.max(0, Math.round(value));
+}
+
+function setNewCustomerUnitCustomersPerUnit(year, value, { exact = false } = {}) {
+  const plan = newCustomerUnitPlan();
+  if (!plan.customersPerUnit) plan.customersPerUnit = {};
+  plan.customersPerUnit[String(year)] = exact ? Math.max(0, value) : Math.max(0, Math.round(value * 10000) / 10000);
+}
+
+function newCustomerUnitControlPoints() {
+  const plan = newCustomerUnitPlan();
+  if (!plan.controlPoints) plan.controlPoints = {};
+  return plan.controlPoints;
+}
+
+function controlledNewCustomerUnitPairs(key, pairs) {
+  const stored = newCustomerUnitControlPoints()[key];
+  if (!Array.isArray(stored)) return pairs;
+  const visibleX = new Set(stored.map(Number));
+  const visiblePairs = pairs.filter(([x]) => visibleX.has(Number(x)));
+  if (visiblePairs.length >= 2) return visiblePairs;
+  if (pairs.length <= 2) return pairs;
+  return [pairs[0], pairs[pairs.length - 1]];
+}
+
+function rememberNewCustomerUnitControlPoints(key, data) {
+  newCustomerUnitControlPoints()[key] = (data || [])
+    .map(([x]) => Number(x))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+}
+
+function ensureControlPointsForYears(controlPoints, key, years) {
+  const existing = Array.isArray(controlPoints[key]) ? controlPoints[key] : YEARS;
+  controlPoints[key] = Array.from(new Set([
+    ...existing.map(Number).filter(Number.isFinite),
+    ...years.map(Number).filter(Number.isFinite),
+  ])).sort((left, right) => left - right);
+}
+
+function newCustomerUnitNewUnitsPairs(scenario = activeScenario()) {
+  return YEARS.map(year => [year, newCustomerUnitNewUnitsValue(scenario, year)]);
+}
+
+function newCustomerUnitCustomersPerUnitPairs(scenario = activeScenario()) {
+  return YEARS.map(year => [year, newCustomerUnitCustomersPerUnitValue(scenario, year)]);
+}
+
+function visibleNewCustomerUnitValue(key, pairs, year, fallback) {
+  const value = interpolateNapkinLineValue(controlledNewCustomerUnitPairs(key, pairs), year);
+  return value === null ? fallback : value;
+}
+
+function visibleNewCustomerUnitBottomUpValue(year) {
+  const newUnits = visibleNewCustomerUnitValue(
+    "newUnits",
+    newCustomerUnitNewUnitsPairs(activeScenario()),
+    year,
+    newCustomerUnitNewUnitsValue(activeScenario(), year)
+  );
+  const customersPerUnit = visibleNewCustomerUnitValue(
+    "customersPerUnit",
+    newCustomerUnitCustomersPerUnitPairs(activeScenario()),
+    year,
+    newCustomerUnitCustomersPerUnitValue(activeScenario(), year)
+  );
+  return newUnits * customersPerUnit;
+}
+
+function newCustomerNewUnitsPropertyPlan(scenario = activeScenario()) {
+  const plan = newCustomerUnitPlan(scenario);
+  if (!plan.propertyPlan) {
+    plan.propertyPlan = createDefaultNewCustomerNewUnitsPropertyPlan(plan.newUnits);
+  }
+  return plan.propertyPlan;
+}
+
+function newCustomerNewUnitsNewPropertiesValue(scenario, year) {
+  const plan = newCustomerNewUnitsPropertyPlan(scenario);
+  return Number(plan.newProperties?.[String(year)] ?? plan.newProperties?.[year] ?? 0);
+}
+
+function newCustomerNewUnitsUnitsPerPropertyValue(scenario, year) {
+  const plan = newCustomerNewUnitsPropertyPlan(scenario);
+  return Number(plan.unitsPerNewProperty?.[String(year)] ?? plan.unitsPerNewProperty?.[year] ?? 0);
+}
+
+function newCustomerNewUnitsBottomUpValue(scenario, year) {
+  return newCustomerNewUnitsNewPropertiesValue(scenario, year) * newCustomerNewUnitsUnitsPerPropertyValue(scenario, year);
+}
+
+function setNewCustomerNewUnitsNewProperties(year, value, { exact = false } = {}) {
+  const plan = newCustomerNewUnitsPropertyPlan();
+  if (!plan.newProperties) plan.newProperties = {};
+  plan.newProperties[String(year)] = exact ? Math.max(0, value) : Math.max(0, Math.round(value));
+}
+
+function setNewCustomerNewUnitsUnitsPerProperty(year, value, { exact = false } = {}) {
+  const plan = newCustomerNewUnitsPropertyPlan();
+  if (!plan.unitsPerNewProperty) plan.unitsPerNewProperty = {};
+  plan.unitsPerNewProperty[String(year)] = exact ? Math.max(0, value) : Math.max(0, Math.round(value * 100) / 100);
+}
+
+function newCustomerNewUnitsControlPoints() {
+  const plan = newCustomerNewUnitsPropertyPlan();
+  if (!plan.controlPoints) plan.controlPoints = {};
+  return plan.controlPoints;
+}
+
+function controlledNewCustomerNewUnitsPairs(key, pairs) {
+  const stored = newCustomerNewUnitsControlPoints()[key];
+  if (!Array.isArray(stored)) return pairs;
+  const visibleX = new Set(stored.map(Number));
+  const visiblePairs = pairs.filter(([x]) => visibleX.has(Number(x)));
+  if (visiblePairs.length >= 2) return visiblePairs;
+  if (pairs.length <= 2) return pairs;
+  return [pairs[0], pairs[pairs.length - 1]];
+}
+
+function rememberNewCustomerNewUnitsControlPoints(key, data) {
+  newCustomerNewUnitsControlPoints()[key] = (data || [])
+    .map(([x]) => Number(x))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+}
+
+function visibleNewCustomerNewUnitsValue(key, pairs, year, fallback) {
+  const value = interpolateNapkinLineValue(controlledNewCustomerNewUnitsPairs(key, pairs), year);
+  return value === null ? fallback : value;
+}
+
+function visibleNewCustomerNewUnitsBottomUpValue(year) {
+  const newProperties = visibleNewCustomerNewUnitsValue(
+    "newProperties",
+    newCustomerNewUnitsNewPropertiesPairs(activeScenario()),
+    year,
+    newCustomerNewUnitsNewPropertiesValue(activeScenario(), year)
+  );
+  const unitsPerProperty = visibleNewCustomerNewUnitsValue(
+    "unitsPerNewProperty",
+    newCustomerNewUnitsUnitsPerPropertyPairs(activeScenario()),
+    year,
+    newCustomerNewUnitsUnitsPerPropertyValue(activeScenario(), year)
+  );
+  return newProperties * unitsPerProperty;
+}
+
+function newCustomerNewUnitsNewPropertiesPairs(scenario = activeScenario()) {
+  return YEARS.map(year => [year, newCustomerNewUnitsNewPropertiesValue(scenario, year)]);
+}
+
+function newCustomerNewUnitsUnitsPerPropertyPairs(scenario = activeScenario()) {
+  return YEARS.map(year => [year, newCustomerNewUnitsUnitsPerPropertyValue(scenario, year)]);
+}
+
+function revUnitNewUnitsValue(scenario, year) {
+  return Number(scenario.revUnitPlan?.newUnits?.[String(year)] ?? scenario.revUnitPlan?.newUnits?.[year] ?? 0);
+}
+
+function revUnitCumulativeNewUnits(scenario, year) {
+  return REV_UNIT_YEARS
+    .filter(item => item <= year)
+    .reduce((sum, item) => sum + revUnitNewUnitsValue(scenario, item), 0);
+}
+
+function revUnitRevenueValue(scenario, year) {
+  let total = 0;
+  let hasValue = false;
+  REV_UNIT_YEARS.forEach(cohortYear => {
+    if (cohortYear > year) return;
+    const revPerUnit = revUnitRpuValue(scenario, year, cohortYear);
+    if (revPerUnit === null) return;
+    total += revUnitNewUnitsValue(scenario, cohortYear) * revPerUnit;
+    hasValue = true;
+  });
+  if (hasValue) return total;
+  const value = scenario.revUnitPlan?.revenue?.[String(year)] ?? scenario.revUnitPlan?.revenue?.[year];
+  return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function revUnitRpuValue(scenario, year, cohortYear) {
+  const row = scenario.revUnitPlan?.revPerUnit?.[String(year)] ?? scenario.revUnitPlan?.revPerUnit?.[year] ?? {};
+  const value = row[String(cohortYear)] ?? row[cohortYear];
+  if (Number.isFinite(Number(value))) return Number(value);
+  if (cohortYear > year) return null;
+
+  for (let candidateYear = year - 1; candidateYear >= cohortYear; candidateYear -= 1) {
+    const candidateRow = scenario.revUnitPlan?.revPerUnit?.[String(candidateYear)] ?? scenario.revUnitPlan?.revPerUnit?.[candidateYear] ?? {};
+    const candidate = candidateRow[String(cohortYear)] ?? candidateRow[cohortYear];
+    if (Number.isFinite(Number(candidate))) return Number(candidate);
+  }
+
+  const latestNewCohortRow = scenario.revUnitPlan?.revPerUnit?.[String(REV_UNIT_LAST_HISTORICAL_YEAR)] ?? {};
+  const latestNewCohort = latestNewCohortRow[String(REV_UNIT_LAST_HISTORICAL_YEAR)];
+  return Number.isFinite(Number(latestNewCohort)) ? Number(latestNewCohort) : null;
+}
+
+function unaffiliatedRevenueValue(scenario, year) {
+  const value = scenario.revUnitPlan?.unaffiliatedRevenue?.[String(year)] ?? scenario.revUnitPlan?.unaffiliatedRevenue?.[year];
+  if (value && typeof value === "object") {
+    return Number.isFinite(Number(value.totalRevenue)) ? Number(value.totalRevenue) : null;
+  }
+  return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function revUnitTotalRevenueValue(scenario, year) {
+  const affiliated = revUnitRevenueValue(scenario, year);
+  const unaffiliated = unaffiliatedRevenueValue(scenario, year);
+  if (affiliated === null && unaffiliated === null) return null;
+  return (affiliated || 0) + (unaffiliated || 0);
+}
+
+function revUnitAggregateRpuValue(scenario, year) {
+  const revenue = revUnitTotalRevenueValue(scenario, year);
+  const cumulativeUnits = revUnitCumulativeNewUnits(scenario, year);
+  if (revenue === null || !cumulativeUnits) return null;
+  return revenue / cumulativeUnits;
+}
+
+function setRevUnitNewUnits(year, value) {
+  if (!activeScenario().revUnitPlan) activeScenario().revUnitPlan = createDefaultRevUnitPlan();
+  if (!activeScenario().revUnitPlan.newUnits) activeScenario().revUnitPlan.newUnits = {};
+  activeScenario().revUnitPlan.newUnits[String(year)] = value;
+}
+
+function setRevUnitRpu(year, cohortYear, value) {
+  if (!activeScenario().revUnitPlan) activeScenario().revUnitPlan = createDefaultRevUnitPlan();
+  if (!activeScenario().revUnitPlan.revPerUnit) activeScenario().revUnitPlan.revPerUnit = {};
+  if (!activeScenario().revUnitPlan.revPerUnit[String(year)]) {
+    activeScenario().revUnitPlan.revPerUnit[String(year)] = {};
+  }
+  activeScenario().revUnitPlan.revPerUnit[String(year)][String(cohortYear)] = Math.max(0, Math.round(value * 100) / 100);
+}
+
+function revUnitNewUnitPairs(scenario) {
+  return REV_UNIT_YEARS.map(year => [year, revUnitNewUnitsValue(scenario, year)]);
+}
+
+function controlledRevUnitPairs(key, pairs) {
+  const stored = activeScenario().revUnitPlan?.controlPoints?.[key];
+  if (!Array.isArray(stored)) return pairs;
+  const visibleX = new Set(stored.map(Number));
+  return pairs.filter(([x]) => visibleX.has(Number(x)));
+}
+
+function addRevUnitControlPoint(key, x) {
+  if (!Number.isFinite(Number(x))) return;
+  if (!activeScenario().revUnitPlan) activeScenario().revUnitPlan = createDefaultRevUnitPlan();
+  if (!activeScenario().revUnitPlan.controlPoints) activeScenario().revUnitPlan.controlPoints = {};
+  const existing = activeScenario().revUnitPlan.controlPoints[key];
+  const next = new Set(Array.isArray(existing) ? existing.map(Number) : []);
+  next.add(Number(x));
+  activeScenario().revUnitPlan.controlPoints[key] = Array.from(next).sort((left, right) => left - right);
+}
+
+function rememberRevUnitControlPoints(key, data) {
+  if (!activeScenario().revUnitPlan) activeScenario().revUnitPlan = createDefaultRevUnitPlan();
+  if (!activeScenario().revUnitPlan.controlPoints) activeScenario().revUnitPlan.controlPoints = {};
+  activeScenario().revUnitPlan.controlPoints[key] = (data || [])
+    .map(([x]) => Number(x))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+}
+
+function revUnitForecastYears() {
+  return REV_UNIT_YEARS.filter(year => year > REV_UNIT_LAST_HISTORICAL_YEAR);
+}
+
+function revUnitEditorItems() {
+  if (state.revUnitEditorMode === "allCohorts") return [];
+  return REV_UNIT_YEARS;
+}
+
+function selectedRevUnitEditorValue() {
+  return state.revUnitEditorCohortYear;
+}
+
+function setSelectedRevUnitEditorValue(value) {
+  state.revUnitEditorCohortYear = value;
+}
+
+function revUnitRpuControlKey() {
+  if (state.revUnitEditorMode === "allCohorts") return "rpu:allCohorts";
+  return `rpu:cohort:${state.revUnitEditorCohortYear}`;
+}
+
+function revUnitCohortColor(cohortYear) {
+  const colors = ["#4f7fb8", "#6fa76b", "#d39b2a", "#7b6fb8", "#a96c50", "#4b9b8e", "#8e6bb0", "#c47a5a", "#5f9ea0", "#9a8c55", "#5875a4", "#76a46b", "#b66f8f"];
+  return colors[Math.max(0, REV_UNIT_YEARS.indexOf(cohortYear)) % colors.length];
+}
+
+function revUnitRpuPairs(scenario) {
+  const cohortYear = state.revUnitEditorCohortYear;
+  return REV_UNIT_YEARS
+    .filter(year => year >= cohortYear)
+    .map(year => [year, revUnitRpuValue(scenario, year, cohortYear)])
+    .filter(([, value]) => value !== null);
+}
+
+function revUnitRpuEditRanges() {
+  return [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]];
+}
+
+function revUnitRpuLine() {
+  const editRanges = revUnitRpuEditRanges();
+  return {
+    name: "Rev / Unit",
+    color: BOTTOM_UP_COLOR,
+    editDomain: {
+      moveX: editRanges,
+      addX: editRanges,
+      deleteX: editRanges,
+    },
+    data: controlledRevUnitPairs(revUnitRpuControlKey(), revUnitRpuPairs(activeScenario())),
+  };
+}
+
+function revUnitReferenceLine() {
+  const cohortYear = state.revUnitReferenceCohortYear;
+  const editedCohortYear = state.revUnitEditorCohortYear;
+  const data = REV_UNIT_YEARS
+    .filter(year => year >= cohortYear)
+    .map(year => {
+      const x = state.revUnitReferenceShifted
+        ? editedCohortYear + (year - cohortYear)
+        : year;
+      return [x, revUnitRpuValue(activeScenario(), year, cohortYear)];
+    })
+    .filter(([x]) => x >= REV_UNIT_YEARS[0] && x <= REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1])
+    .filter(([, value]) => value !== null);
+  return {
+    name: `Reference ${cohortYear}${state.revUnitReferenceShifted ? " Age-Matched" : ""}`,
+    color: "#98a2b3",
+    editable: false,
+    data,
+  };
+}
+
+function revUnitAllCohortLines() {
+  return REV_UNIT_YEARS.map(cohortYear => {
+    const editStart = Math.max(FIRST_FORECAST_YEAR, cohortYear);
+    const editRanges = editStart <= REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]
+      ? [[editStart, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]]
+      : [];
+    const pairs = REV_UNIT_YEARS
+      .filter(year => year >= cohortYear)
+      .map(year => [year, revUnitRpuValue(activeScenario(), year, cohortYear)])
+      .filter(([, value]) => value !== null);
+    return {
+      name: String(cohortYear),
+      cohortYear,
+      color: revUnitCohortColor(cohortYear),
+      editDomain: {
+        moveX: editRanges,
+        addX: editRanges,
+        deleteX: editRanges,
+      },
+      data: controlledRevUnitPairs(`rpu:allCohorts:${cohortYear}`, pairs),
+    };
+  });
+}
+
+function revUnitAllCohortsChartOption() {
+  return {
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params
+          .filter(item => item.value !== null && item.value !== undefined)
+          .map(item => `${item.marker} Cohort ${item.seriesName}: ${formatCurrency(Number(item.value), 2)}`),
+      ].join("<br/>"),
+    },
+    legend: {
+      type: "scroll",
+      top: 0,
+    },
+    grid: { left: 12, right: 18, top: 48, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: REV_UNIT_YEARS.map(String) },
+    yAxis: { type: "value", min: 0, axisLabel: { formatter: value => formatCurrency(Number(value), 0) } },
+    series: REV_UNIT_YEARS.map(cohortYear => ({
+      name: String(cohortYear),
+      type: "line",
+      data: REV_UNIT_YEARS.map(year => {
+        if (year < cohortYear) return null;
+        return revUnitRpuValue(activeScenario(), year, cohortYear);
+      }),
+      connectNulls: false,
+      symbolSize: 5,
+      lineStyle: { color: revUnitCohortColor(cohortYear), width: 2 },
+      itemStyle: { color: revUnitCohortColor(cohortYear) },
+      emphasis: {
+        focus: "series",
+        blurScope: "coordinateSystem",
+        lineStyle: { width: 5 },
+        itemStyle: { borderColor: "#111827", borderWidth: 2 },
+      },
+      blur: {
+        lineStyle: { opacity: 0.14 },
+        itemStyle: { opacity: 0.14 },
+      },
+    })),
+  };
+}
+
+function revUnitRpuLines() {
+  return [revUnitRpuLine(), revUnitReferenceLine()];
+}
+
+function revUnitRpuAxisConfig() {
+  return {
+    min: REV_UNIT_YEARS[0],
+    max: REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1],
+    formatter: formatAxisYear,
+  };
+}
+
+function initRevUnitCharts() {
+  const unitsChart = new NapkinChart(
+    "rev-unit-units-chart",
+    [{
+      name: "New Units",
+      color: TOP_DOWN_COLOR,
+      editDomain: {
+        moveX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
+      },
+      data: controlledRevUnitPairs("newUnits", revUnitNewUnitPairs(activeScenario())),
+    }],
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: REV_UNIT_YEARS[0],
+        max: REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 2000000,
+        axisLabel: { formatter: formatCompactNumber },
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const lineItem = items.find(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1) || items[0];
+          const data = Array.isArray(lineItem?.data) ? lineItem.data : lineItem?.value;
+          const year = Array.isArray(data) ? data[0] : lineItem?.axisValue;
+          const value = Array.isArray(data) ? Number(data[1]) : Number(lineItem?.value);
+          return [
+            tooltipHeader(year),
+            `${lineItem?.marker || ""} New Units: ${Math.round(value).toLocaleString("en-US")}`,
+          ].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+
+  unitsChart.windowStartX = REV_UNIT_YEARS[0];
+  unitsChart.windowEndX = REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1];
+  unitsChart.globalMaxX = REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1];
+  unitsChart._refreshChart();
+  unitsChart._appEditSnapshot = null;
+  unitsChart._appEditCommitted = false;
+  unitsChart.chart.getZr().on("mousedown", () => {
+    if (state.syncingRevUnitCharts) return;
+    unitsChart._appEditSnapshot = snapshotState();
+    unitsChart._appEditLineSnapshot = clone(unitsChart.lines?.[0]?.data || []);
+    unitsChart._appEditCommitted = false;
+  });
+  unitsChart.onDataChanged = () => {
+    if (state.syncingRevUnitCharts) return;
+    if (unitsChart._appEditSnapshot && !unitsChart._appEditCommitted) {
+      pushUndoSnapshot(unitsChart._appEditSnapshot);
+      unitsChart._appEditCommitted = true;
+    }
+    rememberRevUnitControlPoints("newUnits", unitsChart.lines[0].data);
+    REV_UNIT_YEARS.forEach(year => {
+      if (year <= REV_UNIT_LAST_HISTORICAL_YEAR) return;
+      const value = interpolateNapkinLineValue(unitsChart.lines[0].data, year);
+      if (value !== null) setRevUnitNewUnits(year, Math.max(0, Math.round(value)));
+    });
+    saveScenarios();
+    renderRevUnitPlan();
+  };
+  state.revUnitCharts.units = unitsChart;
+
+  const rpuAxis = revUnitRpuAxisConfig();
+  const rpuChart = new NapkinChart(
+    "rev-unit-rpu-chart",
+    revUnitRpuLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: rpuAxis.min,
+        max: rpuAxis.max,
+        minInterval: 1,
+        axisLabel: { formatter: rpuAxis.formatter },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 20,
+        axisLabel: { formatter: value => formatCurrency(Number(value), 0) },
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatCohortNapkinTooltip(params, value => formatCurrency(Number(value), 2)),
+      },
+    },
+    "none",
+    false
+  );
+
+  rpuChart.windowStartX = rpuAxis.min;
+  rpuChart.windowEndX = rpuAxis.max;
+  rpuChart.globalMaxX = rpuAxis.max;
+  rpuChart._refreshChart();
+  rpuChart._appEditSnapshot = null;
+  rpuChart._appEditCommitted = false;
+  rpuChart.chart.getZr().on("mousedown", () => {
+    if (state.syncingRevUnitCharts) return;
+    rpuChart._appEditSnapshot = snapshotState();
+    rpuChart._appEditLineSnapshot = clone(rpuChart.lines || []);
+    rpuChart._appEditCommitted = false;
+  });
+  rpuChart.onDataChanged = () => handleRevUnitRpuChartChange(rpuChart);
+  state.revUnitCharts.rpu = rpuChart;
+}
+
+function syncRevUnitCharts() {
+  state.syncingRevUnitCharts = true;
+  const unitsChart = state.revUnitCharts.units;
+  if (unitsChart) {
+    unitsChart.lines = [{
+      name: "New Units",
+      color: TOP_DOWN_COLOR,
+      editDomain: {
+        moveX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
+      },
+      data: controlledRevUnitPairs("newUnits", revUnitNewUnitPairs(activeScenario())),
+    }];
+    unitsChart._refreshChart();
+  }
+  const rpuChart = state.revUnitCharts.rpu;
+  if (rpuChart) {
+    if (state.revUnitEditorMode === "allCohorts") {
+      rpuChart.setEditMode(false);
+      rpuChart.chart.setOption(revUnitAllCohortsChartOption(), true);
+      state.syncingRevUnitCharts = false;
+      return;
+    }
+    rpuChart.setEditMode(true);
+    const rpuAxis = revUnitRpuAxisConfig();
+    rpuChart.baseOption.xAxis.min = rpuAxis.min;
+    rpuChart.baseOption.xAxis.max = rpuAxis.max;
+    rpuChart.baseOption.xAxis.axisLabel = { formatter: rpuAxis.formatter };
+    rpuChart.windowStartX = rpuAxis.min;
+    rpuChart.windowEndX = rpuAxis.max;
+    rpuChart.globalMaxX = rpuAxis.max;
+    rpuChart.lines = revUnitRpuLines();
+    rpuChart._refreshChart();
+  }
+  state.syncingRevUnitCharts = false;
+}
+
+function handleRevUnitRpuChartChange(chart) {
+  if (state.syncingRevUnitCharts) return;
+  if (chart._appEditSnapshot && !chart._appEditCommitted) {
+    pushUndoSnapshot(chart._appEditSnapshot);
+    chart._appEditCommitted = true;
+  }
+  const editableLine = chart.lines.find(line => line && line.editable !== false) || chart.lines[0];
+  const editableLineIndex = chart.lines.indexOf(editableLine);
+  const previousEditableLine = Array.isArray(chart._appEditLineSnapshot)
+    ? chart._appEditLineSnapshot[editableLineIndex]
+    : null;
+  const changedXs = changedNapkinXs(previousEditableLine?.data || [], editableLine.data);
+  const key = revUnitRpuControlKey();
+  rememberRevUnitControlPoints(key, editableLine.data);
+
+  const cohortYear = state.revUnitEditorCohortYear;
+  REV_UNIT_YEARS.filter(year => year >= cohortYear && year > REV_UNIT_LAST_HISTORICAL_YEAR).forEach(year => {
+    const value = interpolateNapkinLineValue(editableLine.data, year);
+    if (value !== null) setRevUnitRpu(year, cohortYear, value);
+  });
+
+  saveScenarios();
+  renderRevUnitPlan();
+}
+
+function renderRevUnitPlan() {
+  renderRevUnitEditorMode();
+  renderRevUnitEditorControl();
+  renderRevUnitOutputCharts();
+  renderRevUnitTable();
+  syncRevUnitCharts();
+}
+
+function renderRevUnitOutputCharts() {
+  const scenario = activeScenario();
+  const hhpOutputs = calculateOutputs(scenario);
+  if (state.outputCharts.revUnitRevenueComparison) {
+    state.outputCharts.revUnitRevenueComparison.setOption({
+      animation: false,
+      tooltip: {
+        trigger: "axis",
+        formatter: params => [
+          tooltipHeader(params[0]?.axisValue),
+          ...params.map(item => `${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 0)}`),
+        ].join("<br/>"),
+      },
+      legend: { top: 0 },
+      grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+      xAxis: { type: "category", data: YEARS.map(String) },
+      yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
+      series: [
+        { name: "Plan Revenue", type: "line", data: planRevenue, symbolSize: 6, lineStyle: { color: "#111827", width: 2 }, itemStyle: { color: "#111827" } },
+        { name: "HHP Model", type: "line", data: hhpOutputs.revenue, symbolSize: 6, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+        { name: "Rev / Unit Model", type: "line", data: YEARS.map(year => revUnitTotalRevenueValue(scenario, year) || 0), symbolSize: 6, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+      ],
+    }, true);
+  }
+
+  if (state.outputCharts.revUnitAggregateRpu) {
+    state.outputCharts.revUnitAggregateRpu.setOption({
+      animation: false,
+      tooltip: {
+        trigger: "axis",
+        formatter: params => [
+          tooltipHeader(params[0]?.axisValue),
+          ...params.map(item => `${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 2)}`),
+        ].join("<br/>"),
+      },
+      grid: { left: 12, right: 18, top: 18, bottom: 36, containLabel: true },
+      xAxis: { type: "category", data: REV_UNIT_YEARS.map(String) },
+      yAxis: { type: "value", axisLabel: { formatter: value => formatCurrency(Number(value), 0) } },
+      series: [{
+        name: "Aggregate Rev / Cumulative Unit",
+        type: "line",
+        data: REV_UNIT_YEARS.map(year => revUnitAggregateRpuValue(scenario, year) || 0),
+        areaStyle: { color: "rgba(79, 127, 184, 0.12)" },
+        symbolSize: 6,
+        lineStyle: { color: BOTTOM_UP_COLOR, width: 2 },
+        itemStyle: { color: BOTTOM_UP_COLOR },
+      }],
+    }, true);
+  }
+}
+
+function renderRevUnitEditorMode() {
+  document.getElementById("rev-unit-editor-cohort")?.classList.toggle("active", state.revUnitEditorMode === "cohort");
+  document.getElementById("rev-unit-editor-all-cohorts")?.classList.toggle("active", state.revUnitEditorMode === "allCohorts");
+}
+
+function renderRevUnitEditorControl() {
+  const slider = document.getElementById("rev-unit-editor-slider");
+  const label = document.getElementById("rev-unit-editor-slider-label");
+  const value = document.getElementById("rev-unit-editor-slider-value");
+  const referenceControl = document.getElementById("rev-unit-reference-control");
+  const referenceSlider = document.getElementById("rev-unit-reference-cohort-slider");
+  const referenceValue = document.getElementById("rev-unit-reference-cohort-value");
+  const referenceShiftControl = document.getElementById("rev-unit-reference-shift-control");
+  const referenceShift = document.getElementById("rev-unit-reference-shift");
+  if (referenceControl) referenceControl.style.display = state.revUnitEditorMode === "cohort" ? "" : "none";
+  if (referenceShiftControl) referenceShiftControl.style.display = state.revUnitEditorMode === "cohort" ? "" : "none";
+  if (referenceShift) referenceShift.checked = state.revUnitReferenceShifted;
+  if (referenceSlider && referenceValue) {
+    referenceSlider.max = String(REV_UNIT_YEARS.length - 1);
+    referenceSlider.value = String(Math.max(0, REV_UNIT_YEARS.indexOf(state.revUnitReferenceCohortYear)));
+    referenceValue.value = String(state.revUnitReferenceCohortYear);
+  }
+  if (!slider || !label || !value) return;
+  const control = slider.closest(".slider-control");
+  if (control) control.style.display = state.revUnitEditorMode === "allCohorts" ? "none" : "";
+  if (state.revUnitEditorMode === "allCohorts") return;
+  const items = revUnitEditorItems();
+  const selected = selectedRevUnitEditorValue();
+  slider.max = String(Math.max(0, items.length - 1));
+  slider.value = String(Math.max(0, items.indexOf(selected)));
+  label.textContent = "Property Cohort";
+  value.value = String(selected);
+}
+
+function renderRevUnitTable() {
+  const table = document.getElementById("rev-unit-table");
+  if (!table) return;
+  const scenario = activeScenario();
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th class="unit-section" rowspan="2">YEAR</th>
+        <th class="unit-section" rowspan="2">NEW UNITS</th>
+        <th class="unit-section" rowspan="2">CUMULATIVE_NEW_UNITS</th>
+        <th class="unit-section" rowspan="2">TOTAL_REVENUE</th>
+        <th class="section-divider" colspan="${REV_UNIT_YEARS.length}">REV_PER_UNIT</th>
+        <th class="section-divider unaffiliated-section" rowspan="2">UNAFFILIATED_REVENUE</th>
+      </tr>
+      <tr>
+        ${REV_UNIT_YEARS.map((year, index) => `<th class="${index === 0 ? "section-divider" : ""}">${year}</th>`).join("")}
+      </tr>
+    </thead>
+    <tbody>
+      ${REV_UNIT_YEARS.map(year => {
+        const revenue = revUnitTotalRevenueValue(scenario, year);
+        return `
+          <tr>
+            <td>${year}</td>
+            ${renderRevUnitNewUnitsCell(scenario, year)}
+            <td class="output unit-output">${formatValue(revUnitCumulativeNewUnits(scenario, year), "integer")}</td>
+            <td class="output revenue-output">${revenue === null ? "-" : formatCurrency(revenue, 0)}</td>
+            ${REV_UNIT_YEARS.map((cohortYear, index) => {
+              const value = revUnitRpuValue(scenario, year, cohortYear);
+              const classes = [
+                index === 0 ? "section-divider" : "",
+                year === cohortYear ? "input" : "output",
+              ].filter(Boolean).join(" ");
+              return `<td class="${classes}">${value === null ? "-" : formatCurrency(value, 2)}</td>`;
+            }).join("")}
+            <td class="section-divider output unaffiliated-output">${formatOptionalCurrency(unaffiliatedRevenueValue(scenario, year))}</td>
+          </tr>
+        `;
+      }).join("")}
+    </tbody>
+  `;
+
+  table.querySelectorAll("input[data-rev-unit-year]").forEach(input => {
+    input.addEventListener("change", event => {
+      const year = Number(event.target.dataset.revUnitYear);
+      const parsed = parseInput(event.target.value, "integer");
+      if (parsed === null) {
+        event.target.value = formatValue(revUnitNewUnitsValue(activeScenario(), year), "integer");
+        return;
+      }
+      const value = Math.max(0, Math.round(parsed));
+      if (value === revUnitNewUnitsValue(activeScenario(), year)) return;
+      pushUndoSnapshot();
+      setRevUnitNewUnits(year, value);
+      saveScenarios();
+      renderRevUnitPlan();
+    });
+  });
+}
+
+function renderRevUnitNewUnitsCell(scenario, year) {
+  const value = revUnitNewUnitsValue(scenario, year);
+  if (year > REV_UNIT_LAST_HISTORICAL_YEAR) {
+    return `
+      <td class="input unit-input">
+        <input data-rev-unit-year="${year}" value="${formatValue(value, "integer")}" aria-label="New units ${year}" />
+      </td>
+    `;
+  }
+  return `<td class="historical unit-input">${formatValue(value, "integer")}</td>`;
 }
 
 function renderNewCustomerSourceControl() {
@@ -1117,42 +2672,70 @@ function renderNewCustomerYearEditorControl() {
 }
 
 function renderNewCustomerEditorMode() {
-  document.getElementById("new-customers-editor-per-cohort").classList.toggle("active", state.cohortEditorMode === "perCohort");
-  document.getElementById("new-customers-editor-per-year").classList.toggle("active", state.cohortEditorMode === "perYear");
-  document.getElementById("new-customers-editor-new-properties").classList.toggle("active", state.cohortEditorMode === "newProperties");
-  document.getElementById("new-customers-per-cohort-editor").classList.toggle("active", state.cohortEditorMode === "perCohort");
-  document.getElementById("new-customers-per-year-editor").classList.toggle("active", state.cohortEditorMode === "perYear");
-  document.getElementById("new-customers-new-properties-editor").classList.toggle("active", state.cohortEditorMode === "newProperties");
+  if (!["perCohort", "allCohorts"].includes(state.cohortEditorMode)) {
+    state.cohortEditorMode = "perCohort";
+  }
+  document.getElementById("new-customers-editor-per-cohort")?.classList.toggle("active", state.cohortEditorMode === "perCohort");
+  document.getElementById("new-customers-editor-all-cohorts")?.classList.toggle("active", state.cohortEditorMode === "allCohorts");
+  document.getElementById("new-customers-per-cohort-editor")?.classList.toggle("active", state.cohortEditorMode === "perCohort");
+  document.getElementById("new-customers-per-year-editor")?.classList.toggle("active", state.cohortEditorMode === "perYear");
+  document.getElementById("new-customers-new-properties-editor")?.classList.toggle("active", state.cohortEditorMode === "newProperties");
+  document.getElementById("new-customers-all-cohorts-editor")?.classList.toggle("active", state.cohortEditorMode === "allCohorts");
 }
 
 function renderNewCustomerDrilldownCharts() {
   const comparison = compareScenario();
   const comparisonTotals = comparison ? bottomUpNewCustomers(comparison) : null;
-  const activeTotals = bottomUpNewCustomers(activeScenario());
-  const topDownOutputs = calculateOutputsWithNewCustomers(activeScenario(), activeScenario().drivers.newCustomers);
-  const bottomUpOutputs = calculateOutputsWithNewCustomers(activeScenario(), activeTotals);
+  const activeTotals = visibleBottomUpNewCustomers();
+  const activeTopDown = activeScenario().drivers.newCustomers;
+  const activeDeltaToTopDown = activeTotals.map((value, index) => {
+    const delta = value - activeTopDown[index];
+    return Math.abs(delta) < 0.000001 ? 0 : delta;
+  });
+  const comparisonDeltaToTopDown = comparison && comparisonTotals
+    ? comparisonTotals.map((value, index) => value - comparison.drivers.newCustomers[index])
+    : null;
   state.outputCharts.newCustomerDrilldown.setOption({
     animation: false,
     tooltip: {
       trigger: "axis",
-      formatter: params => [
-        tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 0)}`),
-      ].join("<br/>"),
+      formatter: params => {
+        const year = Number(params[0]?.axisValue);
+        const index = YEARS.indexOf(year);
+        const topDownMarker = `<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background:${TOP_DOWN_COLOR};"></span>`;
+        const bottomUpMarker = `<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background:${BOTTOM_UP_COLOR};"></span>`;
+        return [
+          tooltipHeader(year),
+          `${topDownMarker} Top-Down: ${Math.round(activeTopDown[index] || 0).toLocaleString("en-US")}`,
+          `${bottomUpMarker} Bottom-Up: ${Math.round(activeTotals[index] || 0).toLocaleString("en-US")}`,
+          ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+        ].join("<br/>");
+      },
     },
     legend: { top: 0 },
     grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
     xAxis: { type: "category", data: YEARS.map(String) },
-    yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
     series: [
-      { name: "Plan Revenue", type: "line", data: planRevenue, symbolSize: 6, lineStyle: { color: "#111827", width: 2 }, itemStyle: { color: "#111827" } },
-      { name: `${activeScenario().name} Top-Down`, type: "line", data: topDownOutputs.revenue, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
-      { name: `${activeScenario().name} Bottom-Up`, type: "line", data: bottomUpOutputs.revenue, symbolSize: 5, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+      {
+        name: `${activeScenario().name} Delta`,
+        type: "bar",
+        data: activeDeltaToTopDown,
+        itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
+      },
+      ...(comparisonDeltaToTopDown ? [{
+        name: `${comparison.name} Delta`,
+        type: "line",
+        data: comparisonDeltaToTopDown,
+        symbolSize: 5,
+        lineStyle: { color: "#98a2b3", width: 2 },
+        itemStyle: { color: "#98a2b3" },
+      }] : []),
     ],
   }, true);
 
   const totalSeries = [
-    { name: `${activeScenario().name} Top-Down`, type: "line", data: activeScenario().drivers.newCustomers, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+    { name: `${activeScenario().name} Top-Down`, type: "line", data: activeTopDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
     { name: `${activeScenario().name} Bottom-Up`, type: "line", data: activeTotals, symbolSize: 5, z: 3, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
   ];
   if (comparisonTotals) {
@@ -1174,6 +2757,265 @@ function renderNewCustomerDrilldownCharts() {
     series: totalSeries,
   }, true);
 
+}
+
+function renderNewCustomerUnitDrilldown() {
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const topDown = YEARS.map(year => newPropertyCohortValue(scenario.newCustomerDrilldown.counts, year));
+  const bottomUp = YEARS.map(year => visibleNewCustomerUnitBottomUpValue(year));
+  const delta = bottomUp.map((value, index) => Math.abs(value - topDown[index]) < 0.000001 ? 0 : value - topDown[index]);
+  const comparisonBottomUp = comparison ? YEARS.map(year => newCustomerUnitBottomUpValue(comparison, year)) : null;
+  const comparisonDelta = comparison
+    ? comparisonBottomUp.map((value, index) => value - newPropertyCohortValue(comparison.newCustomerDrilldown.counts, YEARS[index]))
+    : null;
+
+  state.outputCharts.newCustomerUnitBridge?.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+      ].join("<br/>"),
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 58, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
+    series: [
+      { name: "New Properties Top-Down", type: "line", data: topDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+      { name: "Unit Build", type: "line", data: bottomUp, symbolSize: 5, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+      ...(comparisonBottomUp ? [{
+        name: `${comparison.name} Unit Build`,
+        type: "line",
+        data: comparisonBottomUp,
+        symbolSize: 5,
+        lineStyle: { color: "#98a2b3", width: 2 },
+        itemStyle: { color: "#98a2b3" },
+      }] : []),
+    ],
+  }, true);
+
+  state.outputCharts.newCustomerUnitDelta?.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+      ].join("<br/>"),
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
+    series: [
+      {
+        name: "Unit Build Delta",
+        type: "bar",
+        data: delta,
+        itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
+      },
+      ...(comparisonDelta ? [{
+        name: `${comparison.name} Delta`,
+        type: "line",
+        data: comparisonDelta,
+        symbolSize: 5,
+        lineStyle: { color: "#98a2b3", width: 2 },
+        itemStyle: { color: "#98a2b3" },
+      }] : []),
+    ],
+  }, true);
+
+  renderNewCustomerNewUnitsDrilldown();
+}
+
+function renderNewCustomerNewUnitsDrilldown() {
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const topDown = YEARS.map(year => newCustomerUnitNewUnitsValue(scenario, year));
+  const bottomUp = YEARS.map(year => visibleNewCustomerNewUnitsBottomUpValue(year));
+  const delta = bottomUp.map((value, index) => Math.abs(value - topDown[index]) < 0.000001 ? 0 : value - topDown[index]);
+  const comparisonTopDown = comparison ? YEARS.map(year => newCustomerUnitNewUnitsValue(comparison, year)) : null;
+  const comparisonBottomUp = comparison ? YEARS.map(year => newCustomerNewUnitsBottomUpValue(comparison, year)) : null;
+  const comparisonDelta = comparison && comparisonBottomUp
+    ? comparisonBottomUp.map((value, index) => value - comparisonTopDown[index])
+    : null;
+
+  state.outputCharts.newCustomerNewUnitsBridge?.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+      ].join("<br/>"),
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 58, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
+    series: [
+      { name: "New Units Top-Down", type: "line", data: topDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+      { name: "Property Build", type: "line", data: bottomUp, symbolSize: 5, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+      ...(comparisonBottomUp ? [{
+        name: `${comparison.name} Property Build`,
+        type: "line",
+        data: comparisonBottomUp,
+        symbolSize: 5,
+        lineStyle: { color: "#98a2b3", width: 2 },
+        itemStyle: { color: "#98a2b3" },
+      }] : []),
+    ],
+  }, true);
+
+  state.outputCharts.newCustomerNewUnitsDelta?.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+      ].join("<br/>"),
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
+    series: [
+      {
+        name: "Property Build Delta",
+        type: "bar",
+        data: delta,
+        itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
+      },
+      ...(comparisonDelta ? [{
+        name: `${comparison.name} Delta`,
+        type: "line",
+        data: comparisonDelta,
+        symbolSize: 5,
+        lineStyle: { color: "#98a2b3", width: 2 },
+        itemStyle: { color: "#98a2b3" },
+      }] : []),
+    ],
+  }, true);
+}
+
+function renderNewCustomerAllCohortsChart() {
+  const chart = state.outputCharts.newCustomerAllCohorts;
+  if (!chart) return;
+  const counts = activeScenario().newCustomerDrilldown.counts;
+  const chartType = state.newCustomerAllCohortsChartType;
+  const isArea = chartType === "area";
+  const isBar = chartType === "bar";
+  const highlightLookup = newCustomerAllCohortsHighlightLookup();
+  const cohortNames = NEW_CUSTOMER_COHORT_YEARS.map(cohortLabel);
+  const baseSeries = NEW_CUSTOMER_COHORT_YEARS.map(cohortYear => {
+    const color = newCustomerCohortColor(cohortYear);
+    const highlightedYears = highlightLookup.get(Number(cohortYear)) || new Set();
+    return {
+      name: cohortLabel(cohortYear),
+      type: isBar ? "bar" : "line",
+      data: YEARS.map(year => {
+        if (!newCustomerCohortApplies(cohortYear, year)) return null;
+        const value = newCustomerCohortValue(counts, year, cohortYear);
+        if (!isBar || !highlightedYears.has(year)) return value;
+        return {
+          value,
+          itemStyle: {
+            color,
+            borderColor: "#111827",
+            borderWidth: 3,
+            shadowColor: "rgba(17, 24, 39, 0.28)",
+            shadowBlur: 8,
+          },
+        };
+      }),
+      connectNulls: false,
+      symbolSize: 5,
+      lineStyle: { color, width: isArea ? 1.8 : 2 },
+      itemStyle: { color },
+      ...(isBar ? { stack: "newCustomersByCohort", barMaxWidth: 48 } : {}),
+      ...(isArea ? { stack: "newCustomersByCohort", areaStyle: { color, opacity: 0.58 } } : {}),
+      emphasis: {
+        focus: "series",
+        blurScope: "coordinateSystem",
+        lineStyle: { width: 5 },
+        itemStyle: { borderColor: "#111827", borderWidth: 2 },
+        ...(isArea ? { areaStyle: { opacity: 0.78 } } : {}),
+      },
+      blur: {
+        lineStyle: { opacity: 0.14 },
+        itemStyle: { opacity: 0.14 },
+        ...(isArea ? { areaStyle: { opacity: 0.12 } } : {}),
+      },
+    };
+  });
+  document.getElementById("new-customers-all-cohorts-line")?.classList.toggle("active", chartType === "line");
+  document.getElementById("new-customers-all-cohorts-area")?.classList.toggle("active", isArea);
+  document.getElementById("new-customers-all-cohorts-bar")?.classList.toggle("active", isBar);
+  chart.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params
+          .filter(item => item.value !== null && item.value !== undefined)
+          .map(item => {
+            const value = typeof item.value === "object" && item.value !== null ? item.value.value : item.value;
+            return `${item.marker} ${item.seriesName}: ${Math.round(Number(value)).toLocaleString("en-US")}`;
+          }),
+      ].join("<br/>"),
+    },
+    legend: { type: "scroll", top: 0, data: cohortNames },
+    grid: { left: 12, right: 18, top: 48, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
+    series: isBar ? baseSeries : [...baseSeries, ...newCustomerAllCohortsHighlightSeries(counts, { stacked: isArea })],
+  }, true);
+}
+
+function newCustomerAllCohortsHighlightLookup() {
+  const lookup = new Map();
+  (state.newCustomerAllCohortsHighlights || []).forEach(highlight => {
+    const cohortYear = Number(highlight.cohortYear);
+    if (!Number.isFinite(cohortYear)) return;
+    if (!lookup.has(cohortYear)) lookup.set(cohortYear, new Set());
+    const years = lookup.get(cohortYear);
+    (highlight.years || []).forEach(year => {
+      const numericYear = Number(year);
+      if (Number.isFinite(numericYear)) years.add(numericYear);
+    });
+  });
+  return lookup;
+}
+
+function newCustomerAllCohortsHighlightSeries(counts, { stacked = false } = {}) {
+  return (state.newCustomerAllCohortsHighlights || []).map((highlight, index) => {
+    const cohortYear = Number(highlight.cohortYear);
+    const years = new Set((highlight.years || []).map(Number));
+    const color = newCustomerCohortColor(cohortYear);
+    return {
+      name: `Affected ${index + 1}`,
+      type: "line",
+      data: YEARS.map(year => {
+        if (!years.has(year) || !newCustomerCohortApplies(cohortYear, year)) return null;
+        return stacked
+          ? newCustomerCohortStackValue(counts, year, cohortYear)
+          : newCustomerCohortValue(counts, year, cohortYear);
+      }),
+      connectNulls: false,
+      silent: true,
+      z: 20,
+      showSymbol: true,
+      symbolSize: 8,
+      lineStyle: { color, width: 6, opacity: 0.95 },
+      itemStyle: { color, borderColor: "#111827", borderWidth: 1 },
+      tooltip: { show: false },
+    };
+  });
 }
 
 function cohortCountChartLines() {
@@ -1372,39 +3214,363 @@ function newPropertiesYoyChartLines() {
   return lines;
 }
 
-function syncNewCustomerCohortEditors() {
+function bridgeExistingChartLines() {
+  const activeCounts = activeScenario().newCustomerDrilldown.counts;
+  const controlKey = napkinControlKey("bridgeExistingProperties");
+  const defaultPairs = YEARS.map(year => [year, existingPropertyNewCustomersTotal(activeCounts, year)]);
+  const lines = [{
+    name: "Existing Properties",
+    color: BOTTOM_UP_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: controlledNapkinPairs(controlKey, defaultPairs),
+  }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${comparison.name}`,
+      color: "#98a2b3",
+      editable: false,
+      data: YEARS.map(year => [year, existingPropertyNewCustomersTotal(comparison.newCustomerDrilldown.counts, year)]),
+    });
+  }
+  return lines;
+}
+
+function bridgeNewChartLines() {
+  const activeCounts = activeScenario().newCustomerDrilldown.counts;
+  const controlKey = napkinControlKey("bridgeNewProperties");
+  const defaultPairs = YEARS.map(year => [year, newPropertyCohortValue(activeCounts, year)]);
+  const lines = [{
+    name: "New Properties",
+    color: BOTTOM_UP_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: controlledNapkinPairs(controlKey, defaultPairs),
+  }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${comparison.name}`,
+      color: "#98a2b3",
+      editable: false,
+      data: YEARS.map(year => [year, newPropertyCohortValue(comparison.newCustomerDrilldown.counts, year)]),
+    });
+  }
+  return lines;
+}
+
+function newCustomerUnitNewUnitsChartLines() {
+  const lines = [{
+    name: "New Units",
+    color: TOP_DOWN_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: controlledNewCustomerUnitPairs("newUnits", newCustomerUnitNewUnitsPairs(activeScenario())),
+  }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${comparison.name}`,
+      color: "#98a2b3",
+      editable: false,
+      data: newCustomerUnitNewUnitsPairs(comparison),
+    });
+  }
+  return lines;
+}
+
+function newCustomerUnitCustomersPerUnitChartLines() {
+  const lines = [{
+    name: "New Customers / Unit",
+    color: BOTTOM_UP_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: controlledNewCustomerUnitPairs("customersPerUnit", newCustomerUnitCustomersPerUnitPairs(activeScenario())),
+  }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${comparison.name}`,
+      color: "#98a2b3",
+      editable: false,
+      data: newCustomerUnitCustomersPerUnitPairs(comparison),
+    });
+  }
+  return lines;
+}
+
+function newCustomerNewUnitsPropertiesChartLines() {
+  const lines = [{
+    name: "New Properties",
+    color: TOP_DOWN_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: controlledNewCustomerNewUnitsPairs("newProperties", newCustomerNewUnitsNewPropertiesPairs(activeScenario())),
+  }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${comparison.name}`,
+      color: "#98a2b3",
+      editable: false,
+      data: newCustomerNewUnitsNewPropertiesPairs(comparison),
+    });
+  }
+  return lines;
+}
+
+function newCustomerNewUnitsUnitsPerPropertyChartLines() {
+  const lines = [{
+    name: "Units / Property",
+    color: BOTTOM_UP_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: controlledNewCustomerNewUnitsPairs("unitsPerNewProperty", newCustomerNewUnitsUnitsPerPropertyPairs(activeScenario())),
+  }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${comparison.name}`,
+      color: "#98a2b3",
+      editable: false,
+      data: newCustomerNewUnitsUnitsPerPropertyPairs(comparison),
+    });
+  }
+  return lines;
+}
+
+function setNewPropertyTopDownToUnitBuild() {
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  const years = YEARS.filter(editableYear);
+  years.forEach(year => {
+    setNewCustomerCohortValuePreservingFutureYoy(
+      scenario.newCustomerDrilldown.counts,
+      year,
+      year,
+      visibleNewCustomerUnitBottomUpValue(year)
+    );
+  });
+  ensureControlPointsForYears(
+    scenario.newCustomerDrilldown.controlPoints,
+    napkinControlKey("bridgeNewProperties"),
+    years
+  );
+  ensureControlPointsForYears(
+    scenario.newCustomerDrilldown.controlPoints,
+    napkinControlKey("newPropertiesCount"),
+    years
+  );
+  saveScenarios();
+  syncDriverCharts();
+  renderAfterNewCustomerChartChange();
+}
+
+function setTotalNewCustomersTopDownToBottomUp() {
+  pushUndoSnapshot();
+  activeScenario().newCustomerSource = "topDown";
+  YEARS.forEach((year, index) => {
+    if (editableYear(year)) {
+      activeScenario().drivers.newCustomers[index] = visibleBottomUpNewCustomersValue(year);
+    }
+  });
+  saveScenarios();
+  syncDriverCharts();
+  syncRevUnitCharts();
+  renderAfterNewCustomerChartChange();
+}
+
+function setNewUnitsTopDownToPropertyBuild() {
+  pushUndoSnapshot();
+  const years = YEARS.filter(editableYear);
+  years.forEach(year => {
+    setNewCustomerUnitNewUnits(year, visibleNewCustomerNewUnitsBottomUpValue(year), { exact: true });
+  });
+  ensureControlPointsForYears(newCustomerUnitControlPoints(), "newUnits", years);
+  saveScenarios();
+  renderAfterNewCustomerChartChange();
+}
+
+function matchNewCustomerUnitNewUnitsToTopDown() {
+  pushUndoSnapshot();
+  const counts = activeScenario().newCustomerDrilldown.counts;
+  const years = YEARS.filter(editableYear);
+  years.forEach(year => {
+    const targetNewCustomers = newPropertyCohortValue(counts, year);
+    const customersPerUnit = visibleNewCustomerUnitValue(
+      "customersPerUnit",
+      newCustomerUnitCustomersPerUnitPairs(activeScenario()),
+      year,
+      newCustomerUnitCustomersPerUnitValue(activeScenario(), year)
+    );
+    setNewCustomerUnitNewUnits(year, customersPerUnit > 0 ? targetNewCustomers / customersPerUnit : 0, { exact: true });
+  });
+  ensureControlPointsForYears(newCustomerUnitControlPoints(), "newUnits", years);
+  saveScenarios();
+  renderAfterNewCustomerChartChange();
+}
+
+function matchNewCustomerUnitCustomersPerUnitToTopDown() {
+  pushUndoSnapshot();
+  const counts = activeScenario().newCustomerDrilldown.counts;
+  const years = YEARS.filter(editableYear);
+  years.forEach(year => {
+    const targetNewCustomers = newPropertyCohortValue(counts, year);
+    const newUnits = visibleNewCustomerUnitValue(
+      "newUnits",
+      newCustomerUnitNewUnitsPairs(activeScenario()),
+      year,
+      newCustomerUnitNewUnitsValue(activeScenario(), year)
+    );
+    setNewCustomerUnitCustomersPerUnit(year, newUnits > 0 ? targetNewCustomers / newUnits : 0, { exact: true });
+  });
+  ensureControlPointsForYears(newCustomerUnitControlPoints(), "customersPerUnit", years);
+  saveScenarios();
+  renderAfterNewCustomerChartChange();
+}
+
+function matchNewCustomerNewUnitsPropertiesToTopDown() {
+  pushUndoSnapshot();
+  const years = YEARS.filter(editableYear);
+  years.forEach(year => {
+    const targetNewUnits = visibleNewCustomerUnitValue(
+      "newUnits",
+      newCustomerUnitNewUnitsPairs(activeScenario()),
+      year,
+      newCustomerUnitNewUnitsValue(activeScenario(), year)
+    );
+    const unitsPerProperty = visibleNewCustomerNewUnitsValue(
+      "unitsPerNewProperty",
+      newCustomerNewUnitsUnitsPerPropertyPairs(activeScenario()),
+      year,
+      newCustomerNewUnitsUnitsPerPropertyValue(activeScenario(), year)
+    );
+    setNewCustomerNewUnitsNewProperties(year, unitsPerProperty > 0 ? targetNewUnits / unitsPerProperty : 0, { exact: true });
+  });
+  ensureControlPointsForYears(newCustomerNewUnitsControlPoints(), "newProperties", years);
+  saveScenarios();
+  renderAfterNewCustomerChartChange();
+}
+
+function matchNewCustomerNewUnitsUnitsPerPropertyToTopDown() {
+  pushUndoSnapshot();
+  const years = YEARS.filter(editableYear);
+  years.forEach(year => {
+    const targetNewUnits = visibleNewCustomerUnitValue(
+      "newUnits",
+      newCustomerUnitNewUnitsPairs(activeScenario()),
+      year,
+      newCustomerUnitNewUnitsValue(activeScenario(), year)
+    );
+    const newProperties = visibleNewCustomerNewUnitsValue(
+      "newProperties",
+      newCustomerNewUnitsNewPropertiesPairs(activeScenario()),
+      year,
+      newCustomerNewUnitsNewPropertiesValue(activeScenario(), year)
+    );
+    setNewCustomerNewUnitsUnitsPerProperty(year, newProperties > 0 ? targetNewUnits / newProperties : 0, { exact: true });
+  });
+  ensureControlPointsForYears(newCustomerNewUnitsControlPoints(), "unitsPerNewProperty", years);
+  saveScenarios();
+  renderAfterNewCustomerChartChange();
+}
+
+function syncNewCustomerCohortEditors({ excludeChart = null } = {}) {
   state.syncingCohortCharts = true;
-  if (state.cohortCharts.count) {
-    state.cohortCharts.count.lines = cohortCountChartLines();
+  if (state.cohortCharts.count && state.cohortCharts.count !== excludeChart) {
+    state.cohortCharts.count.lines = safeNapkinLines(cohortCountChartLines());
     state.cohortCharts.count._refreshChart();
     styleComparisonSeries(state.cohortCharts.count);
   }
-  if (state.cohortCharts.yoy) {
-    state.cohortCharts.yoy.lines = cohortYoyChartLines();
+  if (state.cohortCharts.yoy && state.cohortCharts.yoy !== excludeChart) {
+    state.cohortCharts.yoy.lines = safeNapkinLines(cohortYoyChartLines());
     state.cohortCharts.yoy._refreshChart();
     styleComparisonSeries(state.cohortCharts.yoy);
   }
-  if (state.cohortCharts.yearExisting) {
+  if (state.cohortCharts.yearExisting && state.cohortCharts.yearExisting !== excludeChart) {
     const year = selectedNewCustomerYearEditorYear();
     const cohorts = existingPropertyCohortsForYear(year);
     syncYearEditorChart(state.cohortCharts.yearExisting, cohorts, yearExistingChartLines());
   }
-  if (state.cohortCharts.yearExistingYoy) {
+  if (state.cohortCharts.yearExistingYoy && state.cohortCharts.yearExistingYoy !== excludeChart) {
     const year = selectedNewCustomerYearEditorYear();
     const cohorts = existingPropertyCohortsForYear(year);
     syncYearEditorChart(state.cohortCharts.yearExistingYoy, cohorts, yearExistingYoyChartLines());
   }
-  if (state.cohortCharts.newPropertiesCount) {
-    state.cohortCharts.newPropertiesCount.lines = newPropertiesCountChartLines();
+  if (state.cohortCharts.newPropertiesCount && state.cohortCharts.newPropertiesCount !== excludeChart) {
+    state.cohortCharts.newPropertiesCount.lines = safeNapkinLines(newPropertiesCountChartLines());
     state.cohortCharts.newPropertiesCount._refreshChart();
     styleComparisonSeries(state.cohortCharts.newPropertiesCount);
   }
-  if (state.cohortCharts.newPropertiesYoy) {
-    state.cohortCharts.newPropertiesYoy.lines = newPropertiesYoyChartLines();
+  if (state.cohortCharts.newPropertiesYoy && state.cohortCharts.newPropertiesYoy !== excludeChart) {
+    state.cohortCharts.newPropertiesYoy.lines = safeNapkinLines(newPropertiesYoyChartLines());
     state.cohortCharts.newPropertiesYoy._refreshChart();
     styleComparisonSeries(state.cohortCharts.newPropertiesYoy);
   }
+  if (state.cohortCharts.bridgeExisting && state.cohortCharts.bridgeExisting !== excludeChart) {
+    state.cohortCharts.bridgeExisting.lines = safeNapkinLines(bridgeExistingChartLines());
+    state.cohortCharts.bridgeExisting._refreshChart();
+    styleComparisonSeries(state.cohortCharts.bridgeExisting);
+  }
+  if (state.cohortCharts.bridgeNew && state.cohortCharts.bridgeNew !== excludeChart) {
+    state.cohortCharts.bridgeNew.lines = safeNapkinLines(bridgeNewChartLines());
+    state.cohortCharts.bridgeNew._refreshChart();
+    styleComparisonSeries(state.cohortCharts.bridgeNew);
+  }
+  if (state.cohortCharts.unitNewUnits && state.cohortCharts.unitNewUnits !== excludeChart) {
+    state.cohortCharts.unitNewUnits.lines = safeNapkinLines(newCustomerUnitNewUnitsChartLines());
+    state.cohortCharts.unitNewUnits._refreshChart();
+    styleComparisonSeries(state.cohortCharts.unitNewUnits);
+  }
+  if (state.cohortCharts.unitCustomersPerUnit && state.cohortCharts.unitCustomersPerUnit !== excludeChart) {
+    state.cohortCharts.unitCustomersPerUnit.lines = safeNapkinLines(newCustomerUnitCustomersPerUnitChartLines());
+    state.cohortCharts.unitCustomersPerUnit._refreshChart();
+    styleComparisonSeries(state.cohortCharts.unitCustomersPerUnit);
+  }
+  if (state.cohortCharts.newUnitsProperties && state.cohortCharts.newUnitsProperties !== excludeChart) {
+    state.cohortCharts.newUnitsProperties.lines = safeNapkinLines(newCustomerNewUnitsPropertiesChartLines());
+    state.cohortCharts.newUnitsProperties._refreshChart();
+    styleComparisonSeries(state.cohortCharts.newUnitsProperties);
+  }
+  if (state.cohortCharts.newUnitsUnitsPerProperty && state.cohortCharts.newUnitsUnitsPerProperty !== excludeChart) {
+    state.cohortCharts.newUnitsUnitsPerProperty.lines = safeNapkinLines(newCustomerNewUnitsUnitsPerPropertyChartLines());
+    state.cohortCharts.newUnitsUnitsPerProperty._refreshChart();
+    styleComparisonSeries(state.cohortCharts.newUnitsUnitsPerProperty);
+  }
   state.syncingCohortCharts = false;
+}
+
+function safeNapkinLines(lines) {
+  return (lines || []).filter(line => Array.isArray(line.data) && line.data.length > 0);
+}
+
+function renderAfterNewCustomerChartChange(chart) {
+  renderAll({ excludeNewCustomerChart: chart?._isDragging ? chart : null });
 }
 
 function syncYearEditorChart(chart, cohorts, lines) {
@@ -1413,7 +3579,7 @@ function syncYearEditorChart(chart, cohorts, lines) {
   chart.windowStartX = 0;
   chart.windowEndX = Math.max(0, cohorts.length - 1);
   chart.globalMaxX = Math.max(0, cohorts.length - 1);
-  chart.lines = lines;
+  chart.lines = safeNapkinLines(lines);
   chart.resize();
   chart._refreshChart();
   chart.resize();
@@ -1429,7 +3595,10 @@ function handleCohortCountChartChange(chart) {
   const cohortYear = selectedNewCustomerCohortYear();
   const changedXs = changedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
   rememberNapkinControlPoints(napkinControlKey("cohortCount", cohortYear), chart.lines[0].data);
-  changedXs.forEach(year => addNapkinControlPoint(napkinControlKey("cohortYoy", cohortYear), year));
+  changedXs.forEach(year => {
+    addNapkinControlPointIfControlled(napkinControlKey("cohortYoy", cohortYear), year);
+    addNapkinControlPointIfControlled(napkinControlKey("cohortYoy", cohortYear), year + 1);
+  });
   YEARS.forEach(year => {
     const value = interpolateNapkinLineValue(chart.lines[0].data, year);
     if (editableYear(year) && newCustomerCohortApplies(cohortYear, year) && value !== null) {
@@ -1438,7 +3607,7 @@ function handleCohortCountChartChange(chart) {
   });
   saveScenarios();
   syncDriverCharts();
-  renderAll();
+  renderAfterNewCustomerChartChange(chart);
 }
 
 function handleCohortYoyChartChange(chart) {
@@ -1450,7 +3619,11 @@ function handleCohortYoyChartChange(chart) {
   const cohortYear = selectedNewCustomerCohortYear();
   const changedXs = changedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
   rememberNapkinControlPoints(napkinControlKey("cohortYoy", cohortYear), chart.lines[0].data);
-  changedXs.forEach(year => addNapkinControlPoint(napkinControlKey("cohortCount", cohortYear), year));
+  changedXs.forEach(year => {
+    YEARS
+      .filter(item => editableYear(item) && item >= year)
+      .forEach(item => addNapkinControlPointIfControlled(napkinControlKey("cohortCount", cohortYear), item));
+  });
   YEARS.forEach(year => {
     const value = interpolateNapkinLineValue(chart.lines[0].data, year);
     if (editableYear(year) && value !== null) {
@@ -1459,7 +3632,7 @@ function handleCohortYoyChartChange(chart) {
   });
   saveScenarios();
   syncDriverCharts();
-  renderAll();
+  renderAfterNewCustomerChartChange(chart);
 }
 
 function interpolateNapkinLineValue(data, x) {
@@ -1502,7 +3675,7 @@ function handleYearExistingChartChange(chart) {
   });
   saveScenarios();
   syncDriverCharts();
-  renderAll();
+  renderAfterNewCustomerChartChange(chart);
 }
 
 function handleYearExistingYoyChartChange(chart) {
@@ -1524,7 +3697,7 @@ function handleYearExistingYoyChartChange(chart) {
   });
   saveScenarios();
   syncDriverCharts();
-  renderAll();
+  renderAfterNewCustomerChartChange(chart);
 }
 
 function handleNewPropertiesCountChartChange(chart) {
@@ -1533,18 +3706,19 @@ function handleNewPropertiesCountChartChange(chart) {
     pushUndoSnapshot(chart._appEditSnapshot);
     chart._appEditCommitted = true;
   }
-  const changedXs = changedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
+  const affectedYears = affectedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
   rememberNapkinControlPoints(napkinControlKey("newPropertiesCount"), chart.lines[0].data);
-  changedXs.forEach(year => addNapkinControlPoint(napkinControlKey("newPropertiesYoy"), year));
-  YEARS.forEach(year => {
+  affectedYears.forEach(year => addNapkinControlPoint(napkinControlKey("newPropertiesYoy"), year));
+  affectedYears.forEach(year => {
     const value = interpolateNapkinLineValue(chart.lines[0].data, year);
     if (editableYear(year) && value !== null) {
-      setNewCustomerCohortValue(activeScenario().newCustomerDrilldown.counts, year, year, Math.max(0, value));
+      setNewCustomerCohortValuePreservingFutureYoy(activeScenario().newCustomerDrilldown.counts, year, year, Math.max(0, value));
     }
   });
+  ensureBridgeExistingPointsForActuals();
   saveScenarios();
   syncDriverCharts();
-  renderAll();
+  renderAfterNewCustomerChartChange(chart);
 }
 
 function handleNewPropertiesYoyChartChange(chart) {
@@ -1553,19 +3727,128 @@ function handleNewPropertiesYoyChartChange(chart) {
     pushUndoSnapshot(chart._appEditSnapshot);
     chart._appEditCommitted = true;
   }
-  const changedXs = changedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
+  const affectedYears = affectedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
   rememberNapkinControlPoints(napkinControlKey("newPropertiesYoy"), chart.lines[0].data);
-  changedXs.forEach(year => addNapkinControlPoint(napkinControlKey("newPropertiesCount"), year));
-  YEARS.forEach(year => {
+  affectedYears.forEach(year => addNapkinControlPoint(napkinControlKey("newPropertiesCount"), year));
+  affectedYears.forEach(year => {
     const value = interpolateNapkinLineValue(chart.lines[0].data, year);
     const prior = newPropertyCohortValue(activeScenario().newCustomerDrilldown.counts, year - 1);
     if (editableYear(year) && prior && value !== null) {
-      setNewCustomerCohortValue(activeScenario().newCustomerDrilldown.counts, year, year, prior * (1 + (value / 100)));
+      setNewCustomerCohortValuePreservingFutureYoy(activeScenario().newCustomerDrilldown.counts, year, year, prior * (1 + (value / 100)));
+    }
+  });
+  ensureBridgeExistingPointsForActuals();
+  saveScenarios();
+  syncDriverCharts();
+  renderAfterNewCustomerChartChange(chart);
+}
+
+function handleBridgeExistingChartChange(chart) {
+  if (state.syncingCohortCharts) return;
+  if (chart._appEditSnapshot && !chart._appEditCommitted) {
+    pushUndoSnapshot(chart._appEditSnapshot);
+    chart._appEditCommitted = true;
+  }
+  const affectedYears = affectedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
+  rememberNapkinControlPoints(napkinControlKey("bridgeExistingProperties"), chart.lines[0].data);
+  affectedYears.forEach(year => {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (editableYear(year) && value !== null) {
+      setExistingPropertyNewCustomersTotal(activeScenario().newCustomerDrilldown.counts, year, Math.max(0, value));
+    }
+  });
+  ensureBridgeExistingPointsForActuals();
+  saveScenarios();
+  syncDriverCharts();
+  renderAfterNewCustomerChartChange(chart);
+}
+
+function handleBridgeNewChartChange(chart) {
+  if (state.syncingCohortCharts) return;
+  if (chart._appEditSnapshot && !chart._appEditCommitted) {
+    pushUndoSnapshot(chart._appEditSnapshot);
+    chart._appEditCommitted = true;
+  }
+  const affectedYears = affectedNapkinXs(chart._appEditLineSnapshot, chart.lines[0].data);
+  rememberNapkinControlPoints(napkinControlKey("bridgeNewProperties"), chart.lines[0].data);
+  affectedYears.forEach(year => {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (editableYear(year) && value !== null) {
+      setNewCustomerCohortValuePreservingFutureYoy(activeScenario().newCustomerDrilldown.counts, year, year, Math.max(0, value));
+    }
+  });
+  ensureBridgeExistingPointsForActuals();
+  saveScenarios();
+  syncDriverCharts();
+  renderAfterNewCustomerChartChange(chart);
+}
+
+function handleNewCustomerUnitNewUnitsChartChange(chart) {
+  if (state.syncingCohortCharts) return;
+  if (chart._appEditSnapshot && !chart._appEditCommitted) {
+    pushUndoSnapshot(chart._appEditSnapshot);
+    chart._appEditCommitted = true;
+  }
+  rememberNewCustomerUnitControlPoints("newUnits", chart.lines[0].data);
+  YEARS.forEach(year => {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (editableYear(year) && value !== null) {
+      setNewCustomerUnitNewUnits(year, value);
     }
   });
   saveScenarios();
-  syncDriverCharts();
-  renderAll();
+  renderAfterNewCustomerChartChange(chart);
+}
+
+function handleNewCustomerUnitCustomersPerUnitChartChange(chart) {
+  if (state.syncingCohortCharts) return;
+  if (chart._appEditSnapshot && !chart._appEditCommitted) {
+    pushUndoSnapshot(chart._appEditSnapshot);
+    chart._appEditCommitted = true;
+  }
+  rememberNewCustomerUnitControlPoints("customersPerUnit", chart.lines[0].data);
+  YEARS.forEach(year => {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (editableYear(year) && value !== null) {
+      setNewCustomerUnitCustomersPerUnit(year, value);
+    }
+  });
+  saveScenarios();
+  renderAfterNewCustomerChartChange(chart);
+}
+
+function handleNewCustomerNewUnitsPropertiesChartChange(chart) {
+  if (state.syncingCohortCharts) return;
+  if (chart._appEditSnapshot && !chart._appEditCommitted) {
+    pushUndoSnapshot(chart._appEditSnapshot);
+    chart._appEditCommitted = true;
+  }
+  rememberNewCustomerNewUnitsControlPoints("newProperties", chart.lines[0].data);
+  YEARS.forEach(year => {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (editableYear(year) && value !== null) {
+      setNewCustomerNewUnitsNewProperties(year, value);
+    }
+  });
+  saveScenarios();
+  renderAfterNewCustomerChartChange(chart);
+}
+
+function handleNewCustomerNewUnitsUnitsPerPropertyChartChange(chart) {
+  if (state.syncingCohortCharts) return;
+  if (chart._appEditSnapshot && !chart._appEditCommitted) {
+    pushUndoSnapshot(chart._appEditSnapshot);
+    chart._appEditCommitted = true;
+  }
+  rememberNewCustomerNewUnitsControlPoints("unitsPerNewProperty", chart.lines[0].data);
+  YEARS.forEach(year => {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (editableYear(year) && value !== null) {
+      setNewCustomerNewUnitsUnitsPerProperty(year, value);
+    }
+  });
+  saveScenarios();
+  renderAfterNewCustomerChartChange(chart);
 }
 
 function renderNewCustomerDrilldownTable() {
@@ -1688,24 +3971,71 @@ function renderNewCustomerYoyCell(cohortYear, year, value) {
   return `<td class="historical" ${attrs}>${formatted}</td>`;
 }
 
-function highlightNewCustomerCells({ countYear, countCohortYear, yoyYear, yoyCohortYear } = {}) {
-  clearNewCustomerCellHighlights();
-  if (countYear !== undefined && countCohortYear !== undefined) {
-    document
-      .querySelectorAll(`[data-count-year="${countYear}"][data-count-cohort-year="${countCohortYear}"]`)
-      .forEach(cell => cell.classList.add("linked-highlight"));
-  }
-  if (yoyYear !== undefined && yoyCohortYear !== undefined) {
-    document
-      .querySelectorAll(`[data-yoy-year="${yoyYear}"][data-yoy-cohort-year="${yoyCohortYear}"]`)
-      .forEach(cell => cell.classList.add("linked-highlight"));
-  }
+function numberList(value) {
+  const values = Array.isArray(value) ? value : [value];
+  return values.map(Number).filter(Number.isFinite);
 }
 
-function clearNewCustomerCellHighlights() {
+function allCohortsHighlightYears(years, cohortYear) {
+  const numericYears = numberList(years);
+  if (!numericYears.length) return [];
+  const uniqueYears = Array.from(new Set(numericYears)).sort((left, right) => left - right);
+  const firstYear = uniqueYears[0];
+  return YEARS.filter(item => item >= firstYear && newCustomerCohortApplies(cohortYear, item));
+}
+
+function setNewCustomerAllCohortsHighlightsFromPayload({ countYear, countYears, countCohortYear, countCohortYears } = {}) {
+  const years = numberList(countYears !== undefined ? countYears : countYear);
+  const cohortYears = numberList(countCohortYears !== undefined ? countCohortYears : countCohortYear);
+  const highlights = cohortYears
+    .map(cohortYear => ({ cohortYear, years: allCohortsHighlightYears(years, cohortYear) }))
+    .filter(highlight => highlight.years.length);
+  const key = JSON.stringify(highlights);
+  if (key === state.newCustomerAllCohortsHighlightKey) return;
+  state.newCustomerAllCohortsHighlightKey = key;
+  state.newCustomerAllCohortsHighlights = highlights;
+  renderNewCustomerAllCohortsChart();
+}
+
+function clearNewCustomerAllCohortsHighlights() {
+  if (!state.newCustomerAllCohortsHighlightKey) return;
+  state.newCustomerAllCohortsHighlightKey = "";
+  state.newCustomerAllCohortsHighlights = [];
+  renderNewCustomerAllCohortsChart();
+}
+
+function highlightNewCustomerCells({ countYear, countYears, countCohortYear, countCohortYears, yoyYear, yoyYears, yoyCohortYear, yoyCohortYears } = {}) {
+  clearNewCustomerTableCellHighlights();
+  setNewCustomerAllCohortsHighlightsFromPayload({ countYear, countYears, countCohortYear, countCohortYears });
+  const normalizedCountYears = numberList(countYears !== undefined ? countYears : countYear);
+  const normalizedCountCohortYears = numberList(countCohortYears !== undefined ? countCohortYears : countCohortYear);
+  normalizedCountYears.forEach(year => {
+    normalizedCountCohortYears.forEach(cohortYear => {
+      document
+        .querySelectorAll(`[data-count-year="${year}"][data-count-cohort-year="${cohortYear}"]`)
+        .forEach(cell => cell.classList.add("linked-highlight"));
+    });
+  });
+  const normalizedYoyYears = numberList(yoyYears !== undefined ? yoyYears : yoyYear);
+  const normalizedYoyCohortYears = numberList(yoyCohortYears !== undefined ? yoyCohortYears : yoyCohortYear);
+  normalizedYoyYears.forEach(year => {
+    normalizedYoyCohortYears.forEach(cohortYear => {
+      document
+        .querySelectorAll(`[data-yoy-year="${year}"][data-yoy-cohort-year="${cohortYear}"]`)
+        .forEach(cell => cell.classList.add("linked-highlight"));
+    });
+  });
+}
+
+function clearNewCustomerTableCellHighlights() {
   document
     .querySelectorAll(".linked-highlight")
     .forEach(cell => cell.classList.remove("linked-highlight"));
+}
+
+function clearNewCustomerCellHighlights() {
+  clearNewCustomerTableCellHighlights();
+  clearNewCustomerAllCohortsHighlights();
 }
 
 function updateNewCustomerCohortYoy(year, cohortYear, rawValue, undoSnapshot = snapshotState()) {
@@ -1758,12 +4088,14 @@ function formatVersionLabel(version) {
   return `${timestamp} - ${version.label}`;
 }
 
-function renderAll() {
+function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = null } = {}) {
   const outputs = calculateOutputs(activeScenario());
   renderKpis(outputs);
+  renderGuidedPlan(outputs);
   renderOutputCharts(outputs);
   renderTable(outputs);
-  renderNewCustomerDrilldown();
+  renderNewCustomerDrilldown({ syncEditors: syncNewCustomerEditors, excludeEditor: excludeNewCustomerChart });
+  renderRevUnitPlan();
 }
 
 function openScenarioDialog({ title, label, defaultValue, confirmText, onConfirm }) {
@@ -1822,6 +4154,7 @@ function createScenarioCopy(name) {
     drivers: clone(activeScenario().drivers),
     newCustomerSource: activeScenario().newCustomerSource,
     newCustomerDrilldown: clone(activeScenario().newCustomerDrilldown),
+    revUnitPlan: clone(activeScenario().revUnitPlan),
   };
   addScenarioVersion(state.scenarios[id], "Save As");
   state.activeScenarioId = id;
@@ -1830,6 +4163,7 @@ function createScenarioCopy(name) {
   saveScenarios();
   renderScenarioSelect();
   syncDriverCharts();
+  syncRevUnitCharts();
   renderAll();
 }
 
@@ -1861,9 +4195,13 @@ function restoreVersion() {
   scenario.newCustomerDrilldown = version.newCustomerDrilldown
     ? clone(version.newCustomerDrilldown)
     : createDefaultNewCustomerDrilldown();
+  scenario.revUnitPlan = version.revUnitPlan
+    ? clone(version.revUnitPlan)
+    : createDefaultRevUnitPlan();
   enforceNewCustomerBaseline(scenario);
   saveScenarios();
   syncDriverCharts();
+  syncRevUnitCharts();
   renderAll();
 }
 
@@ -1875,32 +4213,62 @@ function resetScenario() {
     activeScenario().drivers = clone(baseDrivers);
     activeScenario().newCustomerSource = "topDown";
     activeScenario().newCustomerDrilldown = createDefaultNewCustomerDrilldown();
+    activeScenario().revUnitPlan = createDefaultRevUnitPlan();
   }
   saveScenarios();
   syncDriverCharts();
+  syncRevUnitCharts();
   renderAll();
 }
 
 function bindControls() {
+  bindNapkinYAxisControls();
   document.getElementById("scenario-select").addEventListener("change", event => {
     state.activeScenarioId = event.target.value;
     state.selectedVersionId = "";
     updateHistoryControls();
     renderScenarioSelect();
     syncDriverCharts();
+    syncRevUnitCharts();
     renderAll();
   });
   document.getElementById("compare-scenario-select").addEventListener("change", event => {
     setCompareScenario(event.target.value);
     syncDriverCharts();
+    syncRevUnitCharts();
     renderAll();
   });
-  document.getElementById("new-customers-source").addEventListener("change", event => {
+  document.getElementById("new-customers-source")?.addEventListener("change", event => {
     pushUndoSnapshot();
     activeScenario().newCustomerSource = event.target.value;
     saveScenarios();
     syncDriverCharts();
+    syncRevUnitCharts();
     renderAll();
+  });
+  document.getElementById("rev-unit-editor-cohort").addEventListener("click", () => {
+    state.revUnitEditorMode = "cohort";
+    renderRevUnitPlan();
+  });
+  document.getElementById("rev-unit-editor-all-cohorts").addEventListener("click", () => {
+    state.revUnitEditorMode = "allCohorts";
+    renderRevUnitPlan();
+  });
+  document.getElementById("rev-unit-editor-slider").addEventListener("input", event => {
+    const items = revUnitEditorItems();
+    setSelectedRevUnitEditorValue(items[Number(event.target.value)] ?? selectedRevUnitEditorValue());
+    renderRevUnitEditorControl();
+    syncRevUnitCharts();
+  });
+  document.getElementById("rev-unit-reference-cohort-slider").addEventListener("input", event => {
+    state.revUnitReferenceCohortYear = REV_UNIT_YEARS[Number(event.target.value)] ?? state.revUnitReferenceCohortYear;
+    renderRevUnitEditorControl();
+    syncRevUnitCharts();
+  });
+  document.getElementById("rev-unit-reference-shift").addEventListener("change", event => {
+    state.revUnitReferenceShifted = event.target.checked;
+    renderRevUnitEditorControl();
+    syncRevUnitCharts();
   });
   document.getElementById("new-customers-cohort-editor-slider").addEventListener("input", event => {
     const sliderYears = cohortEditorSliderYears();
@@ -1922,22 +4290,68 @@ function bindControls() {
       syncNewCustomerCohortEditors();
     }, 0);
   });
-  document.getElementById("new-customers-editor-per-year").addEventListener("click", () => {
-    state.cohortEditorMode = "perYear";
+  document.getElementById("new-customers-editor-all-cohorts").addEventListener("click", () => {
+    state.cohortEditorMode = "allCohorts";
     renderNewCustomerEditorMode();
+    renderNewCustomerAllCohortsChart();
     setTimeout(() => {
-      Object.values(state.cohortCharts).forEach(chart => chart.resize());
+      state.outputCharts.newCustomerAllCohorts?.resize();
+    }, 0);
+  });
+  document.getElementById("new-customers-all-cohorts-line").addEventListener("click", () => {
+    state.newCustomerAllCohortsChartType = "line";
+    renderNewCustomerAllCohortsChart();
+  });
+  document.getElementById("new-customers-all-cohorts-area").addEventListener("click", () => {
+    state.newCustomerAllCohortsChartType = "area";
+    renderNewCustomerAllCohortsChart();
+  });
+  document.getElementById("new-customers-all-cohorts-bar").addEventListener("click", () => {
+    state.newCustomerAllCohortsChartType = "bar";
+    renderNewCustomerAllCohortsChart();
+  });
+  document.getElementById("toggle-new-customers-unit-drilldown").addEventListener("click", () => {
+    state.newCustomerUnitDrilldownOpen = true;
+    state.newCustomerNewUnitsDrilldownOpen = false;
+    renderNewCustomerUnitDrilldownToggle();
+    setTimeout(() => {
+      resizeNewCustomerUnitDrilldownCharts();
       syncNewCustomerCohortEditors();
     }, 0);
   });
-  document.getElementById("new-customers-editor-new-properties").addEventListener("click", () => {
-    state.cohortEditorMode = "newProperties";
-    renderNewCustomerEditorMode();
+  document.getElementById("back-new-customers-unit-drilldown").addEventListener("click", () => {
+    state.newCustomerUnitDrilldownOpen = false;
+    state.newCustomerNewUnitsDrilldownOpen = false;
+    renderNewCustomerUnitDrilldownToggle();
     setTimeout(() => {
-      Object.values(state.cohortCharts).forEach(chart => chart.resize());
       syncNewCustomerCohortEditors();
     }, 0);
   });
+  document.getElementById("toggle-new-customers-new-units-drilldown").addEventListener("click", () => {
+    state.newCustomerNewUnitsDrilldownOpen = true;
+    renderNewCustomerUnitDrilldownToggle();
+    setTimeout(() => {
+      resizeNewCustomerNewUnitsDrilldownCharts();
+      syncNewCustomerCohortEditors();
+    }, 0);
+  });
+  document.getElementById("back-new-customers-new-units-drilldown").addEventListener("click", () => {
+    state.newCustomerNewUnitsDrilldownOpen = false;
+    renderNewCustomerUnitDrilldownToggle();
+    setTimeout(() => {
+      resizeNewCustomerUnitDrilldownCharts();
+      syncNewCustomerCohortEditors();
+    }, 0);
+  });
+  document.getElementById("match-new-customer-unit-new-units").addEventListener("click", matchNewCustomerUnitNewUnitsToTopDown);
+  document.getElementById("match-new-customer-unit-customers-per-unit").addEventListener("click", matchNewCustomerUnitCustomersPerUnitToTopDown);
+  document.getElementById("match-new-customer-new-units-properties").addEventListener("click", matchNewCustomerNewUnitsPropertiesToTopDown);
+  document.getElementById("match-new-customer-new-units-units-per-property").addEventListener("click", matchNewCustomerNewUnitsUnitsPerPropertyToTopDown);
+  document.getElementById("set-new-customers-total-top-down").addEventListener("click", setTotalNewCustomersTopDownToBottomUp);
+  document.getElementById("set-new-customer-unit-top-down").addEventListener("click", setNewPropertyTopDownToUnitBuild);
+  document.getElementById("set-new-customer-new-units-top-down").addEventListener("click", setNewUnitsTopDownToPropertyBuild);
+  document.getElementById("unlock-all-cohorts").addEventListener("click", () => setCohortLockSelection(() => false));
+  document.getElementById("lock-all-cohorts").addEventListener("click", () => setCohortLockSelection(() => true));
   document.getElementById("undo-change").addEventListener("click", undoChange);
   document.getElementById("redo-change").addEventListener("click", redoChange);
   document.getElementById("version-select").addEventListener("change", event => {
@@ -1959,9 +4373,25 @@ function bindControls() {
   document.getElementById("update-scenario").addEventListener("click", updateScenario);
   document.getElementById("reset-scenario").addEventListener("click", resetScenario);
 
+  document.getElementById("tab-guided").addEventListener("click", () => setView("guided"));
   document.getElementById("tab-chart").addEventListener("click", () => setView("chart"));
   document.getElementById("tab-table").addEventListener("click", () => setView("table"));
-  document.getElementById("tab-new-customers").addEventListener("click", () => setView("newCustomers"));
+  document.getElementById("tab-rev-per-unit").addEventListener("click", () => setView("revPerUnit"));
+  document.getElementById("drilldown-new-customers-from-chart").addEventListener("click", () => {
+    state.newCustomerUnitDrilldownOpen = false;
+    state.newCustomerNewUnitsDrilldownOpen = false;
+    setView("newCustomers");
+  });
+  document.querySelectorAll(".guided-jump").forEach(button => {
+    button.addEventListener("click", event => {
+      const targetView = event.currentTarget.dataset.targetView;
+      const focusChart = event.currentTarget.dataset.focusChart;
+      if (targetView) setView(targetView);
+      if (focusChart) {
+        setTimeout(() => document.getElementById(focusChart)?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+      }
+    });
+  });
   document.addEventListener("keydown", event => {
     const target = event.target;
     const isTextInput = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
@@ -1978,16 +4408,22 @@ function bindControls() {
 }
 
 function setView(view) {
+  state.currentView = view;
+  document.getElementById("tab-guided").classList.toggle("active", view === "guided");
   document.getElementById("tab-chart").classList.toggle("active", view === "chart");
   document.getElementById("tab-table").classList.toggle("active", view === "table");
-  document.getElementById("tab-new-customers").classList.toggle("active", view === "newCustomers");
+  document.getElementById("tab-rev-per-unit").classList.toggle("active", view === "revPerUnit");
+  document.getElementById("guided-view").classList.toggle("active", view === "guided");
   document.getElementById("chart-view").classList.toggle("active", view === "chart");
   document.getElementById("table-view").classList.toggle("active", view === "table");
   document.getElementById("new-customers-view").classList.toggle("active", view === "newCustomers");
+  document.getElementById("rev-per-unit-view").classList.toggle("active", view === "revPerUnit");
+  renderNewCustomerUnitDrilldownToggle();
   setTimeout(() => {
     Object.values(state.charts).forEach(chart => chart.resize());
     Object.values(state.cohortCharts).forEach(chart => chart.resize());
     Object.values(state.outputCharts).forEach(chart => chart.resize());
+    Object.values(state.revUnitCharts).forEach(chart => chart.resize());
   }, 0);
 }
 
@@ -1997,6 +4433,7 @@ function init() {
   initOutputCharts();
   Object.keys(driverMeta).forEach(initDriverChart);
   initNewCustomerCohortEditors();
+  initRevUnitCharts();
   updateHistoryControls();
   renderAll();
 }
