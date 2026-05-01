@@ -25,6 +25,10 @@
         <button id="save-as-scenario" type="button">Save As</button>
         <button id="update-scenario" type="button">Update</button>
         <button id="reset-scenario" type="button">Reset</button>
+        <label class="anonymized-toggle" for="anonymized-view-toggle">
+          <input id="anonymized-view-toggle" type="checkbox" />
+          Anonymized
+        </label>
       </div>
     </header>
 
@@ -50,10 +54,236 @@
 
       <nav class="view-tabs" aria-label="Model views">
         <button id="tab-chart" class="active" type="button">Napkin View</button>
+        <button id="tab-tree" type="button">Everything</button>
         <button id="tab-guided" type="button">Guided Plan</button>
         <button id="tab-table" type="button">Spreadsheet View</button>
         <button id="tab-rev-per-unit" type="button">Rev Per Unit Plan</button>
       </nav>
+
+      <section id="tree-view" class="view">
+        <div class="tree-toolbar">
+          <div>
+            <h2>Model Canvas</h2>
+            <p>Start with the revenue node. We can add connected dependencies once the framing feels right.</p>
+          </div>
+          <div class="canvas-zoom-controls" aria-label="Canvas zoom controls">
+            <button id="canvas-zoom-out" type="button" aria-label="Zoom out">-</button>
+            <span id="canvas-zoom-label">100%</span>
+            <button id="canvas-zoom-in" type="button" aria-label="Zoom in">+</button>
+          </div>
+        </div>
+        <div class="canvas-stage" aria-label="Revenue model canvas">
+          <div class="canvas-viewport">
+            <div class="canvas-surface">
+              <div class="canvas-grid" aria-hidden="true"></div>
+              <svg class="canvas-connectors" viewBox="0 0 1500 2060" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M 375 560 C 375 500, 575 505, 650 470"></path>
+              <path d="M 1125 560 C 1125 500, 925 505, 850 470"></path>
+              <path d="M 245 860 C 245 825, 280 810, 320 795"></path>
+              <path d="M 685 860 C 685 825, 520 810, 450 795"></path>
+              <path d="M 185 1170 C 185 1120, 220 1110, 245 1045"></path>
+              <path d="M 555 1170 C 555 1120, 360 1110, 265 1045"></path>
+              <path d="M 965 1170 C 965 1110, 760 1090, 685 1045"></path>
+              <path d="M 1315 1170 C 1315 1110, 820 1090, 705 1045"></path>
+              <path d="M 410 1480 C 410 1425, 475 1415, 520 1355"></path>
+              <path d="M 780 1480 C 780 1425, 625 1415, 540 1355"></path>
+              <path d="M 245 1795 C 245 1745, 310 1725, 410 1665"></path>
+              <path d="M 615 1795 C 615 1745, 510 1725, 430 1665"></path>
+            </svg>
+            <section class="canvas-node canvas-node-revenue" data-node-id="revenue" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Total Model</span>
+                  <h2>Revenue</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="revenue-chart" type="button">Open</button>
+              </div>
+              <div id="tree-revenue-chart" class="tree-chart tree-chart-large"></div>
+            </section>
+            <section class="canvas-node canvas-node-paying-customers" data-node-id="payingCustomers" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Volume Driver</span>
+                  <h2>Paying Customers</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+              </div>
+              <div id="tree-paying-customers-chart" class="tree-chart"></div>
+            </section>
+            <section class="canvas-node canvas-node-new-paying-customers" data-node-id="newPayingCustomers" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Paying Customer Build</span>
+                  <h2>New Paying Customers</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+              </div>
+              <div id="tree-new-paying-customers-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-existing-property-new-paying-customers" data-node-id="existingPropertyNewPayingCustomers" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>New Paying Customer Build</span>
+                  <h2>New Paying Customers From Existing Properties</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+              </div>
+              <div id="tree-existing-property-new-paying-customers-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-new-property-new-paying-customers" data-node-id="newPropertyNewPayingCustomers" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>New Paying Customer Build</span>
+                  <h2>New Paying Customers From New Properties</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="unitDrilldown" type="button">Open</button>
+              </div>
+              <div id="tree-new-property-new-paying-customers-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-new-units" data-node-id="newUnits" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>New Property Customer Build</span>
+                  <h2>New Units</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="newUnitsDrilldown" type="button">Open</button>
+              </div>
+              <div id="tree-new-units-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-new-properties" data-node-id="newProperties" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>New Unit Build</span>
+                  <h2>New Properties</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="newUnitsDrilldown" type="button">Open</button>
+              </div>
+              <div id="tree-new-properties-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-new-units-per-property" data-node-id="newUnitsPerProperty" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>New Unit Build</span>
+                  <h2>New Units per Property</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="newUnitsDrilldown" type="button">Open</button>
+              </div>
+              <div id="tree-new-units-per-property-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-new-customers-per-unit" data-node-id="newCustomersPerUnit" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>New Property Customer Build</span>
+                  <h2>New Customers per Unit</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="unitDrilldown" type="button">Open</button>
+              </div>
+              <div id="tree-new-customers-per-unit-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-returning-paying-customers" data-node-id="returningPayingCustomers" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Paying Customer Build</span>
+                  <h2>Returning Paying Customers</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-retention" type="button">Open</button>
+              </div>
+              <div id="tree-returning-paying-customers-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-prior-paying-customers" data-node-id="priorPayingCustomers" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Returning Customer Build</span>
+                  <h2>Prior Year Paying Customers</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+              </div>
+              <div id="tree-prior-paying-customers-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-retention-rate" data-node-id="retentionRate" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Returning Customer Build</span>
+                  <h2>Retention Rate</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-retention" type="button">Open</button>
+              </div>
+              <div id="tree-retention-rate-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-revenue-per-customer" data-node-id="revenuePerCustomer" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Monetization Driver</span>
+                  <h2>Revenue Per Customer</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-new" type="button">Open</button>
+              </div>
+              <div id="tree-revenue-per-customer-chart" class="tree-chart"></div>
+            </section>
+            <section class="canvas-node canvas-node-profiles-per-customer" data-node-id="profilesPerCustomer" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue per Customer Build</span>
+                  <h2>Profiles Per Customer</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-new" type="button">Open</button>
+              </div>
+              <div id="tree-profiles-per-customer-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-revenue-per-profile" data-node-id="revenuePerProfile" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue per Customer Build</span>
+                  <h2>Revenue Per Profile</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-rev-new" type="button">Open</button>
+              </div>
+              <div id="tree-revenue-per-profile-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-profiles-returning-customer" data-node-id="profilesReturningCustomer" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Profiles per Customer Build</span>
+                  <h2>Profiles / Returning Customer</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-returning" type="button">Open</button>
+              </div>
+              <div id="tree-profiles-returning-customer-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-profiles-new-customer" data-node-id="profilesNewCustomer" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Profiles per Customer Build</span>
+                  <h2>Profiles / New Customer</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-new" type="button">Open</button>
+              </div>
+              <div id="tree-profiles-new-customer-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-revenue-returning-profile" data-node-id="revenueReturningProfile" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue per Profile Build</span>
+                  <h2>Rev / Returning Profile</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-rev-returning" type="button">Open</button>
+              </div>
+              <div id="tree-revenue-returning-profile-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-revenue-new-profile" data-node-id="revenueNewProfile" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue per Profile Build</span>
+                  <h2>Rev / New Profile</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-rev-new" type="button">Open</button>
+              </div>
+              <div id="tree-revenue-new-profile-chart" class="tree-chart tree-chart-small"></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section id="guided-view" class="view">
         <div class="guided-layout">

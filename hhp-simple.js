@@ -145,7 +145,114 @@ const state = {
   revUnitEditorCohortYear: 2025,
   revUnitReferenceCohortYear: 2025,
   revUnitReferenceShifted: false,
+  canvasFocusNode: "revenue",
+  canvasZoom: 1,
+  anonymizedView: false,
 };
+
+const originalTextByNode = new WeakMap();
+
+function isAnonymizedView() {
+  return state.anonymizedView;
+}
+
+function preserveCase(replacement, source) {
+  if (source === source.toUpperCase()) return replacement.toUpperCase();
+  if (source[0] === source[0].toUpperCase()) {
+    return replacement.replace(/\b[a-z]/g, letter => letter.toUpperCase());
+  }
+  return replacement;
+}
+
+function replaceUnitTerm(text) {
+  return text.replace(/\b(units|unit)\b/gi, (match, _term, offset, source) => {
+    const prefix = source.slice(Math.max(0, offset - 8), offset).toLowerCase();
+    if (prefix.endsWith("partner ")) return match;
+    return preserveCase(match.toLowerCase() === "units" ? "partner units" : "partner unit", match);
+  });
+}
+
+function anonymizeText(text) {
+  if (!text) return text;
+  return replaceUnitTerm(text)
+    .replace(/PetScreening \$100M Path/g, "Partner Growth Path")
+    .replace(/\bprofiles\b/g, "transactions")
+    .replace(/\bProfiles\b/g, "Transactions")
+    .replace(/\bprofile\b/g, "transaction")
+    .replace(/\bProfile\b/g, "Transaction")
+    .replace(/\bproperties\b/g, "partners")
+    .replace(/\bProperties\b/g, "Partners")
+    .replace(/\bproperty\b/g, "partner")
+    .replace(/\bProperty\b/g, "Partner")
+    .replace(/\bHHP\b/g, "Core");
+}
+
+function displayLabel(text) {
+  return isAnonymizedView() ? anonymizeText(String(text)) : String(text);
+}
+
+function anonymizedMetricValue() {
+  return "Y";
+}
+
+function displayScenarioName(scenarioOrName) {
+  if (!isAnonymizedView()) return typeof scenarioOrName === "string" ? scenarioOrName : scenarioOrName?.name || "";
+  const scenarioId = typeof scenarioOrName === "string" ? null : scenarioOrName?.id;
+  const scenarios = Object.values(state.scenarios);
+  const index = scenarioId ? scenarios.findIndex(scenario => scenario.id === scenarioId) : -1;
+  const letterIndex = index >= 0 ? index : 0;
+  return `Scenario ${String.fromCharCode(65 + (letterIndex % 26))}`;
+}
+
+const canvasNodeTree = {
+  revenue: { parent: null, children: ["payingCustomers", "revenuePerCustomer"] },
+  payingCustomers: { parent: "revenue", children: ["newPayingCustomers", "returningPayingCustomers"] },
+  revenuePerCustomer: { parent: "revenue", children: ["profilesPerCustomer", "revenuePerProfile"] },
+  newPayingCustomers: { parent: "payingCustomers", children: ["existingPropertyNewPayingCustomers", "newPropertyNewPayingCustomers"] },
+  returningPayingCustomers: { parent: "payingCustomers", children: ["priorPayingCustomers", "retentionRate"] },
+  profilesPerCustomer: { parent: "revenuePerCustomer", children: ["profilesReturningCustomer", "profilesNewCustomer"] },
+  revenuePerProfile: { parent: "revenuePerCustomer", children: ["revenueReturningProfile", "revenueNewProfile"] },
+  profilesReturningCustomer: { parent: "profilesPerCustomer", children: [] },
+  profilesNewCustomer: { parent: "profilesPerCustomer", children: [] },
+  revenueReturningProfile: { parent: "revenuePerProfile", children: [] },
+  revenueNewProfile: { parent: "revenuePerProfile", children: [] },
+  existingPropertyNewPayingCustomers: { parent: "newPayingCustomers", children: [] },
+  newPropertyNewPayingCustomers: { parent: "newPayingCustomers", children: ["newUnits", "newCustomersPerUnit"] },
+  newUnits: { parent: "newPropertyNewPayingCustomers", children: ["newProperties", "newUnitsPerProperty"] },
+  newCustomersPerUnit: { parent: "newPropertyNewPayingCustomers", children: [] },
+  newProperties: { parent: "newUnits", children: [] },
+  newUnitsPerProperty: { parent: "newUnits", children: [] },
+  priorPayingCustomers: { parent: "returningPayingCustomers", children: [] },
+  retentionRate: { parent: "returningPayingCustomers", children: [] },
+};
+
+const canvasLayoutRows = [
+  ["revenue"],
+  ["payingCustomers", "revenuePerCustomer"],
+  ["newPayingCustomers", "returningPayingCustomers", "profilesPerCustomer", "revenuePerProfile"],
+  [
+    "existingPropertyNewPayingCustomers",
+    "newPropertyNewPayingCustomers",
+    "priorPayingCustomers",
+    "retentionRate",
+    "profilesReturningCustomer",
+    "profilesNewCustomer",
+    "revenueReturningProfile",
+    "revenueNewProfile",
+  ],
+  ["newUnits", "newCustomersPerUnit"],
+  ["newProperties", "newUnitsPerProperty"],
+];
+
+const canvasFocusDimensions = {
+  main: { width: 660, height: 360 },
+  secondary: { width: 430, height: 285 },
+  tertiary: { width: 430, height: 285 },
+};
+
+const CANVAS_ZOOM_MIN = 0.55;
+const CANVAS_ZOOM_MAX = 1;
+const CANVAS_ZOOM_STEP = 0.1;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -781,6 +888,7 @@ function formatValue(value, format) {
 }
 
 function formatCurrency(value, decimals = 0) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
   const sign = value < 0 ? "-" : "";
   return `${sign}$${Math.abs(value).toLocaleString("en-US", {
     minimumFractionDigits: decimals,
@@ -793,6 +901,7 @@ function formatOptionalCurrency(value, decimals = 0) {
 }
 
 function formatCompactCurrency(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
   if (abs >= 1000000000) return `${sign}$${trimNumber(abs / 1000000000, 1)}B`;
@@ -802,6 +911,7 @@ function formatCompactCurrency(value) {
 }
 
 function formatCompactNumber(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
   if (abs >= 1000000) return `${sign}${trimNumber(abs / 1000000, 1)}M`;
@@ -814,6 +924,7 @@ function trimNumber(value, decimals) {
 }
 
 function formatDriverAxisValue(value, meta) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
   const actualValue = value * (meta.scale || 1);
   if (meta.format === "percent") return `${trimNumber(actualValue * 100, 0)}%`;
   if (meta.format === "currency2") return formatCompactCurrency(actualValue);
@@ -823,12 +934,28 @@ function formatDriverAxisValue(value, meta) {
 }
 
 function formatDriverTooltipValue(value, meta) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
   const actualValue = value * (meta.scale || 1);
   if (meta.format === "percent") return `${trimNumber(actualValue * 100, 1)}%`;
   if (meta.format === "currency2") return formatCurrency(actualValue, 2);
   if (meta.format === "integer") return Math.round(actualValue).toLocaleString("en-US");
   if (meta.format === "decimal") return actualValue.toFixed(2);
   return String(actualValue);
+}
+
+function formatIntegerMetric(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function formatPercentMetric(value, decimals = 1) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return `${trimNumber(value, decimals)}%`;
+}
+
+function formatDecimalMetric(value, decimals = 2) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return trimNumber(value, decimals);
 }
 
 function formatAxisYear(value) {
@@ -955,7 +1082,7 @@ function makeEditableLine(key, scenario) {
   const meta = driverMeta[key];
   const lineIsEditable = true;
   return {
-    name: scenario.name,
+    name: displayScenarioName(scenario),
     color: meta.color,
     editable: lineIsEditable,
     editDomain: lineIsEditable
@@ -972,7 +1099,7 @@ function makeEditableLine(key, scenario) {
 function makeComparisonLine(key, scenario) {
   const meta = driverMeta[key];
   return {
-    name: `Comparison: ${scenario.name}`,
+    name: `Comparison: ${displayScenarioName(scenario)}`,
     color: "#98a2b3",
     editable: false,
     data: chartPairs(driverValues(scenario, key), meta),
@@ -1064,7 +1191,7 @@ function initDriverChart(key) {
             const data = Array.isArray(item.data) ? item.data : item.value;
             year = Array.isArray(data) ? data[0] : item.axisValue;
             const rawValue = Array.isArray(data) ? data[1] : item.value;
-            rows.push(`${item.marker || ""} ${item.seriesName || meta.label}: ${formatDriverTooltipValue(Number(rawValue), meta)}`);
+            rows.push(`${item.marker || ""} ${item.seriesName || displayLabel(meta.label)}: ${formatDriverTooltipValue(Number(rawValue), meta)}`);
           }
           return [tooltipHeader(year), ...rows].join("<br/>");
         },
@@ -1115,30 +1242,44 @@ function syncDriverCharts() {
   state.syncingCharts = false;
 }
 
+function initEchartById(id) {
+  const element = document.getElementById(id);
+  return element ? echarts.init(element) : null;
+}
+
 function initOutputCharts() {
-  state.outputCharts.revenue = echarts.init(document.getElementById("revenue-chart"));
-  state.outputCharts.gap = echarts.init(document.getElementById("gap-chart"));
-  state.outputCharts.newCustomerDrilldown = echarts.init(document.getElementById("new-customers-drilldown-chart"));
-  state.outputCharts.newCustomerTotal = echarts.init(document.getElementById("new-customers-total-chart"));
-  state.outputCharts.newCustomerUnitBridge = echarts.init(document.getElementById("new-customers-unit-bridge-chart"));
-  state.outputCharts.newCustomerUnitDelta = echarts.init(document.getElementById("new-customers-unit-delta-chart"));
-  state.outputCharts.newCustomerNewUnitsBridge = echarts.init(document.getElementById("new-customers-new-units-bridge-chart"));
-  state.outputCharts.newCustomerNewUnitsDelta = echarts.init(document.getElementById("new-customers-new-units-delta-chart"));
-  state.outputCharts.newCustomerAllCohorts = echarts.init(document.getElementById("new-customers-all-cohorts-chart"));
-  state.outputCharts.revUnitRevenueComparison = echarts.init(document.getElementById("rev-unit-revenue-comparison-chart"));
-  state.outputCharts.revUnitAggregateRpu = echarts.init(document.getElementById("rev-unit-aggregate-rpu-chart"));
+  state.outputCharts.revenue = initEchartById("revenue-chart");
+  state.outputCharts.gap = initEchartById("gap-chart");
+  state.outputCharts.newCustomerDrilldown = initEchartById("new-customers-drilldown-chart");
+  state.outputCharts.newCustomerTotal = initEchartById("new-customers-total-chart");
+  state.outputCharts.newCustomerUnitBridge = initEchartById("new-customers-unit-bridge-chart");
+  state.outputCharts.newCustomerUnitDelta = initEchartById("new-customers-unit-delta-chart");
+  state.outputCharts.newCustomerNewUnitsBridge = initEchartById("new-customers-new-units-bridge-chart");
+  state.outputCharts.newCustomerNewUnitsDelta = initEchartById("new-customers-new-units-delta-chart");
+  state.outputCharts.newCustomerAllCohorts = initEchartById("new-customers-all-cohorts-chart");
+  state.outputCharts.revUnitRevenueComparison = initEchartById("rev-unit-revenue-comparison-chart");
+  state.outputCharts.revUnitAggregateRpu = initEchartById("rev-unit-aggregate-rpu-chart");
+  state.outputCharts.treeRevenue = initEchartById("tree-revenue-chart");
+  state.outputCharts.treePayingCustomers = initEchartById("tree-paying-customers-chart");
+  state.outputCharts.treeNewPayingCustomers = initEchartById("tree-new-paying-customers-chart");
+  state.outputCharts.treeExistingPropertyNewPayingCustomers = initEchartById("tree-existing-property-new-paying-customers-chart");
+  state.outputCharts.treeNewPropertyNewPayingCustomers = initEchartById("tree-new-property-new-paying-customers-chart");
+  state.outputCharts.treeNewUnits = initEchartById("tree-new-units-chart");
+  state.outputCharts.treeNewProperties = initEchartById("tree-new-properties-chart");
+  state.outputCharts.treeNewUnitsPerProperty = initEchartById("tree-new-units-per-property-chart");
+  state.outputCharts.treeNewCustomersPerUnit = initEchartById("tree-new-customers-per-unit-chart");
+  state.outputCharts.treeReturningPayingCustomers = initEchartById("tree-returning-paying-customers-chart");
+  state.outputCharts.treePriorPayingCustomers = initEchartById("tree-prior-paying-customers-chart");
+  state.outputCharts.treeRetentionRate = initEchartById("tree-retention-rate-chart");
+  state.outputCharts.treeRevenuePerCustomer = initEchartById("tree-revenue-per-customer-chart");
+  state.outputCharts.treeProfilesPerCustomer = initEchartById("tree-profiles-per-customer-chart");
+  state.outputCharts.treeRevenuePerProfile = initEchartById("tree-revenue-per-profile-chart");
+  state.outputCharts.treeProfilesReturningCustomer = initEchartById("tree-profiles-returning-customer-chart");
+  state.outputCharts.treeProfilesNewCustomer = initEchartById("tree-profiles-new-customer-chart");
+  state.outputCharts.treeRevenueReturningProfile = initEchartById("tree-revenue-returning-profile-chart");
+  state.outputCharts.treeRevenueNewProfile = initEchartById("tree-revenue-new-profile-chart");
   window.addEventListener("resize", () => {
-    state.outputCharts.revenue.resize();
-    state.outputCharts.gap.resize();
-    state.outputCharts.newCustomerDrilldown.resize();
-    state.outputCharts.newCustomerTotal.resize();
-    state.outputCharts.newCustomerUnitBridge.resize();
-    state.outputCharts.newCustomerUnitDelta.resize();
-    state.outputCharts.newCustomerNewUnitsBridge.resize();
-    state.outputCharts.newCustomerNewUnitsDelta.resize();
-    state.outputCharts.newCustomerAllCohorts.resize();
-    state.outputCharts.revUnitRevenueComparison.resize();
-    state.outputCharts.revUnitAggregateRpu.resize();
+    Object.values(state.outputCharts).forEach(chart => chart?.resize());
   });
 }
 
@@ -1154,7 +1295,7 @@ function initNewCustomerCohortEditors() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+        formatter: params => formatCohortNapkinTooltip(params, formatIntegerMetric),
       },
     },
     "none",
@@ -1167,11 +1308,11 @@ function initNewCustomerCohortEditors() {
     {
       animation: false,
       xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
-      yAxis: { type: "value", min: -50, max: 100, axisLabel: { formatter: value => `${trimNumber(value, 0)}%` } },
+      yAxis: { type: "value", min: -50, max: 100, axisLabel: { formatter: value => formatPercentMetric(value, 0) } },
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => `${trimNumber(value, 1)}%`),
+        formatter: params => formatCohortNapkinTooltip(params, value => formatPercentMetric(value, 1)),
       },
     },
     "none",
@@ -1201,11 +1342,11 @@ function initNewCustomerCohortEditors() {
     {
       animation: false,
       xAxis: { type: "value", min: 0, max: 10, minInterval: 1, axisLabel: { formatter: value => formatYearEditorAxisLabel(value) } },
-      yAxis: { type: "value", min: -50, max: 100, axisLabel: { formatter: value => `${trimNumber(value, 0)}%` } },
+      yAxis: { type: "value", min: -50, max: 100, axisLabel: { formatter: value => formatPercentMetric(value, 0) } },
       grid: { left: 12, right: 18, top: 14, bottom: 48, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatYearEditorTooltip(params, value => `${trimNumber(value, 1)}%`),
+        formatter: params => formatYearEditorTooltip(params, value => formatPercentMetric(value, 1)),
       },
     },
     "none",
@@ -1222,7 +1363,7 @@ function initNewCustomerCohortEditors() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+        formatter: params => formatCohortNapkinTooltip(params, formatIntegerMetric),
       },
     },
     "none",
@@ -1235,11 +1376,11 @@ function initNewCustomerCohortEditors() {
     {
       animation: false,
       xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
-      yAxis: { type: "value", min: -50, max: 100, axisLabel: { formatter: value => `${trimNumber(value, 0)}%` } },
+      yAxis: { type: "value", min: -50, max: 100, axisLabel: { formatter: value => formatPercentMetric(value, 0) } },
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => `${trimNumber(value, 1)}%`),
+        formatter: params => formatCohortNapkinTooltip(params, value => formatPercentMetric(value, 1)),
       },
     },
     "none",
@@ -1256,7 +1397,7 @@ function initNewCustomerCohortEditors() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+        formatter: params => formatCohortNapkinTooltip(params, formatIntegerMetric),
       },
     },
     "none",
@@ -1273,7 +1414,7 @@ function initNewCustomerCohortEditors() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+        formatter: params => formatCohortNapkinTooltip(params, formatIntegerMetric),
       },
     },
     "none",
@@ -1290,7 +1431,7 @@ function initNewCustomerCohortEditors() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+        formatter: params => formatCohortNapkinTooltip(params, formatIntegerMetric),
       },
     },
     "none",
@@ -1303,11 +1444,11 @@ function initNewCustomerCohortEditors() {
     {
       animation: false,
       xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
-      yAxis: { type: "value", min: 0, max: 0.12, axisLabel: { formatter: value => trimNumber(value, 2) } },
+      yAxis: { type: "value", min: 0, max: 0.12, axisLabel: { formatter: value => formatDecimalMetric(value, 2) } },
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => trimNumber(value, 4)),
+        formatter: params => formatCohortNapkinTooltip(params, value => formatDecimalMetric(value, 4)),
       },
     },
     "none",
@@ -1324,7 +1465,7 @@ function initNewCustomerCohortEditors() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => Math.round(value).toLocaleString("en-US")),
+        formatter: params => formatCohortNapkinTooltip(params, formatIntegerMetric),
       },
     },
     "none",
@@ -1337,11 +1478,11 @@ function initNewCustomerCohortEditors() {
     {
       animation: false,
       xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
-      yAxis: { type: "value", min: 0, max: 500, axisLabel: { formatter: value => trimNumber(value, 0) } },
+      yAxis: { type: "value", min: 0, max: 500, axisLabel: { formatter: value => formatDecimalMetric(value, 0) } },
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => formatCohortNapkinTooltip(params, value => trimNumber(value, 1)),
+        formatter: params => formatCohortNapkinTooltip(params, value => formatDecimalMetric(value, 1)),
       },
     },
     "none",
@@ -1482,7 +1623,7 @@ function formatCohortNapkinTooltip(params, formatter) {
       const data = Array.isArray(item.data) ? item.data : item.value;
       year = Array.isArray(data) ? data[0] : item.axisValue;
       const rawValue = Array.isArray(data) ? data[1] : item.value;
-      rows.push(`${item.marker || ""} ${item.seriesName}: ${formatter(Number(rawValue))}`);
+      rows.push(`${item.marker || ""} ${displayLabel(item.seriesName)}: ${isAnonymizedView() ? anonymizedMetricValue() : formatter(Number(rawValue))}`);
     });
   return [tooltipHeader(year), ...rows].join("<br/>");
 }
@@ -1494,7 +1635,7 @@ function formatYearEditorAxisLabel(value) {
   return cohortYear === null ? "" : cohortLabel(cohortYear);
 }
 
-function formatYearEditorTooltip(params, formatter = value => Math.round(value).toLocaleString("en-US")) {
+function formatYearEditorTooltip(params, formatter = formatIntegerMetric) {
   const items = Array.isArray(params) ? params : [params];
   const year = selectedNewCustomerYearEditorYear();
   const cohorts = existingPropertyCohortsForYear(year);
@@ -1510,7 +1651,7 @@ function formatYearEditorTooltip(params, formatter = value => Math.round(value).
       const y = Array.isArray(data) ? data[1] : item.value;
       const cohortYear = yearEditorCohortForX(cohorts, x);
       if (cohortYear !== null) {
-        rows.push(`${item.marker || ""} ${item.seriesName} ${cohortLabel(cohortYear)}: ${formatter(Number(y))}`);
+        rows.push(`${item.marker || ""} ${displayLabel(item.seriesName)} ${cohortLabel(cohortYear)}: ${isAnonymizedView() ? anonymizedMetricValue() : formatter(Number(y))}`);
       }
     });
   return [tooltipHeader(year), ...rows].join("<br/>");
@@ -1522,14 +1663,14 @@ function renderOutputCharts(outputs) {
   const comparison = compareScenario();
   const comparisonOutputs = comparison ? calculateOutputs(comparison) : null;
   const gapSeries = [{
-    name: `${activeScenario().name} Delta to Plan`,
+    name: `${displayScenarioName(activeScenario())} Delta to Plan`,
     type: "bar",
     data: outputs.delta,
     itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
   }];
   if (comparisonOutputs) {
     gapSeries.push({
-      name: `${comparison.name} Delta to Plan`,
+      name: `${displayScenarioName(comparison)} Delta to Plan`,
       type: "line",
       data: comparisonOutputs.delta,
       symbolSize: 5,
@@ -1546,7 +1687,7 @@ function renderOutputCharts(outputs) {
         const item = params[0];
         return [
           tooltipHeader(item.axisValue),
-          ...params.map(item => `${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 0)}`),
+          ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 0)}`),
         ].join("<br/>");
       },
     },
@@ -1557,17 +1698,429 @@ function renderOutputCharts(outputs) {
   }, true);
 }
 
+function metricTreeSeries(name, data, color, type = "line", extra = {}) {
+  return {
+    name,
+    type,
+    data,
+    symbolSize: type === "line" ? 4 : undefined,
+    lineStyle: type === "line" ? { color, width: 2 } : undefined,
+    itemStyle: { color },
+    ...extra,
+  };
+}
+
+const metricTreeScenarioPalette = [
+  TOP_DOWN_COLOR,
+  BOTTOM_UP_COLOR,
+  "#8e6bb0",
+  "#c47a5a",
+  "#4b9b8e",
+  "#9a8c55",
+  "#b66f8f",
+  "#5875a4",
+];
+
+function metricTreeScenarioColor(scenario) {
+  if (!scenario) return "#98a2b3";
+  const index = Object.values(state.scenarios).findIndex(item => item.id === scenario.id);
+  const colorIndex = index >= 0 ? index : 0;
+  return metricTreeScenarioPalette[colorIndex % metricTreeScenarioPalette.length];
+}
+
+function metricTreeChartOption(series, { format = "number", stacked = false } = {}) {
+  const formatter = isAnonymizedView() ? anonymizedMetricValue
+    : format === "currency" ? formatCompactCurrency
+    : format === "currency2" ? formatCompactCurrency
+    : format === "percent" ? value => `${trimNumber(Number(value) * 100, 0)}%`
+      : format === "decimal" ? value => trimNumber(Number(value), 2)
+        : formatCompactNumber;
+  const tooltipFormatter = isAnonymizedView() ? anonymizedMetricValue
+    : format === "currency" ? value => formatCurrency(Number(value), 0)
+    : format === "currency2" ? value => formatCurrency(Number(value), 2)
+    : format === "percent" ? value => `${trimNumber(Number(value) * 100, 1)}%`
+      : format === "decimal" ? value => trimNumber(Number(value), 2)
+        : value => Math.round(Number(value)).toLocaleString("en-US");
+  return {
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params.map(item => `${item.marker} ${item.seriesName}: ${tooltipFormatter(item.value)}`),
+      ].join("<br/>"),
+    },
+    legend: { top: 0, type: "scroll" },
+    grid: { left: 8, right: 10, top: 42, bottom: 24, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String), axisLabel: { fontSize: 10 } },
+    yAxis: { type: "value", axisLabel: { formatter, fontSize: 10 } },
+    series: stacked
+      ? series.map(item => item.type === "bar" ? { ...item, stack: "metricTreeStack" } : item)
+      : series,
+  };
+}
+
+function setMetricTreeChart(key, series, options) {
+  state.outputCharts[key]?.setOption(metricTreeChartOption(series, options), true);
+}
+
+function profilesPerCustomerValues(outputs) {
+  return outputs.paidProfiles.map((value, index) => {
+    const customers = outputs.totalCustomers[index];
+    return customers > 0 ? value / customers : 0;
+  });
+}
+
+function revenuePerProfileValues(outputs) {
+  return outputs.revenue.map((value, index) => {
+    const profiles = outputs.paidProfiles[index];
+    return profiles > 0 ? value / profiles : 0;
+  });
+}
+
+function renderMetricTree(outputs) {
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const comparisonOutputs = comparison ? calculateOutputs(comparison) : null;
+  const scenarioColor = metricTreeScenarioColor(scenario);
+  const comparisonColor = metricTreeScenarioColor(comparison);
+  const priorYearPayingCustomers = outputs.totalCustomers.map((value, index) => index === 0 ? null : outputs.totalCustomers[index - 1]);
+  const comparisonPriorYearPayingCustomers = comparisonOutputs
+    ? comparisonOutputs.totalCustomers.map((value, index) => index === 0 ? null : comparisonOutputs.totalCustomers[index - 1])
+    : null;
+  const revenuePerCustomer = outputs.revenue.map((value, index) => {
+    const customers = outputs.totalCustomers[index];
+    return customers > 0 ? value / customers : 0;
+  });
+  const comparisonRevenuePerCustomer = comparisonOutputs
+    ? comparisonOutputs.revenue.map((value, index) => {
+      const customers = comparisonOutputs.totalCustomers[index];
+      return customers > 0 ? value / customers : 0;
+    })
+    : null;
+  const profilesPerCustomer = profilesPerCustomerValues(outputs);
+  const comparisonProfilesPerCustomer = comparisonOutputs ? profilesPerCustomerValues(comparisonOutputs) : null;
+  const revenuePerProfile = revenuePerProfileValues(outputs);
+  const comparisonRevenuePerProfile = comparisonOutputs ? revenuePerProfileValues(comparisonOutputs) : null;
+  const scenarioName = displayScenarioName(scenario);
+  const comparisonName = comparison ? displayScenarioName(comparison) : "";
+
+  setMetricTreeChart("treeRevenue", [
+    metricTreeSeries(displayLabel(`${scenarioName} HHP`), outputs.revenue, scenarioColor),
+    metricTreeSeries("Plan", outputs.planRevenue, "#111827"),
+    ...(comparisonOutputs ? [metricTreeSeries(displayLabel(`${comparisonName} HHP`), comparisonOutputs.revenue, comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treePayingCustomers", [
+    metricTreeSeries(scenarioName, outputs.totalCustomers, scenarioColor),
+    ...(comparisonOutputs ? [metricTreeSeries(comparisonName, comparisonOutputs.totalCustomers, comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeNewPayingCustomers", [
+    metricTreeSeries(scenarioName, driverValues(scenario, "newCustomers"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "newCustomers"), comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeExistingPropertyNewPayingCustomers", [
+    metricTreeSeries(scenarioName, YEARS.map(visibleExistingPropertyNewCustomersValue), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => existingPropertyNewCustomersTotal(comparison.newCustomerDrilldown.counts, year)), comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeNewPropertyNewPayingCustomers", [
+    metricTreeSeries(scenarioName, YEARS.map(visibleNewPropertyNewCustomersValue), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newPropertyCohortValue(comparison.newCustomerDrilldown.counts, year)), comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeNewUnits", [
+    metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerUnitValue("newUnits", newCustomerUnitNewUnitsPairs(scenario), year, newCustomerUnitNewUnitsValue(scenario, year))), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerUnitNewUnitsValue(comparison, year)), comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeNewProperties", [
+    metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerNewUnitsValue("newProperties", newCustomerNewUnitsNewPropertiesPairs(scenario), year, newCustomerNewUnitsNewPropertiesValue(scenario, year))), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerNewUnitsNewPropertiesValue(comparison, year)), comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeNewUnitsPerProperty", [
+    metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerNewUnitsValue("unitsPerNewProperty", newCustomerNewUnitsUnitsPerPropertyPairs(scenario), year, newCustomerNewUnitsUnitsPerPropertyValue(scenario, year))), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerNewUnitsUnitsPerPropertyValue(comparison, year)), comparisonColor)] : []),
+  ], { format: "decimal" });
+
+  setMetricTreeChart("treeNewCustomersPerUnit", [
+    metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerUnitValue("customersPerUnit", newCustomerUnitCustomersPerUnitPairs(scenario), year, newCustomerUnitCustomersPerUnitValue(scenario, year))), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerUnitCustomersPerUnitValue(comparison, year)), comparisonColor)] : []),
+  ], { format: "decimal" });
+
+  setMetricTreeChart("treeReturningPayingCustomers", [
+    metricTreeSeries(scenarioName, outputs.returningCustomers, scenarioColor),
+    ...(comparisonOutputs ? [metricTreeSeries(comparisonName, comparisonOutputs.returningCustomers, comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treePriorPayingCustomers", [
+    metricTreeSeries(scenarioName, priorYearPayingCustomers, scenarioColor),
+    ...(comparisonPriorYearPayingCustomers ? [metricTreeSeries(comparisonName, comparisonPriorYearPayingCustomers, comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeRetentionRate", [
+    metricTreeSeries(scenarioName, driverValues(scenario, "retention"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "retention"), comparisonColor)] : []),
+  ], { format: "percent" });
+
+  setMetricTreeChart("treeRevenuePerCustomer", [
+    metricTreeSeries(scenarioName, revenuePerCustomer, scenarioColor),
+    ...(comparisonRevenuePerCustomer ? [metricTreeSeries(comparisonName, comparisonRevenuePerCustomer, comparisonColor)] : []),
+  ], { format: "currency2" });
+
+  setMetricTreeChart("treeProfilesPerCustomer", [
+    metricTreeSeries(scenarioName, profilesPerCustomer, scenarioColor),
+    ...(comparisonProfilesPerCustomer ? [metricTreeSeries(comparisonName, comparisonProfilesPerCustomer, comparisonColor)] : []),
+  ], { format: "decimal" });
+
+  setMetricTreeChart("treeRevenuePerProfile", [
+    metricTreeSeries(scenarioName, revenuePerProfile, scenarioColor),
+    ...(comparisonRevenuePerProfile ? [metricTreeSeries(comparisonName, comparisonRevenuePerProfile, comparisonColor)] : []),
+  ], { format: "currency2" });
+
+  setMetricTreeChart("treeProfilesReturningCustomer", [
+    metricTreeSeries(scenarioName, driverValues(scenario, "profilesReturning"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "profilesReturning"), comparisonColor)] : []),
+  ], { format: "decimal" });
+
+  setMetricTreeChart("treeProfilesNewCustomer", [
+    metricTreeSeries(scenarioName, driverValues(scenario, "profilesNew"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "profilesNew"), comparisonColor)] : []),
+  ], { format: "decimal" });
+
+  setMetricTreeChart("treeRevenueReturningProfile", [
+    metricTreeSeries(scenarioName, driverValues(scenario, "revReturningProfile"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "revReturningProfile"), comparisonColor)] : []),
+  ], { format: "currency2" });
+
+  setMetricTreeChart("treeRevenueNewProfile", [
+    metricTreeSeries(scenarioName, driverValues(scenario, "revNewProfile"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "revNewProfile"), comparisonColor)] : []),
+  ], { format: "currency2" });
+}
+
+function secondaryCanvasNodes(focusNode) {
+  const focus = canvasNodeTree[focusNode];
+  if (!focus) return new Set();
+  const secondary = new Set(focus.children || []);
+  if (focus.parent) {
+    secondary.add(focus.parent);
+    (canvasNodeTree[focus.parent]?.children || []).forEach(sibling => {
+      if (sibling !== focusNode) secondary.add(sibling);
+    });
+  }
+  return secondary;
+}
+
+function canvasNodeFocusRole(nodeId, focusNode, secondary) {
+  if (nodeId === "revenue") return "main";
+  if (nodeId === focusNode) return "main";
+  if (secondary.has(nodeId)) return "secondary";
+  return "tertiary";
+}
+
+function resizeCanvasCharts() {
+  Object.values(state.outputCharts).forEach(chart => chart?.resize());
+}
+
+function renderCanvasConnectors(surfaceWidth, surfaceHeight) {
+  const svg = document.querySelector(".canvas-connectors");
+  if (!svg) return;
+  svg.setAttribute("viewBox", `0 0 ${surfaceWidth} ${surfaceHeight}`);
+  svg.replaceChildren();
+  Object.entries(canvasNodeTree).forEach(([parentId, config]) => {
+    const parentNode = document.querySelector(`.canvas-node[data-node-id="${parentId}"]`);
+    if (!parentNode) return;
+    const startX = parentNode.offsetLeft + parentNode.offsetWidth / 2;
+    const startY = parentNode.offsetTop + parentNode.offsetHeight;
+    (config.children || []).forEach(childId => {
+      const childNode = document.querySelector(`.canvas-node[data-node-id="${childId}"]`);
+      if (!childNode) return;
+      const endX = childNode.offsetLeft + childNode.offsetWidth / 2;
+      const endY = childNode.offsetTop;
+      const midpointY = startY + Math.max(70, (endY - startY) / 2);
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", `M ${startX} ${startY} C ${startX} ${midpointY}, ${endX} ${midpointY}, ${endX} ${endY}`);
+      svg.appendChild(path);
+    });
+  });
+}
+
+function canvasZoomValue(value) {
+  const rounded = Math.round(value * 100) / 100;
+  return Math.min(CANVAS_ZOOM_MAX, Math.max(CANVAS_ZOOM_MIN, rounded));
+}
+
+function renderCanvasZoomControls() {
+  const label = document.getElementById("canvas-zoom-label");
+  const zoomOut = document.getElementById("canvas-zoom-out");
+  const zoomIn = document.getElementById("canvas-zoom-in");
+  if (label) label.textContent = `${Math.round(state.canvasZoom * 100)}%`;
+  if (zoomOut) zoomOut.disabled = state.canvasZoom <= CANVAS_ZOOM_MIN;
+  if (zoomIn) zoomIn.disabled = state.canvasZoom >= CANVAS_ZOOM_MAX;
+}
+
+function applyCanvasZoom(surfaceWidth, surfaceHeight) {
+  const surface = document.querySelector(".canvas-surface");
+  const viewport = document.querySelector(".canvas-viewport");
+  if (!surface || !viewport) return;
+  const zoom = state.canvasZoom;
+  surface.style.transform = `scale(${zoom})`;
+  viewport.style.width = `${surfaceWidth * zoom}px`;
+  viewport.style.height = `${surfaceHeight * zoom}px`;
+  renderCanvasZoomControls();
+}
+
+function layoutCanvasNodes() {
+  const surface = document.querySelector(".canvas-surface");
+  if (!surface) return;
+  const focusNode = canvasNodeTree[state.canvasFocusNode] ? state.canvasFocusNode : "revenue";
+  const secondary = secondaryCanvasNodes(focusNode);
+  const marginX = 56;
+  const marginY = 64;
+  const gapX = 58;
+  const rowGap = 84;
+  const rowLayouts = canvasLayoutRows.map(row => {
+    const items = row.map(nodeId => {
+      const role = canvasNodeFocusRole(nodeId, focusNode, secondary);
+      return { nodeId, role, ...canvasFocusDimensions[role] };
+    });
+    return {
+      items,
+      width: items.reduce((total, item) => total + item.width, 0) + Math.max(0, items.length - 1) * gapX,
+      height: Math.max(...items.map(item => item.height)),
+    };
+  });
+  const surfaceWidth = Math.max(1500, Math.max(...rowLayouts.map(row => row.width)) + marginX * 2);
+  let top = marginY;
+  rowLayouts.forEach(row => {
+    let left = (surfaceWidth - row.width) / 2;
+    row.items.forEach(item => {
+      const node = document.querySelector(`.canvas-node[data-node-id="${item.nodeId}"]`);
+      if (!node) return;
+      node.style.left = `${left}px`;
+      node.style.top = `${top}px`;
+      left += item.width + gapX;
+    });
+    top += row.height + rowGap;
+  });
+  const surfaceHeight = top + marginY - rowGap;
+  surface.style.width = `${surfaceWidth}px`;
+  surface.style.height = `${surfaceHeight}px`;
+  applyCanvasZoom(surfaceWidth, surfaceHeight);
+  renderCanvasConnectors(surfaceWidth, surfaceHeight);
+}
+
+function refreshCanvasLayoutAndCharts() {
+  layoutCanvasNodes();
+  resizeCanvasCharts();
+}
+
+function renderCanvasFocus() {
+  const focusNode = canvasNodeTree[state.canvasFocusNode] ? state.canvasFocusNode : "revenue";
+  state.canvasFocusNode = focusNode;
+  const secondary = secondaryCanvasNodes(focusNode);
+  document.querySelectorAll(".canvas-node[data-node-id]").forEach(node => {
+    const nodeId = node.dataset.nodeId;
+    const isMain = nodeId === focusNode;
+    const hasMainSizing = isMain || nodeId === "revenue";
+    const isSecondary = !hasMainSizing && secondary.has(nodeId);
+    node.classList.toggle("canvas-node-focus-main", hasMainSizing);
+    node.classList.toggle("canvas-node-focus-secondary", isSecondary);
+    node.classList.toggle("canvas-node-focus-tertiary", !hasMainSizing && !isSecondary);
+    node.setAttribute("aria-current", isMain ? "true" : "false");
+  });
+  layoutCanvasNodes();
+  requestAnimationFrame(refreshCanvasLayoutAndCharts);
+  setTimeout(refreshCanvasLayoutAndCharts, 190);
+}
+
+function setCanvasFocus(nodeId) {
+  if (!canvasNodeTree[nodeId]) return;
+  state.canvasFocusNode = nodeId;
+  renderCanvasFocus();
+}
+
+function setCanvasZoom(value, focalPoint = null) {
+  const stage = document.querySelector(".canvas-stage");
+  const previousZoom = state.canvasZoom;
+  const focal = focalPoint && stage
+    ? {
+      x: (stage.scrollLeft + focalPoint.x) / previousZoom,
+      y: (stage.scrollTop + focalPoint.y) / previousZoom,
+      viewportX: focalPoint.x,
+      viewportY: focalPoint.y,
+    }
+    : null;
+  const nextZoom = canvasZoomValue(value);
+  if (nextZoom === state.canvasZoom) return;
+  state.canvasZoom = nextZoom;
+  refreshCanvasLayoutAndCharts();
+  if (stage && focal) {
+    stage.scrollLeft = (focal.x * nextZoom) - focal.viewportX;
+    stage.scrollTop = (focal.y * nextZoom) - focal.viewportY;
+  }
+}
+
+function scrollCanvasToNode(nodeId) {
+  const stage = document.querySelector(".canvas-stage");
+  const node = document.querySelector(`.canvas-node[data-node-id="${nodeId}"]`);
+  if (!stage || !node) return;
+  const zoom = state.canvasZoom;
+  const nodeCenterX = (node.offsetLeft + node.offsetWidth / 2) * zoom;
+  const nodeCenterY = (node.offsetTop + node.offsetHeight / 2) * zoom;
+  const maxLeft = Math.max(0, stage.scrollWidth - stage.clientWidth);
+  const maxTop = Math.max(0, stage.scrollHeight - stage.clientHeight);
+  stage.scrollLeft = Math.min(maxLeft, Math.max(0, nodeCenterX - stage.clientWidth / 2));
+  stage.scrollTop = Math.min(maxTop, Math.max(0, nodeCenterY - stage.clientHeight / 2));
+}
+
+function centerCanvasOnNode(nodeId) {
+  requestAnimationFrame(() => {
+    scrollCanvasToNode(nodeId);
+    requestAnimationFrame(() => scrollCanvasToNode(nodeId));
+  });
+  setTimeout(() => scrollCanvasToNode(nodeId), 220);
+}
+
+function enterMetricTreeCanvas() {
+  state.canvasZoom = CANVAS_ZOOM_MAX;
+  state.canvasFocusNode = "revenue";
+  renderCanvasFocus();
+  centerCanvasOnNode("revenue");
+}
+
+function bindCanvasTrackpadZoom() {
+  const stage = document.querySelector(".canvas-stage");
+  if (!stage) return;
+  stage.addEventListener("wheel", event => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const rect = stage.getBoundingClientRect();
+    const delta = -event.deltaY * 0.0025;
+    setCanvasZoom(state.canvasZoom + delta, {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+  }, { passive: false });
+}
+
 function revenuePathChartOption(outputs) {
   const comparison = compareScenario();
   const comparisonOutputs = comparison ? calculateOutputs(comparison) : null;
+  const scenarioName = displayScenarioName(activeScenario());
+  const comparisonName = comparison ? displayScenarioName(comparison) : "";
   const revenueSeries = [
-    { name: `${activeScenario().name} Existing Customers`, type: "bar", stack: "revenue", data: outputs.revenueExisting, itemStyle: { color: "#4f7fb8" } },
-    { name: `${activeScenario().name} New Customers`, type: "bar", stack: "revenue", data: outputs.revenueNew, itemStyle: { color: "#8ebf86" } },
+    { name: `${scenarioName} Existing Customers`, type: "bar", stack: "revenue", data: outputs.revenueExisting, itemStyle: { color: "#4f7fb8" } },
+    { name: `${scenarioName} New Customers`, type: "bar", stack: "revenue", data: outputs.revenueNew, itemStyle: { color: "#8ebf86" } },
     { name: "Plan Revenue", type: "line", data: outputs.planRevenue, symbolSize: 6, lineStyle: { color: "#111827", width: 2 }, itemStyle: { color: "#111827" } },
   ];
   if (comparisonOutputs) {
     revenueSeries.push({
-      name: `${comparison.name} Revenue`,
+      name: `${comparisonName} Revenue`,
       type: "line",
       data: comparisonOutputs.revenue,
       symbolSize: 5,
@@ -1586,9 +2139,9 @@ function revenuePathChartOption(outputs) {
           lines.push(`${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 0)}`);
         });
         const total = params
-          .filter(item => item.seriesType === "bar" && item.seriesName.startsWith(activeScenario().name))
+          .filter(item => item.seriesType === "bar" && item.seriesName.startsWith(scenarioName))
           .reduce((sum, item) => sum + Number(item.value || 0), 0);
-        lines.push(`<strong>${activeScenario().name} Revenue: ${formatCurrency(total, 0)}</strong>`);
+        lines.push(`<strong>${scenarioName} Revenue: ${formatCurrency(total, 0)}</strong>`);
         return lines.join("<br/>");
       },
     },
@@ -1607,8 +2160,8 @@ function renderKpis(outputs) {
   document.getElementById("kpi-revenue-2029").textContent = formatCurrency(outputs.revenue[last], 0);
   document.getElementById("kpi-gap-2029").textContent = formatCurrency(outputs.delta[last], 0);
   document.getElementById("kpi-gap-2029").classList.toggle("negative", outputs.delta[last] < 0);
-  document.getElementById("kpi-cagr").textContent = `${(cagr * 100).toFixed(1)}%`;
-  document.getElementById("kpi-paid-profiles").textContent = Math.round(outputs.paidProfiles[last]).toLocaleString("en-US");
+  document.getElementById("kpi-cagr").textContent = isAnonymizedView() ? anonymizedMetricValue() : `${(cagr * 100).toFixed(1)}%`;
+  document.getElementById("kpi-paid-profiles").textContent = formatIntegerMetric(outputs.paidProfiles[last]);
 }
 
 function setText(id, value) {
@@ -2180,7 +2733,7 @@ function revUnitRpuEditRanges() {
 function revUnitRpuLine() {
   const editRanges = revUnitRpuEditRanges();
   return {
-    name: "Rev / Unit",
+    name: displayLabel("Rev / Unit"),
     color: BOTTOM_UP_COLOR,
     editDomain: {
       moveX: editRanges,
@@ -2205,7 +2758,7 @@ function revUnitReferenceLine() {
     .filter(([x]) => x >= REV_UNIT_YEARS[0] && x <= REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1])
     .filter(([, value]) => value !== null);
   return {
-    name: `Reference ${cohortYear}${state.revUnitReferenceShifted ? " Age-Matched" : ""}`,
+    name: displayLabel(`Reference ${cohortYear}${state.revUnitReferenceShifted ? " Age-Matched" : ""}`),
     color: "#98a2b3",
     editable: false,
     data,
@@ -2296,7 +2849,7 @@ function initRevUnitCharts() {
   const unitsChart = new NapkinChart(
     "rev-unit-units-chart",
     [{
-      name: "New Units",
+      name: displayLabel("New Units"),
       color: TOP_DOWN_COLOR,
       editDomain: {
         moveX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
@@ -2332,7 +2885,7 @@ function initRevUnitCharts() {
           const value = Array.isArray(data) ? Number(data[1]) : Number(lineItem?.value);
           return [
             tooltipHeader(year),
-            `${lineItem?.marker || ""} New Units: ${Math.round(value).toLocaleString("en-US")}`,
+            `${lineItem?.marker || ""} ${displayLabel("New Units")}: ${formatIntegerMetric(value)}`,
           ].join("<br/>");
         },
       },
@@ -2421,7 +2974,7 @@ function syncRevUnitCharts() {
   const unitsChart = state.revUnitCharts.units;
   if (unitsChart) {
     unitsChart.lines = [{
-      name: "New Units",
+      name: displayLabel("New Units"),
       color: TOP_DOWN_COLOR,
       editDomain: {
         moveX: [[FIRST_FORECAST_YEAR, REV_UNIT_YEARS[REV_UNIT_YEARS.length - 1]]],
@@ -2497,7 +3050,7 @@ function renderRevUnitOutputCharts() {
         trigger: "axis",
         formatter: params => [
           tooltipHeader(params[0]?.axisValue),
-          ...params.map(item => `${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 0)}`),
+          ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 0)}`),
         ].join("<br/>"),
       },
       legend: { top: 0 },
@@ -2506,8 +3059,8 @@ function renderRevUnitOutputCharts() {
       yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
       series: [
         { name: "Plan Revenue", type: "line", data: planRevenue, symbolSize: 6, lineStyle: { color: "#111827", width: 2 }, itemStyle: { color: "#111827" } },
-        { name: "HHP Model", type: "line", data: hhpOutputs.revenue, symbolSize: 6, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
-        { name: "Rev / Unit Model", type: "line", data: YEARS.map(year => revUnitTotalRevenueValue(scenario, year) || 0), symbolSize: 6, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+        { name: displayLabel("HHP Model"), type: "line", data: hhpOutputs.revenue, symbolSize: 6, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+        { name: displayLabel("Rev / Unit Model"), type: "line", data: YEARS.map(year => revUnitTotalRevenueValue(scenario, year) || 0), symbolSize: 6, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
       ],
     }, true);
   }
@@ -2519,14 +3072,14 @@ function renderRevUnitOutputCharts() {
         trigger: "axis",
         formatter: params => [
           tooltipHeader(params[0]?.axisValue),
-          ...params.map(item => `${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 2)}`),
+          ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 2)}`),
         ].join("<br/>"),
       },
       grid: { left: 12, right: 18, top: 18, bottom: 36, containLabel: true },
       xAxis: { type: "category", data: REV_UNIT_YEARS.map(String) },
       yAxis: { type: "value", axisLabel: { formatter: value => formatCurrency(Number(value), 0) } },
       series: [{
-        name: "Aggregate Rev / Cumulative Unit",
+        name: displayLabel("Aggregate Rev / Cumulative Unit"),
         type: "line",
         data: REV_UNIT_YEARS.map(year => revUnitAggregateRpuValue(scenario, year) || 0),
         areaStyle: { color: "rgba(79, 127, 184, 0.12)" },
@@ -2685,6 +3238,8 @@ function renderNewCustomerEditorMode() {
 
 function renderNewCustomerDrilldownCharts() {
   const comparison = compareScenario();
+  const scenarioName = displayScenarioName(activeScenario());
+  const comparisonName = comparison ? displayScenarioName(comparison) : "";
   const comparisonTotals = comparison ? bottomUpNewCustomers(comparison) : null;
   const activeTotals = visibleBottomUpNewCustomers();
   const activeTopDown = activeScenario().drivers.newCustomers;
@@ -2706,9 +3261,9 @@ function renderNewCustomerDrilldownCharts() {
         const bottomUpMarker = `<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background:${BOTTOM_UP_COLOR};"></span>`;
         return [
           tooltipHeader(year),
-          `${topDownMarker} Top-Down: ${Math.round(activeTopDown[index] || 0).toLocaleString("en-US")}`,
-          `${bottomUpMarker} Bottom-Up: ${Math.round(activeTotals[index] || 0).toLocaleString("en-US")}`,
-          ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+          `${topDownMarker} Top-Down: ${formatIntegerMetric(activeTopDown[index] || 0)}`,
+          `${bottomUpMarker} Bottom-Up: ${formatIntegerMetric(activeTotals[index] || 0)}`,
+          ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
         ].join("<br/>");
       },
     },
@@ -2718,13 +3273,13 @@ function renderNewCustomerDrilldownCharts() {
     yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
     series: [
       {
-        name: `${activeScenario().name} Delta`,
+        name: `${scenarioName} Delta`,
         type: "bar",
         data: activeDeltaToTopDown,
         itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
       },
       ...(comparisonDeltaToTopDown ? [{
-        name: `${comparison.name} Delta`,
+        name: `${comparisonName} Delta`,
         type: "line",
         data: comparisonDeltaToTopDown,
         symbolSize: 5,
@@ -2735,11 +3290,11 @@ function renderNewCustomerDrilldownCharts() {
   }, true);
 
   const totalSeries = [
-    { name: `${activeScenario().name} Top-Down`, type: "line", data: activeTopDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
-    { name: `${activeScenario().name} Bottom-Up`, type: "line", data: activeTotals, symbolSize: 5, z: 3, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+    { name: `${scenarioName} Top-Down`, type: "line", data: activeTopDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+    { name: `${scenarioName} Bottom-Up`, type: "line", data: activeTotals, symbolSize: 5, z: 3, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
   ];
   if (comparisonTotals) {
-    totalSeries.unshift({ name: `${comparison.name} Bottom-Up`, type: "line", data: comparisonTotals, symbolSize: 5, z: 2, lineStyle: { color: "#98a2b3", width: 3 }, itemStyle: { color: "#98a2b3" } });
+    totalSeries.unshift({ name: `${comparisonName} Bottom-Up`, type: "line", data: comparisonTotals, symbolSize: 5, z: 2, lineStyle: { color: "#98a2b3", width: 3 }, itemStyle: { color: "#98a2b3" } });
   }
   state.outputCharts.newCustomerTotal.setOption({
     animation: false,
@@ -2747,7 +3302,7 @@ function renderNewCustomerDrilldownCharts() {
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
       ].join("<br/>"),
     },
     legend: { top: 0 },
@@ -2762,6 +3317,7 @@ function renderNewCustomerDrilldownCharts() {
 function renderNewCustomerUnitDrilldown() {
   const scenario = activeScenario();
   const comparison = compareScenario();
+  const comparisonName = comparison ? displayScenarioName(comparison) : "";
   const topDown = YEARS.map(year => newPropertyCohortValue(scenario.newCustomerDrilldown.counts, year));
   const bottomUp = YEARS.map(year => visibleNewCustomerUnitBottomUpValue(year));
   const delta = bottomUp.map((value, index) => Math.abs(value - topDown[index]) < 0.000001 ? 0 : value - topDown[index]);
@@ -2776,7 +3332,7 @@ function renderNewCustomerUnitDrilldown() {
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
       ].join("<br/>"),
     },
     legend: { top: 0 },
@@ -2784,10 +3340,10 @@ function renderNewCustomerUnitDrilldown() {
     xAxis: { type: "category", data: YEARS.map(String) },
     yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
     series: [
-      { name: "New Properties Top-Down", type: "line", data: topDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
-      { name: "Unit Build", type: "line", data: bottomUp, symbolSize: 5, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+      { name: displayLabel("New Properties Top-Down"), type: "line", data: topDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+      { name: displayLabel("Unit Build"), type: "line", data: bottomUp, symbolSize: 5, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
       ...(comparisonBottomUp ? [{
-        name: `${comparison.name} Unit Build`,
+        name: displayLabel(`${comparisonName} Unit Build`),
         type: "line",
         data: comparisonBottomUp,
         symbolSize: 5,
@@ -2803,7 +3359,7 @@ function renderNewCustomerUnitDrilldown() {
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
       ].join("<br/>"),
     },
     legend: { top: 0 },
@@ -2812,13 +3368,13 @@ function renderNewCustomerUnitDrilldown() {
     yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
     series: [
       {
-        name: "Unit Build Delta",
+        name: displayLabel("Unit Build Delta"),
         type: "bar",
         data: delta,
         itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
       },
       ...(comparisonDelta ? [{
-        name: `${comparison.name} Delta`,
+        name: `${comparisonName} Delta`,
         type: "line",
         data: comparisonDelta,
         symbolSize: 5,
@@ -2834,6 +3390,7 @@ function renderNewCustomerUnitDrilldown() {
 function renderNewCustomerNewUnitsDrilldown() {
   const scenario = activeScenario();
   const comparison = compareScenario();
+  const comparisonName = comparison ? displayScenarioName(comparison) : "";
   const topDown = YEARS.map(year => newCustomerUnitNewUnitsValue(scenario, year));
   const bottomUp = YEARS.map(year => visibleNewCustomerNewUnitsBottomUpValue(year));
   const delta = bottomUp.map((value, index) => Math.abs(value - topDown[index]) < 0.000001 ? 0 : value - topDown[index]);
@@ -2849,7 +3406,7 @@ function renderNewCustomerNewUnitsDrilldown() {
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
       ].join("<br/>"),
     },
     legend: { top: 0 },
@@ -2857,10 +3414,10 @@ function renderNewCustomerNewUnitsDrilldown() {
     xAxis: { type: "category", data: YEARS.map(String) },
     yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
     series: [
-      { name: "New Units Top-Down", type: "line", data: topDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
-      { name: "Property Build", type: "line", data: bottomUp, symbolSize: 5, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+      { name: displayLabel("New Units Top-Down"), type: "line", data: topDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
+      { name: displayLabel("Property Build"), type: "line", data: bottomUp, symbolSize: 5, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
       ...(comparisonBottomUp ? [{
-        name: `${comparison.name} Property Build`,
+        name: displayLabel(`${comparisonName} Property Build`),
         type: "line",
         data: comparisonBottomUp,
         symbolSize: 5,
@@ -2876,7 +3433,7 @@ function renderNewCustomerNewUnitsDrilldown() {
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${Math.round(Number(item.value)).toLocaleString("en-US")}`),
+        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
       ].join("<br/>"),
     },
     legend: { top: 0 },
@@ -2885,13 +3442,13 @@ function renderNewCustomerNewUnitsDrilldown() {
     yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
     series: [
       {
-        name: "Property Build Delta",
+        name: displayLabel("Property Build Delta"),
         type: "bar",
         data: delta,
         itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
       },
       ...(comparisonDelta ? [{
-        name: `${comparison.name} Delta`,
+        name: `${comparisonName} Delta`,
         type: "line",
         data: comparisonDelta,
         symbolSize: 5,
@@ -2965,7 +3522,7 @@ function renderNewCustomerAllCohortsChart() {
           .filter(item => item.value !== null && item.value !== undefined)
           .map(item => {
             const value = typeof item.value === "object" && item.value !== null ? item.value.value : item.value;
-            return `${item.marker} ${item.seriesName}: ${Math.round(Number(value)).toLocaleString("en-US")}`;
+            return `${item.marker} ${item.seriesName}: ${formatIntegerMetric(Number(value))}`;
           }),
       ].join("<br/>"),
     },
@@ -3039,7 +3596,7 @@ function cohortCountChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: YEARS
@@ -3072,7 +3629,7 @@ function cohortYoyChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: YEARS
@@ -3107,7 +3664,7 @@ function yearExistingChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: cohorts.map(cohortYear => [
@@ -3142,7 +3699,7 @@ function yearExistingYoyChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: cohorts.map(cohortYear => [
@@ -3159,7 +3716,7 @@ function newPropertiesCountChartLines() {
   const controlKey = napkinControlKey("newPropertiesCount");
   const defaultPairs = YEARS.map(year => [year, newPropertyCohortValue(activeCounts, year)]);
   const lines = [{
-    name: "New Properties",
+    name: displayLabel("New Properties"),
     color: BOTTOM_UP_COLOR,
     editable: true,
     editDomain: {
@@ -3172,7 +3729,7 @@ function newPropertiesCountChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: YEARS.map(year => [year, newPropertyCohortValue(comparison.newCustomerDrilldown.counts, year)]),
@@ -3189,7 +3746,7 @@ function newPropertiesYoyChartLines() {
     .filter(([, value]) => value !== null)
     .map(([year, value]) => [year, value * 100]);
   const lines = [{
-    name: "New Properties YoY",
+    name: displayLabel("New Properties YoY"),
     color: BOTTOM_UP_COLOR,
     editable: true,
     editDomain: {
@@ -3202,7 +3759,7 @@ function newPropertiesYoyChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: YEARS
@@ -3219,7 +3776,7 @@ function bridgeExistingChartLines() {
   const controlKey = napkinControlKey("bridgeExistingProperties");
   const defaultPairs = YEARS.map(year => [year, existingPropertyNewCustomersTotal(activeCounts, year)]);
   const lines = [{
-    name: "Existing Properties",
+    name: displayLabel("Existing Properties"),
     color: BOTTOM_UP_COLOR,
     editable: true,
     editDomain: {
@@ -3232,7 +3789,7 @@ function bridgeExistingChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: YEARS.map(year => [year, existingPropertyNewCustomersTotal(comparison.newCustomerDrilldown.counts, year)]),
@@ -3246,7 +3803,7 @@ function bridgeNewChartLines() {
   const controlKey = napkinControlKey("bridgeNewProperties");
   const defaultPairs = YEARS.map(year => [year, newPropertyCohortValue(activeCounts, year)]);
   const lines = [{
-    name: "New Properties",
+    name: displayLabel("New Properties"),
     color: BOTTOM_UP_COLOR,
     editable: true,
     editDomain: {
@@ -3259,7 +3816,7 @@ function bridgeNewChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: YEARS.map(year => [year, newPropertyCohortValue(comparison.newCustomerDrilldown.counts, year)]),
@@ -3270,7 +3827,7 @@ function bridgeNewChartLines() {
 
 function newCustomerUnitNewUnitsChartLines() {
   const lines = [{
-    name: "New Units",
+    name: displayLabel("New Units"),
     color: TOP_DOWN_COLOR,
     editable: true,
     editDomain: {
@@ -3283,7 +3840,7 @@ function newCustomerUnitNewUnitsChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: newCustomerUnitNewUnitsPairs(comparison),
@@ -3294,7 +3851,7 @@ function newCustomerUnitNewUnitsChartLines() {
 
 function newCustomerUnitCustomersPerUnitChartLines() {
   const lines = [{
-    name: "New Customers / Unit",
+    name: displayLabel("New Customers / Unit"),
     color: BOTTOM_UP_COLOR,
     editable: true,
     editDomain: {
@@ -3307,7 +3864,7 @@ function newCustomerUnitCustomersPerUnitChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: newCustomerUnitCustomersPerUnitPairs(comparison),
@@ -3318,7 +3875,7 @@ function newCustomerUnitCustomersPerUnitChartLines() {
 
 function newCustomerNewUnitsPropertiesChartLines() {
   const lines = [{
-    name: "New Properties",
+    name: displayLabel("New Properties"),
     color: TOP_DOWN_COLOR,
     editable: true,
     editDomain: {
@@ -3331,7 +3888,7 @@ function newCustomerNewUnitsPropertiesChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: newCustomerNewUnitsNewPropertiesPairs(comparison),
@@ -3342,7 +3899,7 @@ function newCustomerNewUnitsPropertiesChartLines() {
 
 function newCustomerNewUnitsUnitsPerPropertyChartLines() {
   const lines = [{
-    name: "Units / Property",
+    name: displayLabel("Units / Property"),
     color: BOTTOM_UP_COLOR,
     editable: true,
     editDomain: {
@@ -3355,7 +3912,7 @@ function newCustomerNewUnitsUnitsPerPropertyChartLines() {
   const comparison = compareScenario();
   if (comparison) {
     lines.push({
-      name: `Comparison: ${comparison.name}`,
+      name: `Comparison: ${displayScenarioName(comparison)}`,
       color: "#98a2b3",
       editable: false,
       data: newCustomerNewUnitsUnitsPerPropertyPairs(comparison),
@@ -4057,12 +4614,12 @@ function renderScenarioSelect() {
   const versionSelect = document.getElementById("version-select");
   const restoreButton = document.getElementById("restore-version");
   select.innerHTML = scenarios
-    .map(scenario => `<option value="${scenario.id}">${scenario.name}</option>`)
+    .map(scenario => `<option value="${scenario.id}">${displayScenarioName(scenario)}</option>`)
     .join("");
   select.value = state.activeScenarioId;
   compareSelect.innerHTML = [
     `<option value="">None</option>`,
-    ...scenarios.map(scenario => `<option value="${scenario.id}">${scenario.name}</option>`),
+    ...scenarios.map(scenario => `<option value="${scenario.id}">${displayScenarioName(scenario)}</option>`),
   ].join("");
   if (state.compareScenarioId && !state.scenarios[state.compareScenarioId]) {
     setCompareScenario("");
@@ -4071,7 +4628,7 @@ function renderScenarioSelect() {
 
   const versions = activeScenario().versions || [];
   versionSelect.innerHTML = versions.length
-    ? versions.slice().reverse().map(version => `<option value="${version.id}">${formatVersionLabel(version)}</option>`).join("")
+    ? versions.slice().reverse().map((version, index) => `<option value="${version.id}">${formatVersionLabel(version, index)}</option>`).join("")
     : `<option value="">No versions</option>`;
   if (!state.selectedVersionId || !versions.some(version => version.id === state.selectedVersionId)) {
     state.selectedVersionId = versions.length ? versions[versions.length - 1].id : "";
@@ -4080,7 +4637,8 @@ function renderScenarioSelect() {
   restoreButton.disabled = !state.selectedVersionId;
 }
 
-function formatVersionLabel(version) {
+function formatVersionLabel(version, reverseIndex = 0) {
+  if (isAnonymizedView()) return `Version ${reverseIndex + 1}`;
   const date = new Date(version.createdAt);
   const timestamp = Number.isNaN(date.getTime())
     ? version.createdAt
@@ -4088,14 +4646,60 @@ function formatVersionLabel(version) {
   return `${timestamp} - ${version.label}`;
 }
 
+function isMetricTextNodeValue(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const normalizedYear = trimmed.replace(/,/g, "");
+  if (/^20\d{2}$/.test(normalizedYear)) return false;
+  return /^-?\$?[\d,]+(\.\d+)?%?$/.test(trimmed)
+    || /^-?\$?[\d,]+(\.\d+)?[kKmMbB]$/.test(trimmed)
+    || /^-\$?[\d,]+(\.\d+)?$/.test(trimmed);
+}
+
+function anonymizeTextNodeValue(text) {
+  const replaced = anonymizeText(text);
+  if (!isMetricTextNodeValue(replaced)) return replaced;
+  const leading = replaced.match(/^\s*/)?.[0] || "";
+  const trailing = replaced.match(/\s*$/)?.[0] || "";
+  return `${leading}${anonymizedMetricValue()}${trailing}`;
+}
+
+function applyAnonymizedView() {
+  const checkbox = document.getElementById("anonymized-view-toggle");
+  if (checkbox) checkbox.checked = isAnonymizedView();
+  document.body.classList.toggle("anonymized-view", isAnonymizedView());
+  document.title = displayLabel("PetScreening $100M Path");
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || ["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA"].includes(parent.tagName)) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    if (!originalTextByNode.has(node)) originalTextByNode.set(node, node.nodeValue);
+    const original = originalTextByNode.get(node);
+    node.nodeValue = isAnonymizedView() ? anonymizeTextNodeValue(original) : original;
+  });
+}
+
 function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = null } = {}) {
   const outputs = calculateOutputs(activeScenario());
   renderKpis(outputs);
   renderGuidedPlan(outputs);
   renderOutputCharts(outputs);
+  renderMetricTree(outputs);
+  renderCanvasFocus();
   renderTable(outputs);
   renderNewCustomerDrilldown({ syncEditors: syncNewCustomerEditors, excludeEditor: excludeNewCustomerChart });
   renderRevUnitPlan();
+  applyAnonymizedView();
 }
 
 function openScenarioDialog({ title, label, defaultValue, confirmText, onConfirm }) {
@@ -4221,8 +4825,56 @@ function resetScenario() {
   renderAll();
 }
 
+function focusElementById(id) {
+  if (!id) return;
+  setTimeout(() => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 0);
+}
+
+function openMetricTreeTarget(action, focusChart) {
+  if (action === "newCustomers") {
+    state.newCustomerUnitDrilldownOpen = false;
+    state.newCustomerNewUnitsDrilldownOpen = false;
+    setView("newCustomers");
+    focusElementById("new-customers-total-chart");
+    return;
+  }
+  if (action === "unitDrilldown") {
+    state.newCustomerUnitDrilldownOpen = true;
+    state.newCustomerNewUnitsDrilldownOpen = false;
+    setView("newCustomers");
+    renderNewCustomerUnitDrilldownToggle();
+    focusElementById("new-customers-unit-drilldown");
+    return;
+  }
+  if (action === "newUnitsDrilldown") {
+    state.newCustomerUnitDrilldownOpen = true;
+    state.newCustomerNewUnitsDrilldownOpen = true;
+    setView("newCustomers");
+    renderNewCustomerUnitDrilldownToggle();
+    focusElementById("new-customers-new-units-drilldown");
+    return;
+  }
+  if (action === "revUnit") {
+    setView("revPerUnit");
+    focusElementById("rev-unit-revenue-comparison-chart");
+    return;
+  }
+  setView("chart");
+  focusElementById(focusChart || "revenue-chart");
+}
+
 function bindControls() {
   bindNapkinYAxisControls();
+  document.getElementById("anonymized-view-toggle")?.addEventListener("change", event => {
+    state.anonymizedView = event.target.checked;
+    syncDriverCharts();
+    syncRevUnitCharts();
+    renderAll();
+    renderScenarioSelect();
+    applyAnonymizedView();
+  });
   document.getElementById("scenario-select").addEventListener("change", event => {
     state.activeScenarioId = event.target.value;
     state.selectedVersionId = "";
@@ -4373,10 +5025,18 @@ function bindControls() {
   document.getElementById("update-scenario").addEventListener("click", updateScenario);
   document.getElementById("reset-scenario").addEventListener("click", resetScenario);
 
+  document.getElementById("tab-tree").addEventListener("click", () => setView("tree"));
   document.getElementById("tab-guided").addEventListener("click", () => setView("guided"));
   document.getElementById("tab-chart").addEventListener("click", () => setView("chart"));
   document.getElementById("tab-table").addEventListener("click", () => setView("table"));
   document.getElementById("tab-rev-per-unit").addEventListener("click", () => setView("revPerUnit"));
+  document.getElementById("canvas-zoom-out").addEventListener("click", () => {
+    setCanvasZoom(state.canvasZoom - CANVAS_ZOOM_STEP);
+  });
+  document.getElementById("canvas-zoom-in").addEventListener("click", () => {
+    setCanvasZoom(state.canvasZoom + CANVAS_ZOOM_STEP);
+  });
+  bindCanvasTrackpadZoom();
   document.getElementById("drilldown-new-customers-from-chart").addEventListener("click", () => {
     state.newCustomerUnitDrilldownOpen = false;
     state.newCustomerNewUnitsDrilldownOpen = false;
@@ -4388,8 +5048,25 @@ function bindControls() {
       const focusChart = event.currentTarget.dataset.focusChart;
       if (targetView) setView(targetView);
       if (focusChart) {
-        setTimeout(() => document.getElementById(focusChart)?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+        focusElementById(focusChart);
       }
+    });
+  });
+  document.querySelectorAll(".tree-jump").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      openMetricTreeTarget(event.currentTarget.dataset.treeAction, event.currentTarget.dataset.focusChart);
+    });
+  });
+  document.querySelectorAll(".canvas-node[data-node-id]").forEach(node => {
+    node.addEventListener("click", event => {
+      if (event.target.closest("button")) return;
+      setCanvasFocus(event.currentTarget.dataset.nodeId);
+    });
+    node.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      setCanvasFocus(event.currentTarget.dataset.nodeId);
     });
   });
   document.addEventListener("keydown", event => {
@@ -4409,16 +5086,21 @@ function bindControls() {
 
 function setView(view) {
   state.currentView = view;
+  document.getElementById("tab-tree").classList.toggle("active", view === "tree");
   document.getElementById("tab-guided").classList.toggle("active", view === "guided");
   document.getElementById("tab-chart").classList.toggle("active", view === "chart");
   document.getElementById("tab-table").classList.toggle("active", view === "table");
   document.getElementById("tab-rev-per-unit").classList.toggle("active", view === "revPerUnit");
+  document.getElementById("tree-view").classList.toggle("active", view === "tree");
   document.getElementById("guided-view").classList.toggle("active", view === "guided");
   document.getElementById("chart-view").classList.toggle("active", view === "chart");
   document.getElementById("table-view").classList.toggle("active", view === "table");
   document.getElementById("new-customers-view").classList.toggle("active", view === "newCustomers");
   document.getElementById("rev-per-unit-view").classList.toggle("active", view === "revPerUnit");
   renderNewCustomerUnitDrilldownToggle();
+  if (view === "tree") {
+    enterMetricTreeCanvas();
+  }
   setTimeout(() => {
     Object.values(state.charts).forEach(chart => chart.resize());
     Object.values(state.cohortCharts).forEach(chart => chart.resize());
