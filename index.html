@@ -55,6 +55,7 @@
       <nav class="view-tabs" aria-label="Model views">
         <button id="tab-chart" class="active" type="button">Napkin View</button>
         <button id="tab-tree" type="button">Everything</button>
+        <button id="tab-initiatives" type="button">Initiatives</button>
         <button id="tab-guided" type="button">Guided Plan</button>
         <button id="tab-table" type="button">Spreadsheet View</button>
         <button id="tab-rev-per-unit" type="button">Rev Per Unit Plan</button>
@@ -127,7 +128,10 @@
                   <span>New Paying Customer Build</span>
                   <h2>New Paying Customers From Existing Properties</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="existingPropertyNewPayingCustomers" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-existing-property-new-paying-customers-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -157,7 +161,10 @@
                   <span>New Unit Build</span>
                   <h2>New Properties</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="newUnitsDrilldown" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="newUnitsDrilldown" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="newProperties" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-new-properties-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -167,7 +174,10 @@
                   <span>New Unit Build</span>
                   <h2>New Units per Property</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="newUnitsDrilldown" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="newUnitsDrilldown" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="newUnitsPerProperty" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-new-units-per-property-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -177,7 +187,10 @@
                   <span>New Property Customer Build</span>
                   <h2>New Customers per Unit</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="unitDrilldown" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="unitDrilldown" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="newCustomersPerUnit" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-new-customers-per-unit-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -207,7 +220,10 @@
                   <span>Returning Customer Build</span>
                   <h2>Retention Rate</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-retention" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-retention" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="retentionRate" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-retention-rate-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -247,7 +263,10 @@
                   <span>Profiles per Customer Build</span>
                   <h2>Profiles / Returning Customer</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-returning" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-returning" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="profilesReturningCustomer" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-profiles-returning-customer-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -257,7 +276,10 @@
                   <span>Profiles per Customer Build</span>
                   <h2>Profiles / New Customer</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-new" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-profiles-new" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="profilesNewCustomer" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-profiles-new-customer-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -267,7 +289,10 @@
                   <span>Revenue per Profile Build</span>
                   <h2>Rev / Returning Profile</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-rev-returning" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-rev-returning" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="revenueReturningProfile" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-revenue-returning-profile-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -277,7 +302,10 @@
                   <span>Revenue per Profile Build</span>
                   <h2>Rev / New Profile</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-rev-new" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="chart" data-focus-chart="chart-rev-new" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="revenueNewProfile" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-revenue-new-profile-chart" class="tree-chart tree-chart-small"></div>
               </section>
@@ -294,6 +322,62 @@
           </div>
         </div>
         <div id="raw-data-module"></div>
+      </section>
+
+      <section id="initiatives-view" class="view">
+        <div class="initiative-module-header">
+          <div>
+            <h2>Initiatives</h2>
+            <p>Stack rank defended initiatives across leaf assumptions and compare modeled revenue impact.</p>
+          </div>
+          <div class="initiative-module-controls">
+            <label for="initiative-team-filter">Team</label>
+            <select id="initiative-team-filter"></select>
+            <label for="initiative-assumption-filter">Assumption</label>
+            <select id="initiative-assumption-filter"></select>
+          </div>
+        </div>
+        <div class="initiative-summary-grid">
+          <div>
+            <span>Initiatives</span>
+            <strong id="initiative-count">0</strong>
+          </div>
+          <div>
+            <span>2026-2029 Impact</span>
+            <strong id="initiative-total-impact">$0</strong>
+          </div>
+          <div>
+            <span>2029 Impact</span>
+            <strong id="initiative-final-impact">$0</strong>
+          </div>
+          <div>
+            <span>Tagged Teams</span>
+            <strong id="initiative-team-count">0</strong>
+          </div>
+        </div>
+        <div class="initiative-module-grid">
+          <section class="initiative-module-card">
+            <div class="chart-heading">
+              <h2>Stack Rank</h2>
+            </div>
+            <div id="initiative-impact-chart" class="chart chart-output initiative-rank-chart"></div>
+          </section>
+          <section class="initiative-module-card">
+            <div class="chart-heading">
+              <h2>Team Impact</h2>
+            </div>
+            <div id="initiative-team-impact-chart" class="chart chart-output initiative-rank-chart"></div>
+          </section>
+        </div>
+        <section class="initiative-module-card">
+          <div class="chart-heading">
+            <h2>Ranked Initiatives</h2>
+          </div>
+          <div id="initiative-empty-state" class="initiative-empty" hidden>No initiatives added yet. Use a leaf assumption's Defend view to create one.</div>
+          <div class="initiative-table-wrap">
+            <table id="initiative-table" class="initiative-table"></table>
+          </div>
+        </section>
       </section>
 
       <section id="guided-view" class="view">
@@ -373,7 +457,10 @@
 
         <div class="driver-grid">
           <section>
-            <h2>Retention</h2>
+            <div class="chart-heading">
+              <h2>Retention</h2>
+              <button class="drilldown-button" data-defense-key="retentionRate" type="button">Defend</button>
+            </div>
             <div id="chart-retention" class="chart"></div>
           </section>
           <section>
@@ -400,20 +487,86 @@
             <div id="chart-new-customers" class="chart"></div>
           </section>
           <section>
-            <h2>Profiles / Returning Customer</h2>
+            <div class="chart-heading">
+              <h2>Profiles / Returning Customer</h2>
+              <button class="drilldown-button" data-defense-key="profilesReturningCustomer" type="button">Defend</button>
+            </div>
             <div id="chart-profiles-returning" class="chart"></div>
           </section>
           <section>
-            <h2>Profiles / New Customer</h2>
+            <div class="chart-heading">
+              <h2>Profiles / New Customer</h2>
+              <button class="drilldown-button" data-defense-key="profilesNewCustomer" type="button">Defend</button>
+            </div>
             <div id="chart-profiles-new" class="chart"></div>
           </section>
           <section>
-            <h2>Rev / Returning Profile</h2>
+            <div class="chart-heading">
+              <h2>Rev / Returning Profile</h2>
+              <button class="drilldown-button" data-defense-key="revenueReturningProfile" type="button">Defend</button>
+            </div>
             <div id="chart-rev-returning" class="chart"></div>
           </section>
           <section>
-            <h2>Rev / New Profile</h2>
+            <div class="chart-heading">
+              <h2>Rev / New Profile</h2>
+              <button class="drilldown-button" data-defense-key="revenueNewProfile" type="button">Defend</button>
+            </div>
             <div id="chart-rev-new" class="chart"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="retention-defense-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2 id="defense-view-title">Retention Defense</h2>
+            <p id="defense-view-subtitle">Capture the rationale behind retention assumptions, especially where they depart from BAU.</p>
+          </div>
+          <button id="back-retention-defense" class="back-button" type="button">Back</button>
+        </div>
+        <div class="defense-top-row">
+          <section>
+            <h2 id="defense-metric-chart-title">Retention vs Base</h2>
+            <div id="retention-defense-chart" class="chart chart-output"></div>
+          </section>
+          <section class="defense-card defense-impact-summary">
+            <div class="chart-heading">
+              <h2>Revenue Impact</h2>
+            </div>
+            <div id="retention-revenue-impact" class="revenue-impact-list"></div>
+          </section>
+        </div>
+        <div class="defense-allocation-row">
+          <section class="defense-allocation-card">
+            <div class="chart-heading">
+              <h2>Initiative % Total</h2>
+            </div>
+            <div id="retention-pct-total-empty" class="initiative-empty" hidden></div>
+            <div id="retention-pct-total-chart" class="chart chart-output"></div>
+          </section>
+          <section class="defense-allocation-card">
+            <div class="chart-heading">
+              <h2>Revenue Impact Trend</h2>
+              <div class="chart-heading-actions">
+                <button id="retention-impact-cumulative" class="drilldown-button" type="button">Cumulative</button>
+                <div id="retention-impact-chart-type" class="editor-tabs compact-tabs">
+                  <button id="retention-impact-line" class="active" type="button">Line</button>
+                  <button id="retention-impact-bar" type="button">Bar</button>
+                </div>
+              </div>
+            </div>
+            <div id="retention-revenue-impact-chart" class="chart chart-output revenue-impact-chart"></div>
+          </section>
+          <section class="defense-allocation-card">
+            <div class="chart-heading">
+              <h2>Initiatives</h2>
+            </div>
+            <form id="retention-initiative-form" class="initiative-entry">
+              <input id="retention-initiative-input" type="text" placeholder="Initiative name" autocomplete="off" />
+              <button class="set-button" type="submit">Add</button>
+            </form>
+            <div id="retention-initiative-list" class="initiative-list"></div>
           </section>
         </div>
       </section>
@@ -450,20 +603,25 @@
           </div>
           <div class="output-row editor-chart-row">
             <div>
-              <h2>Existing Properties New Customers</h2>
-              <div class="axis-button-row" data-napkin-y-axis-controls="bridgeExisting" aria-label="Existing properties Y axis controls">
-                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
-                  <span class="axis-triangle axis-triangle-up"></span>
-                </button>
-                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
-                  <span class="axis-triangle axis-triangle-down"></span>
-                </button>
-                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
-                  <span class="axis-triangle axis-triangle-up"></span>
-                </button>
-                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
-                  <span class="axis-triangle axis-triangle-down"></span>
-                </button>
+              <div class="chart-heading">
+                <h2>Existing Properties New Customers</h2>
+                <div class="chart-heading-actions">
+                  <div class="axis-button-row" data-napkin-y-axis-controls="bridgeExisting" aria-label="Existing properties Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                  </div>
+                  <button class="drilldown-button" data-defense-key="existingPropertyNewPayingCustomers" type="button">Defend</button>
+                </div>
               </div>
               <div id="new-customers-bridge-existing-chart" class="chart chart-output"></div>
             </div>
@@ -522,7 +680,10 @@
             <div>
               <div class="chart-heading">
                 <h2>New Customers / New Unit</h2>
-                <button id="match-new-customer-unit-customers-per-unit" class="match-button" type="button">Match</button>
+                <div class="chart-heading-actions">
+                  <button id="match-new-customer-unit-customers-per-unit" class="match-button" type="button">Match</button>
+                  <button class="drilldown-button" data-defense-key="newCustomersPerUnit" type="button">Defend</button>
+                </div>
               </div>
               <div id="new-customers-unit-customers-per-unit-chart" class="chart chart-output"></div>
             </div>
@@ -565,6 +726,7 @@
                       </button>
                     </div>
                     <button id="match-new-customer-new-units-properties" class="match-button" type="button">Match</button>
+                    <button class="drilldown-button" data-defense-key="newProperties" type="button">Defend</button>
                   </div>
                 </div>
                 <div id="new-customers-new-units-properties-chart" class="chart chart-output"></div>
@@ -572,7 +734,10 @@
               <div>
                 <div class="chart-heading">
                   <h2>Units / New Property</h2>
-                  <button id="match-new-customer-new-units-units-per-property" class="match-button" type="button">Match</button>
+                  <div class="chart-heading-actions">
+                    <button id="match-new-customer-new-units-units-per-property" class="match-button" type="button">Match</button>
+                    <button class="drilldown-button" data-defense-key="newUnitsPerProperty" type="button">Defend</button>
+                  </div>
                 </div>
                 <div id="new-customers-new-units-units-per-property-chart" class="chart chart-output"></div>
               </div>
@@ -1026,6 +1191,6 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="./napkinChart.js"></script>
     <script src="./raw-data.js"></script>
-    <script src="./hhp-simple.js"></script>
+    <script src="./hhp-simple.js?v=initiatives-module"></script>
   </body>
 </html>

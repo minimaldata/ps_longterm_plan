@@ -3,6 +3,27 @@ const FIRST_FORECAST_YEAR = 2026;
 const STORAGE_KEY = "ps-hhp-simple-scenarios-v1";
 const TOP_DOWN_COLOR = "#6fa76b";
 const BOTTOM_UP_COLOR = "#4f7fb8";
+const INITIATIVE_TEAMS = [
+  "Sales",
+  "Customer Success",
+  "Customer Operations",
+  "Customer Experience",
+  "Marketing",
+  "Product",
+  "Growth",
+  "External Partners",
+];
+const LEAF_DEFENSE_KEYS = [
+  "retentionRate",
+  "profilesReturningCustomer",
+  "profilesNewCustomer",
+  "revenueReturningProfile",
+  "revenueNewProfile",
+  "existingPropertyNewPayingCustomers",
+  "newCustomersPerUnit",
+  "newProperties",
+  "newUnitsPerProperty",
+];
 
 const planRevenue = [5546199, 10450032, 16513061, 25376000, 36444600, 46813700, 65766000, 83585600, 128908000];
 const NEW_CUSTOMER_COHORT_YEARS = [0, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029];
@@ -131,6 +152,7 @@ const state = {
   undoStack: [],
   redoStack: [],
   revUnitCharts: {},
+  defenseCharts: {},
   syncingRevUnitCharts: false,
   pendingDialogAction: null,
   cohortEditorMode: "perCohort",
@@ -148,6 +170,9 @@ const state = {
   canvasFocusNode: "revenue",
   canvasZoom: 1,
   anonymizedView: false,
+  retentionImpactChartType: "line",
+  retentionImpactCumulative: false,
+  activeDefenseKey: "retentionRate",
 };
 
 const originalTextByNode = new WeakMap();
@@ -258,6 +283,41 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeRetentionInitiative(initiative) {
+  if (typeof initiative === "string") {
+    return { name: initiative, teams: [] };
+  }
+  if (!initiative || typeof initiative !== "object") {
+    return { name: "", teams: [] };
+  }
+  const teams = Array.isArray(initiative.teams)
+    ? initiative.teams.filter(team => INITIATIVE_TEAMS.includes(team))
+    : [];
+  return {
+    name: String(initiative.name || "").trim(),
+    teams: Array.from(new Set(teams)),
+  };
+}
+
+function createDefaultDefenses() {
+  return LEAF_DEFENSE_KEYS.reduce((defenses, key) => {
+    defenses[key] = {
+      initiatives: [],
+      pctTotalLines: [],
+    };
+    return defenses;
+  }, {});
+}
+
+function defaultRetentionPctTotalLines(bands) {
+  const chartYears = [FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]];
+  if (bands.length < 2) return [];
+  return bands.slice(0, -1).map((_band, index) => {
+    const cumulative = ((index + 1) / bands.length) * 100;
+    return chartYears.map(year => [year, cumulative]);
+  });
+}
+
 function makeBaseScenario(name = "Finance Base Case") {
   const scenario = {
     id: "base",
@@ -266,6 +326,7 @@ function makeBaseScenario(name = "Finance Base Case") {
     newCustomerSource: "topDown",
     newCustomerDrilldown: createDefaultNewCustomerDrilldown(),
     revUnitPlan: createDefaultRevUnitPlan(),
+    defenses: createDefaultDefenses(),
   };
   addScenarioVersion(scenario, "Initial");
   return scenario;
@@ -314,6 +375,26 @@ function normalizeScenario(scenario) {
   if (!scenario.revUnitPlan || !scenario.revUnitPlan.newUnits) {
     scenario.revUnitPlan = createDefaultRevUnitPlan();
   }
+  if (!scenario.defenses) {
+    scenario.defenses = createDefaultDefenses();
+  }
+  if (scenario.defenses.retention && !scenario.defenses.retentionRate) {
+    scenario.defenses.retentionRate = clone(scenario.defenses.retention);
+  }
+  LEAF_DEFENSE_KEYS.forEach(key => {
+    if (!scenario.defenses[key]) {
+      scenario.defenses[key] = { initiatives: [], pctTotalLines: [] };
+    }
+    if (!Array.isArray(scenario.defenses[key].initiatives)) {
+      scenario.defenses[key].initiatives = [];
+    }
+    scenario.defenses[key].initiatives = scenario.defenses[key].initiatives
+      .map(normalizeRetentionInitiative)
+      .filter(initiative => initiative.name);
+    if (!Array.isArray(scenario.defenses[key].pctTotalLines)) {
+      scenario.defenses[key].pctTotalLines = [];
+    }
+  });
   if (!scenario.revUnitPlan.unaffiliatedRevenue) {
     scenario.revUnitPlan.unaffiliatedRevenue = clone(baseUnaffiliatedRevenue);
   }
@@ -339,6 +420,7 @@ function addScenarioVersion(scenario, label = "Update") {
     newCustomerSource: scenario.newCustomerSource,
     newCustomerDrilldown: clone(scenario.newCustomerDrilldown),
     revUnitPlan: clone(scenario.revUnitPlan),
+    defenses: clone(scenario.defenses || createDefaultDefenses()),
   };
   scenario.versions.push(version);
   return version;
@@ -968,6 +1050,15 @@ function tooltipHeader(axisValue) {
   return `<strong>${year}</strong>`;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function rawDataSources() {
   const planRows = YEARS.map((year, index) => ({
     year,
@@ -1008,6 +1099,10 @@ function rawDataSources() {
       revPerUnit,
     })))
     .sort((left, right) => left.year - right.year || left.cohortYear - right.cohortYear);
+  const initiativeTeamRows = INITIATIVE_TEAMS.map((team, index) => ({
+    team,
+    sortOrder: index + 1,
+  }));
 
   return [
     {
@@ -1086,6 +1181,17 @@ function rawDataSources() {
         { key: "revPerUnit", label: "Revenue / Unit", format: "currency2" },
       ],
       rows: revUnitRpuRows,
+    },
+    {
+      id: "initiative-teams",
+      title: "Initiative Teams",
+      category: "Defense Metadata",
+      description: "Available team tags for defense initiatives.",
+      columns: [
+        { key: "sortOrder", label: "Sort Order", format: "integer" },
+        { key: "team", label: "Team", format: "text" },
+      ],
+      rows: initiativeTeamRows,
     },
   ];
 }
@@ -1376,6 +1482,10 @@ function initEchartById(id) {
 function initOutputCharts() {
   state.outputCharts.revenue = initEchartById("revenue-chart");
   state.outputCharts.gap = initEchartById("gap-chart");
+  state.outputCharts.retentionDefense = initEchartById("retention-defense-chart");
+  state.outputCharts.retentionRevenueImpact = initEchartById("retention-revenue-impact-chart");
+  state.outputCharts.initiativeImpact = initEchartById("initiative-impact-chart");
+  state.outputCharts.initiativeTeamImpact = initEchartById("initiative-team-impact-chart");
   state.outputCharts.newCustomerDrilldown = initEchartById("new-customers-drilldown-chart");
   state.outputCharts.newCustomerTotal = initEchartById("new-customers-total-chart");
   state.outputCharts.newCustomerUnitBridge = initEchartById("new-customers-unit-bridge-chart");
@@ -1407,6 +1517,67 @@ function initOutputCharts() {
   window.addEventListener("resize", () => {
     Object.values(state.outputCharts).forEach(chart => chart?.resize());
   });
+}
+
+function initRetentionDefenseCharts() {
+  const element = document.getElementById("retention-pct-total-chart");
+  if (!element || typeof NapkinChartArea === "undefined") return;
+  const baseOption = {
+    animation: false,
+    xAxis: {
+      type: "value",
+      min: FIRST_FORECAST_YEAR,
+      max: YEARS[YEARS.length - 1],
+      minInterval: 1,
+      axisLabel: { formatter: formatAxisYear },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      max: 100,
+      axisLabel: { formatter: value => `${trimNumber(Number(value), 0)}%` },
+    },
+    topAreaLabel: "Unassigned",
+    topAreaColor: "#98a2b3",
+    areaTint: 0.42,
+    grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
+    tooltip: { trigger: "axis" },
+  };
+  const chart = new NapkinChartArea(
+    "retention-pct-total-chart",
+    retentionPctTotalLineObjects(),
+    true,
+    baseOption,
+    "none"
+  );
+  chart.enableZoomBar = false;
+  chart.windowStartX = FIRST_FORECAST_YEAR;
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const storedLines = [];
+    chart.lines.forEach((line, fallbackIndex) => {
+      const bandIndex = Number.isInteger(line.bandIndex)
+        ? line.bandIndex
+        : chart.lines.length - fallbackIndex - 1;
+      storedLines[bandIndex] = clone(line.data);
+    });
+    defenseEntry().pctTotalLines = storedLines.filter(Array.isArray);
+    saveScenarios();
+    renderRetentionRevenueImpact();
+  };
+  state.defenseCharts.retentionPctTotal = chart;
+  syncRetentionPctTotalChart();
 }
 
 function initNewCustomerCohortEditors() {
@@ -1822,6 +1993,774 @@ function renderOutputCharts(outputs) {
     yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
     series: gapSeries,
   }, true);
+}
+
+const leafDefenseConfigs = {
+  retentionRate: {
+    title: "Retention Rate",
+    shortTitle: "Retention",
+    format: "percent",
+    color: driverMeta.retention.color,
+    focusChart: "chart-retention",
+    treeAction: "chart",
+    values: scenario => driverValues(scenario, "retention"),
+    baseValues: () => baseDrivers.retention,
+    applyBaseline: scenario => {
+      scenario.drivers.retention = clone(baseDrivers.retention);
+    },
+  },
+  profilesReturningCustomer: {
+    title: "Profiles / Returning Customer",
+    shortTitle: "Profiles / Returning Customer",
+    format: "decimal",
+    color: driverMeta.profilesReturning.color,
+    focusChart: "chart-profiles-returning",
+    treeAction: "chart",
+    values: scenario => driverValues(scenario, "profilesReturning"),
+    baseValues: () => baseDrivers.profilesReturning,
+    applyBaseline: scenario => {
+      scenario.drivers.profilesReturning = clone(baseDrivers.profilesReturning);
+    },
+  },
+  profilesNewCustomer: {
+    title: "Profiles / New Customer",
+    shortTitle: "Profiles / New Customer",
+    format: "decimal",
+    color: driverMeta.profilesNew.color,
+    focusChart: "chart-profiles-new",
+    treeAction: "chart",
+    values: scenario => driverValues(scenario, "profilesNew"),
+    baseValues: () => baseDrivers.profilesNew,
+    applyBaseline: scenario => {
+      scenario.drivers.profilesNew = clone(baseDrivers.profilesNew);
+    },
+  },
+  revenueReturningProfile: {
+    title: "Revenue / Returning Profile",
+    shortTitle: "Rev / Returning Profile",
+    format: "currency2",
+    color: driverMeta.revReturningProfile.color,
+    focusChart: "chart-rev-returning",
+    treeAction: "chart",
+    values: scenario => driverValues(scenario, "revReturningProfile"),
+    baseValues: () => baseDrivers.revReturningProfile,
+    applyBaseline: scenario => {
+      scenario.drivers.revReturningProfile = clone(baseDrivers.revReturningProfile);
+    },
+  },
+  revenueNewProfile: {
+    title: "Revenue / New Profile",
+    shortTitle: "Rev / New Profile",
+    format: "currency2",
+    color: driverMeta.revNewProfile.color,
+    focusChart: "chart-rev-new",
+    treeAction: "chart",
+    values: scenario => driverValues(scenario, "revNewProfile"),
+    baseValues: () => baseDrivers.revNewProfile,
+    applyBaseline: scenario => {
+      scenario.drivers.revNewProfile = clone(baseDrivers.revNewProfile);
+    },
+  },
+  existingPropertyNewPayingCustomers: {
+    title: "New Paying Customers From Existing Properties",
+    shortTitle: "Existing Properties",
+    format: "integer",
+    color: TOP_DOWN_COLOR,
+    treeAction: "newCustomers",
+    values: scenario => YEARS.map(year => existingPropertyNewCustomersTotal(scenario.newCustomerDrilldown.counts, year)),
+    baseValues: () => YEARS.map(year => existingPropertyNewCustomersTotal(baseNewCustomerCohortCounts, year)),
+    newCustomerDelta: scenario => {
+      const activeValues = YEARS.map(year => existingPropertyNewCustomersTotal(scenario.newCustomerDrilldown.counts, year));
+      const baseValues = YEARS.map(year => existingPropertyNewCustomersTotal(baseNewCustomerCohortCounts, year));
+      return activeValues.map((value, index) => value - baseValues[index]);
+    },
+  },
+  newCustomersPerUnit: {
+    title: "New Customers per Unit",
+    shortTitle: "New Customers / Unit",
+    format: "decimal",
+    color: BOTTOM_UP_COLOR,
+    treeAction: "unitDrilldown",
+    values: scenario => YEARS.map(year => newCustomerUnitCustomersPerUnitValue(scenario, year)),
+    baseValues: () => {
+      const base = makeBaseScenario();
+      return YEARS.map(year => newCustomerUnitCustomersPerUnitValue(base, year));
+    },
+    newCustomerDelta: scenario => {
+      const base = makeBaseScenario();
+      return YEARS.map(year => {
+        const units = newCustomerUnitNewUnitsValue(scenario, year);
+        return units * (newCustomerUnitCustomersPerUnitValue(scenario, year) - newCustomerUnitCustomersPerUnitValue(base, year));
+      });
+    },
+  },
+  newProperties: {
+    title: "New Properties",
+    shortTitle: "New Properties",
+    format: "integer",
+    color: BOTTOM_UP_COLOR,
+    treeAction: "newUnitsDrilldown",
+    values: scenario => YEARS.map(year => newCustomerNewUnitsNewPropertiesValue(scenario, year)),
+    baseValues: () => {
+      const base = makeBaseScenario();
+      return YEARS.map(year => newCustomerNewUnitsNewPropertiesValue(base, year));
+    },
+    newCustomerDelta: scenario => {
+      const base = makeBaseScenario();
+      return YEARS.map(year => {
+        const unitsPerProperty = newCustomerNewUnitsUnitsPerPropertyValue(scenario, year);
+        const customersPerUnit = newCustomerUnitCustomersPerUnitValue(scenario, year);
+        const activeUnits = newCustomerNewUnitsNewPropertiesValue(scenario, year) * unitsPerProperty;
+        const baseUnits = newCustomerNewUnitsNewPropertiesValue(base, year) * unitsPerProperty;
+        return (activeUnits - baseUnits) * customersPerUnit;
+      });
+    },
+  },
+  newUnitsPerProperty: {
+    title: "New Units per Property",
+    shortTitle: "Units / New Property",
+    format: "decimal",
+    color: BOTTOM_UP_COLOR,
+    treeAction: "newUnitsDrilldown",
+    values: scenario => YEARS.map(year => newCustomerNewUnitsUnitsPerPropertyValue(scenario, year)),
+    baseValues: () => {
+      const base = makeBaseScenario();
+      return YEARS.map(year => newCustomerNewUnitsUnitsPerPropertyValue(base, year));
+    },
+    newCustomerDelta: scenario => {
+      const base = makeBaseScenario();
+      return YEARS.map(year => {
+        const properties = newCustomerNewUnitsNewPropertiesValue(scenario, year);
+        const customersPerUnit = newCustomerUnitCustomersPerUnitValue(scenario, year);
+        const activeUnits = properties * newCustomerNewUnitsUnitsPerPropertyValue(scenario, year);
+        const baseUnits = properties * newCustomerNewUnitsUnitsPerPropertyValue(base, year);
+        return (activeUnits - baseUnits) * customersPerUnit;
+      });
+    },
+  },
+};
+
+function activeDefenseConfig() {
+  return leafDefenseConfigs[state.activeDefenseKey] || leafDefenseConfigs.retentionRate;
+}
+
+function defenseEntry(scenario = activeScenario(), key = state.activeDefenseKey) {
+  normalizeScenario(scenario);
+  if (!scenario.defenses[key]) {
+    scenario.defenses[key] = { initiatives: [], pctTotalLines: [] };
+  }
+  return scenario.defenses[key];
+}
+
+function formatDefenseMetricValue(value, config = activeDefenseConfig()) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  if (config.format === "percent") return `${trimNumber(Number(value) * 100, 1)}%`;
+  if (config.format === "currency2") return formatCurrency(Number(value), 2);
+  if (config.format === "integer") return Math.round(Number(value)).toLocaleString("en-US");
+  if (config.format === "decimal") return trimNumber(Number(value), 2);
+  return formatCompactNumber(Number(value));
+}
+
+function formatDefenseAxisValue(value, config = activeDefenseConfig()) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  if (config.format === "percent") return `${trimNumber(Number(value) * 100, 0)}%`;
+  if (config.format === "currency2") return formatCompactCurrency(Number(value));
+  if (config.format === "integer") return formatCompactNumber(Number(value));
+  if (config.format === "decimal") return trimNumber(Number(value), 2);
+  return formatCompactNumber(Number(value));
+}
+
+function openLeafDefense(key) {
+  if (!leafDefenseConfigs[key]) return;
+  state.activeDefenseKey = key;
+  setView("retentionDefense");
+  renderRetentionDefense();
+}
+
+function retentionDefenseInitiatives(scenario = activeScenario(), key = state.activeDefenseKey) {
+  normalizeScenario(scenario);
+  return defenseEntry(scenario, key).initiatives;
+}
+
+function retentionPctTotalBands(scenario = activeScenario(), key = state.activeDefenseKey) {
+  const initiatives = retentionDefenseInitiatives(scenario, key);
+  return initiatives.length ? initiatives : ["Unknown"];
+}
+
+function retentionPctTotalBandLabel(band, index) {
+  const name = typeof band === "string" ? band : band?.name;
+  if (!isAnonymizedView()) return name || "Unknown";
+  return band === "Unknown" ? "Unknown" : `Initiative ${index + 1}`;
+}
+
+function retentionInitiativeTeamLabel(initiative) {
+  const teams = initiative?.teams || [];
+  return teams.length ? teams.join(", ") : "No team tags";
+}
+
+function retentionPctTotalLineData(scenario = activeScenario(), key = state.activeDefenseKey, bands = retentionPctTotalBands(scenario, key)) {
+  normalizeScenario(scenario);
+  const stored = defenseEntry(scenario, key).pctTotalLines;
+  const expectedCount = Math.max(0, bands.length - 1);
+  if (stored.length !== expectedCount) {
+    defenseEntry(scenario, key).pctTotalLines = defaultRetentionPctTotalLines(bands);
+  }
+  return defenseEntry(scenario, key).pctTotalLines;
+}
+
+function retentionPctTotalLineObjects(scenario = activeScenario(), key = state.activeDefenseKey) {
+  const bands = retentionPctTotalBands(scenario, key);
+  const lineData = retentionPctTotalLineData(scenario, key, bands);
+  return lineData
+    .map((data, index) => ({
+      name: retentionPctTotalBandLabel(bands[index], index),
+      color: metricTreeScenarioPalette[index % metricTreeScenarioPalette.length],
+      bandIndex: index,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: clone(data),
+    }))
+    .reverse();
+}
+
+function retentionPctTotalSharesForYear(scenario, year, key = state.activeDefenseKey) {
+  const bands = retentionPctTotalBands(scenario, key);
+  if (bands.length <= 1) return [1];
+  const boundaries = retentionPctTotalLineData(scenario, key, bands)
+    .map(data => interpolateNapkinLineValue(data, year))
+    .map(value => Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
+  const shares = [];
+  let previous = 0;
+  boundaries.forEach(boundary => {
+    const share = Math.max(0, boundary - previous) / 100;
+    shares.push(share);
+    previous = boundary;
+  });
+  shares.push(Math.max(0, 100 - previous) / 100);
+  return shares;
+}
+
+function retentionRevenueDeltaToBase(scenario = activeScenario(), key = state.activeDefenseKey) {
+  const config = leafDefenseConfigs[key] || activeDefenseConfig();
+  const activeOutputs = calculateOutputs(scenario);
+  if (typeof config.newCustomerDelta === "function") {
+    const deltas = config.newCustomerDelta(scenario);
+    const baselineNewCustomers = driverValues(scenario, "newCustomers").map((value, index) => Math.max(0, value - (deltas[index] || 0)));
+    const baseOutputs = calculateOutputsWithNewCustomers(scenario, baselineNewCustomers);
+    return activeOutputs.revenue.map((value, index) => value - baseOutputs.revenue[index]);
+  }
+  if (typeof config.applyBaseline !== "function") {
+    return YEARS.map(() => 0);
+  }
+  const baseRetentionScenario = clone(scenario);
+  config.applyBaseline(baseRetentionScenario);
+  const baseRetentionOutputs = calculateOutputs(baseRetentionScenario);
+  return activeOutputs.revenue.map((value, index) => value - baseRetentionOutputs.revenue[index]);
+}
+
+function retentionInitiativeRevenueImpacts(scenario = activeScenario(), key = state.activeDefenseKey) {
+  const bands = retentionPctTotalBands(scenario, key);
+  const deltas = retentionRevenueDeltaToBase(scenario, key);
+  return bands.map((band, bandIndex) => {
+    const yearly = YEARS.map((year, yearIndex) => {
+      const shares = retentionPctTotalSharesForYear(scenario, year, key);
+      return deltas[yearIndex] * (shares[bandIndex] || 0);
+    });
+    return {
+      name: retentionPctTotalBandLabel(band, bandIndex),
+      color: metricTreeScenarioPalette[bandIndex % metricTreeScenarioPalette.length],
+      yearly,
+      forecastTotal: yearly.reduce((sum, value, index) => editableYear(YEARS[index]) ? sum + value : sum, 0),
+      finalYear: yearly[yearly.length - 1],
+    };
+  });
+}
+
+function renderRetentionRevenueImpact() {
+  const container = document.getElementById("retention-revenue-impact");
+  if (!container) return;
+  const impacts = retentionInitiativeRevenueImpacts();
+  const totalForecast = impacts.reduce((sum, item) => sum + item.forecastTotal, 0);
+  const totalFinalYear = impacts.reduce((sum, item) => sum + item.finalYear, 0);
+  container.innerHTML = `
+    <div class="revenue-impact-total">
+      <span>2026-2029 Delta to BAU</span>
+      <strong>${formatCurrency(totalForecast, 0)}</strong>
+      <small>2029: ${formatCurrency(totalFinalYear, 0)}</small>
+    </div>
+    ${impacts.map(item => `
+      <div class="revenue-impact-item">
+        <span class="impact-color" style="background:${item.color}"></span>
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <small>2026-2029</small>
+        </div>
+        <div>
+          <strong>${formatCurrency(item.forecastTotal, 0)}</strong>
+          <small>2029: ${formatCurrency(item.finalYear, 0)}</small>
+        </div>
+      </div>
+    `).join("")}
+  `;
+  renderRetentionRevenueImpactChart(impacts);
+}
+
+function renderRetentionRevenueImpactChart(impacts = retentionInitiativeRevenueImpacts()) {
+  const chartElement = document.getElementById("retention-revenue-impact-chart");
+  const chartTypeControl = document.getElementById("retention-impact-chart-type");
+  const cumulativeButton = document.getElementById("retention-impact-cumulative");
+  const lineButton = document.getElementById("retention-impact-line");
+  const barButton = document.getElementById("retention-impact-bar");
+  const chart = state.outputCharts.retentionRevenueImpact;
+  if (!chartElement || !chartTypeControl || !chart) return;
+
+  chartElement.hidden = false;
+  chartTypeControl.hidden = false;
+  if (cumulativeButton) cumulativeButton.classList.toggle("active", state.retentionImpactCumulative);
+  if (lineButton) lineButton.classList.toggle("active", state.retentionImpactChartType === "line");
+  if (barButton) barButton.classList.toggle("active", state.retentionImpactChartType === "bar");
+
+  const isBar = state.retentionImpactChartType === "bar";
+  const seriesImpacts = impacts.map(item => {
+    let running = 0;
+    return {
+      ...item,
+      chartData: state.retentionImpactCumulative
+        ? item.yearly.map(value => {
+          running += value;
+          return running;
+        })
+        : item.yearly,
+    };
+  });
+  chart.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 0)}`),
+      ].join("<br/>"),
+    },
+    legend: { type: "scroll", top: 0 },
+    grid: { left: 12, right: 18, top: 48, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
+    series: seriesImpacts.map(item => ({
+      name: item.name,
+      type: isBar ? "bar" : "line",
+      data: item.chartData,
+      ...(isBar ? { stack: "retentionImpact", barMaxWidth: 46 } : { symbolSize: 5 }),
+      lineStyle: isBar ? undefined : { color: item.color, width: 2 },
+      itemStyle: { color: item.color },
+    })),
+  }, true);
+  chart.resize();
+  requestAnimationFrame(() => chart.resize());
+}
+
+function syncRetentionPctTotalChart() {
+  const chart = state.defenseCharts.retentionPctTotal;
+  const element = document.getElementById("retention-pct-total-chart");
+  const empty = document.getElementById("retention-pct-total-empty");
+  if (!chart || !element || !empty) return;
+  const bands = retentionPctTotalBands();
+  empty.hidden = true;
+  element.hidden = false;
+
+  if (bands.length <= 1) {
+    chart.lines = [];
+    chart.chart.setOption({
+      animation: false,
+      tooltip: {
+        trigger: "axis",
+        formatter: params => [
+          tooltipHeader(params[0]?.axisValue),
+          ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatPercentMetric(Number(item.value), 0)}`),
+        ].join("<br/>"),
+      },
+      legend: { top: 0 },
+      grid: { left: 12, right: 18, top: 42, bottom: 34, containLabel: true },
+      xAxis: {
+        type: "value",
+        min: FIRST_FORECAST_YEAR,
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 100,
+        axisLabel: { formatter: value => formatPercentMetric(Number(value), 0) },
+      },
+      series: [{
+        name: retentionPctTotalBandLabel(bands[0], 0),
+        type: "line",
+        data: [[FIRST_FORECAST_YEAR, 100], [YEARS[YEARS.length - 1], 100]],
+        showSymbol: false,
+        lineStyle: { width: 0 },
+        itemStyle: { color: metricTreeScenarioPalette[0] },
+        areaStyle: { opacity: 0.52, color: metricTreeScenarioPalette[0] },
+      }],
+    }, true);
+    chart.resize();
+    requestAnimationFrame(() => chart.resize());
+    renderRetentionRevenueImpact();
+    return;
+  }
+
+  chart.lines = retentionPctTotalLineObjects();
+  chart.topAreaLabel = retentionPctTotalBandLabel(bands[bands.length - 1], bands.length - 1);
+  chart.topAreaColor = metricTreeScenarioPalette[(bands.length - 1) % metricTreeScenarioPalette.length];
+  chart.baseOption.topAreaLabel = chart.topAreaLabel;
+  chart.baseOption.topAreaColor = chart.topAreaColor;
+  chart._refreshChart();
+  chart.resize();
+  requestAnimationFrame(() => chart.resize());
+  renderRetentionRevenueImpact();
+}
+
+function renderRetentionDefense() {
+  const config = activeDefenseConfig();
+  const title = document.getElementById("defense-view-title");
+  const subtitle = document.getElementById("defense-view-subtitle");
+  const chartTitle = document.getElementById("defense-metric-chart-title");
+  if (title) title.textContent = `${displayLabel(config.shortTitle)} Defense`;
+  if (subtitle) {
+    subtitle.textContent = `Capture the rationale behind ${displayLabel(config.shortTitle).toLowerCase()} assumptions, especially where they depart from BAU.`;
+  }
+  if (chartTitle) chartTitle.textContent = `${displayLabel(config.shortTitle)} vs Base`;
+
+  const chart = state.outputCharts.retentionDefense;
+  if (chart) {
+    const scenario = activeScenario();
+    const scenarioName = displayScenarioName(scenario);
+    const activeValues = config.values(scenario);
+    const baseValues = config.baseValues(scenario);
+    chart.setOption({
+      animation: false,
+      tooltip: {
+        trigger: "axis",
+        formatter: params => [
+          tooltipHeader(params[0]?.axisValue),
+          ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatDefenseMetricValue(Number(item.value), config)}`),
+        ].join("<br/>"),
+      },
+      legend: { top: 0 },
+      grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+      xAxis: { type: "category", data: YEARS.map(String) },
+      yAxis: { type: "value", axisLabel: { formatter: value => formatDefenseAxisValue(value, config) } },
+      series: [
+        {
+          name: scenarioName,
+          type: "line",
+          data: activeValues,
+          symbolSize: 6,
+          lineStyle: { color: config.color, width: 3 },
+          itemStyle: { color: config.color },
+        },
+        {
+          name: "Base Scenario",
+          type: "line",
+          data: baseValues,
+          symbolSize: 5,
+          lineStyle: { color: "#98a2b3", width: 2, type: "dashed" },
+          itemStyle: { color: "#98a2b3" },
+        },
+      ],
+    }, true);
+  }
+
+  const list = document.getElementById("retention-initiative-list");
+  if (!list) return;
+  const initiatives = retentionDefenseInitiatives();
+  list.innerHTML = initiatives.length
+    ? initiatives.map((initiative, index) => `
+      <div class="initiative-chip">
+        <div class="initiative-chip-main">
+          <span>${escapeHtml(isAnonymizedView() ? `Initiative ${index + 1}` : initiative.name)}</span>
+          <small>${escapeHtml(retentionInitiativeTeamLabel(initiative))}</small>
+        </div>
+        <button type="button" data-remove-retention-initiative="${index}" aria-label="Remove ${escapeHtml(initiative.name)}">Remove</button>
+        <div class="initiative-team-tags">
+          ${initiative.teams.map(team => `
+            <span class="initiative-team-pill">
+              ${escapeHtml(team)}
+              <button
+                type="button"
+                data-remove-retention-initiative-team="${index}"
+                data-team="${escapeHtml(team)}"
+                aria-label="Remove ${escapeHtml(team)} from ${escapeHtml(initiative.name)}"
+              >x</button>
+            </span>
+          `).join("")}
+          ${INITIATIVE_TEAMS.some(team => !initiative.teams.includes(team)) ? `
+            <button
+              type="button"
+              class="initiative-team-add"
+              data-show-retention-initiative-team-picker="${index}"
+              aria-label="Add team tag to ${escapeHtml(initiative.name)}"
+            >+</button>
+            <select class="initiative-team-picker" data-add-retention-initiative-team="${index}" hidden>
+              <option value="">Choose team</option>
+              ${INITIATIVE_TEAMS
+                .filter(team => !initiative.teams.includes(team))
+                .map(team => `<option value="${escapeHtml(team)}">${escapeHtml(team)}</option>`)
+                .join("")}
+            </select>
+          ` : ""}
+        </div>
+      </div>
+    `).join("")
+    : `<div class="initiative-empty">No initiatives added yet.</div>`;
+  syncRetentionPctTotalChart();
+}
+
+function addRetentionInitiative(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  retentionDefenseInitiatives(scenario).push({ name: trimmed, teams: [] });
+  defenseEntry(scenario).pctTotalLines = defaultRetentionPctTotalLines(retentionPctTotalBands(scenario));
+  saveScenarios();
+  renderRetentionDefense();
+}
+
+function addRetentionInitiativeTeam(index, team) {
+  if (!INITIATIVE_TEAMS.includes(team)) return;
+  const scenario = activeScenario();
+  const initiative = retentionDefenseInitiatives(scenario)[index];
+  if (!initiative || initiative.teams.includes(team)) return;
+  pushUndoSnapshot();
+  initiative.teams = [...initiative.teams, team];
+  saveScenarios();
+  renderRetentionDefense();
+}
+
+function removeRetentionInitiativeTeam(index, team) {
+  const scenario = activeScenario();
+  const initiative = retentionDefenseInitiatives(scenario)[index];
+  if (!initiative || !initiative.teams.includes(team)) return;
+  pushUndoSnapshot();
+  initiative.teams = initiative.teams.filter(item => item !== team);
+  saveScenarios();
+  renderRetentionDefense();
+}
+
+function removeRetentionInitiative(index) {
+  const scenario = activeScenario();
+  const initiatives = retentionDefenseInitiatives(scenario);
+  if (!initiatives[index]) return;
+  pushUndoSnapshot();
+  initiatives.splice(index, 1);
+  defenseEntry(scenario).pctTotalLines = defaultRetentionPctTotalLines(retentionPctTotalBands(scenario));
+  saveScenarios();
+  renderRetentionDefense();
+}
+
+function initiativeImpactRows(scenario = activeScenario()) {
+  return LEAF_DEFENSE_KEYS.flatMap(defenseKey => {
+    const config = leafDefenseConfigs[defenseKey];
+    const initiatives = retentionDefenseInitiatives(scenario, defenseKey);
+    if (!config || !initiatives.length) return [];
+    return retentionInitiativeRevenueImpacts(scenario, defenseKey).slice(0, initiatives.length).map((impact, index) => ({
+      id: `${defenseKey}:${index}`,
+      defenseKey,
+      assumption: displayLabel(config.shortTitle),
+      name: impact.name,
+      teams: initiatives[index]?.teams || [],
+      forecastTotal: impact.forecastTotal,
+      finalYear: impact.finalYear,
+      yearly: impact.yearly,
+      color: impact.color,
+    }));
+  }).sort((left, right) => right.forecastTotal - left.forecastTotal);
+}
+
+function initiativeFilterValues() {
+  return {
+    team: document.getElementById("initiative-team-filter")?.value || "all",
+    assumption: document.getElementById("initiative-assumption-filter")?.value || "all",
+  };
+}
+
+function filteredInitiativeRows(rows = initiativeImpactRows()) {
+  const filters = initiativeFilterValues();
+  return rows.filter(row => {
+    const teamMatch = filters.team === "all"
+      || (filters.team === "untagged" ? row.teams.length === 0 : row.teams.includes(filters.team));
+    const assumptionMatch = filters.assumption === "all" || row.defenseKey === filters.assumption;
+    return teamMatch && assumptionMatch;
+  });
+}
+
+function renderInitiativeFilters(rows) {
+  const teamSelect = document.getElementById("initiative-team-filter");
+  const assumptionSelect = document.getElementById("initiative-assumption-filter");
+  if (!teamSelect || !assumptionSelect) return;
+  const currentTeam = teamSelect.value || "all";
+  const currentAssumption = assumptionSelect.value || "all";
+  const usedTeams = new Set(rows.flatMap(row => row.teams));
+  const hasUntagged = rows.some(row => !row.teams.length);
+  teamSelect.innerHTML = [
+    `<option value="all">All teams</option>`,
+    ...(hasUntagged ? [`<option value="untagged">Untagged</option>`] : []),
+    ...INITIATIVE_TEAMS
+      .filter(team => usedTeams.has(team))
+      .map(team => `<option value="${escapeHtml(team)}">${escapeHtml(team)}</option>`),
+  ].join("");
+  const teamValues = Array.from(teamSelect.options).map(option => option.value);
+  teamSelect.value = teamValues.includes(currentTeam) ? currentTeam : "all";
+
+  const usedAssumptions = new Set(rows.map(row => row.defenseKey));
+  assumptionSelect.innerHTML = [
+    `<option value="all">All assumptions</option>`,
+    ...LEAF_DEFENSE_KEYS
+      .filter(key => usedAssumptions.has(key))
+      .map(key => `<option value="${key}">${escapeHtml(displayLabel(leafDefenseConfigs[key]?.shortTitle || key))}</option>`),
+  ].join("");
+  const assumptionValues = Array.from(assumptionSelect.options).map(option => option.value);
+  assumptionSelect.value = assumptionValues.includes(currentAssumption) ? currentAssumption : "all";
+}
+
+function initiativeTeamRows(rows) {
+  const totals = new Map();
+  rows.forEach(row => {
+    const teams = row.teams.length ? row.teams : ["Untagged"];
+    const forecastShare = row.forecastTotal / teams.length;
+    const finalShare = row.finalYear / teams.length;
+    teams.forEach(team => {
+      const existing = totals.get(team) || { team, forecastTotal: 0, finalYear: 0 };
+      existing.forecastTotal += forecastShare;
+      existing.finalYear += finalShare;
+      totals.set(team, existing);
+    });
+  });
+  return Array.from(totals.values()).sort((left, right) => right.forecastTotal - left.forecastTotal);
+}
+
+function renderInitiativeCharts(rows) {
+  const impactChart = state.outputCharts.initiativeImpact;
+  const teamChart = state.outputCharts.initiativeTeamImpact;
+  const chartRows = rows.slice(0, 12).reverse();
+  if (impactChart) {
+    impactChart.setOption({
+      animation: false,
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: params => {
+          const item = params[0];
+          return `${escapeHtml(item.name)}<br/>${item.marker} 2026-2029 Impact: ${formatCurrency(Number(item.value), 0)}`;
+        },
+      },
+      grid: { left: 150, right: 20, top: 12, bottom: 28 },
+      xAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
+      yAxis: {
+        type: "category",
+        data: chartRows.map(row => row.name),
+        axisLabel: { width: 132, overflow: "truncate" },
+      },
+      series: [{
+        type: "bar",
+        data: chartRows.map(row => ({
+          value: row.forecastTotal,
+          itemStyle: { color: row.color },
+        })),
+        barMaxWidth: 18,
+      }],
+    }, true);
+  }
+
+  const teamRows = initiativeTeamRows(rows).slice(0, 10).reverse();
+  if (teamChart) {
+    teamChart.setOption({
+      animation: false,
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: params => {
+          const item = params[0];
+          return `${escapeHtml(item.name)}<br/>${item.marker} 2026-2029 Impact: ${formatCurrency(Number(item.value), 0)}`;
+        },
+      },
+      grid: { left: 140, right: 20, top: 12, bottom: 28 },
+      xAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
+      yAxis: {
+        type: "category",
+        data: teamRows.map(row => displayLabel(row.team)),
+        axisLabel: { width: 122, overflow: "truncate" },
+      },
+      series: [{
+        type: "bar",
+        data: teamRows.map((row, index) => ({
+          value: row.forecastTotal,
+          itemStyle: { color: metricTreeScenarioPalette[index % metricTreeScenarioPalette.length] },
+        })),
+        barMaxWidth: 18,
+      }],
+    }, true);
+  }
+}
+
+function renderInitiativesModule() {
+  const allRows = initiativeImpactRows();
+  renderInitiativeFilters(allRows);
+  const rows = filteredInitiativeRows(allRows);
+  const teamRows = initiativeTeamRows(rows);
+  const count = document.getElementById("initiative-count");
+  const totalImpact = document.getElementById("initiative-total-impact");
+  const finalImpact = document.getElementById("initiative-final-impact");
+  const teamCount = document.getElementById("initiative-team-count");
+  const empty = document.getElementById("initiative-empty-state");
+  const table = document.getElementById("initiative-table");
+  if (count) count.textContent = rows.length.toLocaleString("en-US");
+  if (totalImpact) totalImpact.textContent = formatCurrency(rows.reduce((sum, row) => sum + row.forecastTotal, 0), 0);
+  if (finalImpact) finalImpact.textContent = formatCurrency(rows.reduce((sum, row) => sum + row.finalYear, 0), 0);
+  if (teamCount) teamCount.textContent = teamRows.length.toLocaleString("en-US");
+  if (empty) empty.hidden = allRows.length > 0;
+  if (table) {
+    table.hidden = rows.length === 0;
+    table.innerHTML = rows.length
+      ? `
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Initiative</th>
+            <th>Assumption</th>
+            <th>Teams</th>
+            <th>2026-2029 Impact</th>
+            <th>2029 Impact</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row, index) => `
+            <tr>
+              <td>${index + 1}</td>
+              <td><strong>${escapeHtml(row.name)}</strong></td>
+              <td>${escapeHtml(row.assumption)}</td>
+              <td>
+                <div class="initiative-table-tags">
+                  ${(row.teams.length ? row.teams : ["Untagged"]).map(team => `<span>${escapeHtml(displayLabel(team))}</span>`).join("")}
+                </div>
+              </td>
+              <td>${formatCurrency(row.forecastTotal, 0)}</td>
+              <td>${formatCurrency(row.finalYear, 0)}</td>
+              <td><button class="drilldown-button" data-initiative-defense-key="${row.defenseKey}" type="button">Defend</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      `
+      : "";
+  }
+  renderInitiativeCharts(rows);
 }
 
 function metricTreeSeries(name, data, color, type = "line", extra = {}) {
@@ -4815,6 +5754,8 @@ function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = nu
   renderKpis(outputs);
   renderGuidedPlan(outputs);
   renderOutputCharts(outputs);
+  renderRetentionDefense();
+  renderInitiativesModule();
   renderMetricTree(outputs);
   renderCanvasFocus();
   renderTable(outputs);
@@ -4881,6 +5822,7 @@ function createScenarioCopy(name) {
     newCustomerSource: activeScenario().newCustomerSource,
     newCustomerDrilldown: clone(activeScenario().newCustomerDrilldown),
     revUnitPlan: clone(activeScenario().revUnitPlan),
+    defenses: clone(activeScenario().defenses || createDefaultDefenses()),
   };
   addScenarioVersion(state.scenarios[id], "Save As");
   state.activeScenarioId = id;
@@ -4924,6 +5866,9 @@ function restoreVersion() {
   scenario.revUnitPlan = version.revUnitPlan
     ? clone(version.revUnitPlan)
     : createDefaultRevUnitPlan();
+  scenario.defenses = version.defenses
+    ? clone(version.defenses)
+    : createDefaultDefenses();
   enforceNewCustomerBaseline(scenario);
   saveScenarios();
   syncDriverCharts();
@@ -4940,6 +5885,7 @@ function resetScenario() {
     activeScenario().newCustomerSource = "topDown";
     activeScenario().newCustomerDrilldown = createDefaultNewCustomerDrilldown();
     activeScenario().revUnitPlan = createDefaultRevUnitPlan();
+    activeScenario().defenses = createDefaultDefenses();
   }
   saveScenarios();
   syncDriverCharts();
@@ -5146,8 +6092,68 @@ function bindControls() {
   document.getElementById("save-as-scenario").addEventListener("click", saveAsScenario);
   document.getElementById("update-scenario").addEventListener("click", updateScenario);
   document.getElementById("reset-scenario").addEventListener("click", resetScenario);
+  document.querySelectorAll("[data-defense-key]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      openLeafDefense(event.currentTarget.dataset.defenseKey);
+    });
+  });
+  document.getElementById("back-retention-defense").addEventListener("click", () => {
+    const config = activeDefenseConfig();
+    openMetricTreeTarget(config.treeAction, config.focusChart);
+  });
+  document.getElementById("retention-initiative-form").addEventListener("submit", event => {
+    event.preventDefault();
+    const input = document.getElementById("retention-initiative-input");
+    addRetentionInitiative(input.value);
+    input.value = "";
+    input.focus();
+  });
+  document.getElementById("retention-initiative-list").addEventListener("click", event => {
+    const removeButton = event.target.closest("[data-remove-retention-initiative]");
+    if (removeButton) {
+      removeRetentionInitiative(Number(removeButton.dataset.removeRetentionInitiative));
+      return;
+    }
+    const removeTeamButton = event.target.closest("[data-remove-retention-initiative-team]");
+    if (removeTeamButton) {
+      removeRetentionInitiativeTeam(
+        Number(removeTeamButton.dataset.removeRetentionInitiativeTeam),
+        removeTeamButton.dataset.team
+      );
+      return;
+    }
+    const showTeamPickerButton = event.target.closest("[data-show-retention-initiative-team-picker]");
+    if (showTeamPickerButton) {
+      const picker = showTeamPickerButton.parentElement?.querySelector(
+        `[data-add-retention-initiative-team="${showTeamPickerButton.dataset.showRetentionInitiativeTeamPicker}"]`
+      );
+      if (picker) {
+        picker.hidden = false;
+        picker.focus();
+      }
+    }
+  });
+  document.getElementById("retention-initiative-list").addEventListener("change", event => {
+    const picker = event.target.closest("[data-add-retention-initiative-team]");
+    if (!picker || !picker.value) return;
+    addRetentionInitiativeTeam(Number(picker.dataset.addRetentionInitiativeTeam), picker.value);
+  });
+  document.getElementById("retention-impact-line").addEventListener("click", () => {
+    state.retentionImpactChartType = "line";
+    renderRetentionRevenueImpact();
+  });
+  document.getElementById("retention-impact-bar").addEventListener("click", () => {
+    state.retentionImpactChartType = "bar";
+    renderRetentionRevenueImpact();
+  });
+  document.getElementById("retention-impact-cumulative").addEventListener("click", () => {
+    state.retentionImpactCumulative = !state.retentionImpactCumulative;
+    renderRetentionRevenueImpact();
+  });
 
   document.getElementById("tab-tree").addEventListener("click", () => setView("tree"));
+  document.getElementById("tab-initiatives").addEventListener("click", () => setView("initiatives"));
   document.getElementById("tab-guided").addEventListener("click", () => setView("guided"));
   document.getElementById("tab-chart").addEventListener("click", () => setView("chart"));
   document.getElementById("tab-table").addEventListener("click", () => setView("table"));
@@ -5181,6 +6187,13 @@ function bindControls() {
       openMetricTreeTarget(event.currentTarget.dataset.treeAction, event.currentTarget.dataset.focusChart);
     });
   });
+  document.getElementById("initiative-team-filter")?.addEventListener("change", renderInitiativesModule);
+  document.getElementById("initiative-assumption-filter")?.addEventListener("change", renderInitiativesModule);
+  document.getElementById("initiatives-view")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-initiative-defense-key]");
+    if (!button) return;
+    openLeafDefense(button.dataset.initiativeDefenseKey);
+  });
   document.querySelectorAll(".canvas-node[data-node-id]").forEach(node => {
     node.addEventListener("click", event => {
       if (event.target.closest("button")) return;
@@ -5210,14 +6223,17 @@ function bindControls() {
 function setView(view) {
   state.currentView = view;
   document.getElementById("tab-tree").classList.toggle("active", view === "tree");
+  document.getElementById("tab-initiatives").classList.toggle("active", view === "initiatives");
   document.getElementById("tab-guided").classList.toggle("active", view === "guided");
   document.getElementById("tab-chart").classList.toggle("active", view === "chart");
   document.getElementById("tab-table").classList.toggle("active", view === "table");
   document.getElementById("tab-rev-per-unit").classList.toggle("active", view === "revPerUnit");
   document.getElementById("tab-raw-data").classList.toggle("active", view === "rawData");
   document.getElementById("tree-view").classList.toggle("active", view === "tree");
+  document.getElementById("initiatives-view").classList.toggle("active", view === "initiatives");
   document.getElementById("guided-view").classList.toggle("active", view === "guided");
   document.getElementById("chart-view").classList.toggle("active", view === "chart");
+  document.getElementById("retention-defense-view").classList.toggle("active", view === "retentionDefense");
   document.getElementById("table-view").classList.toggle("active", view === "table");
   document.getElementById("new-customers-view").classList.toggle("active", view === "newCustomers");
   document.getElementById("rev-per-unit-view").classList.toggle("active", view === "revPerUnit");
@@ -5231,6 +6247,7 @@ function setView(view) {
     Object.values(state.cohortCharts).forEach(chart => chart.resize());
     Object.values(state.outputCharts).forEach(chart => chart.resize());
     Object.values(state.revUnitCharts).forEach(chart => chart.resize());
+    Object.values(state.defenseCharts).forEach(chart => chart.resize());
   }, 0);
 }
 
@@ -5241,6 +6258,7 @@ function init() {
   Object.keys(driverMeta).forEach(initDriverChart);
   initNewCustomerCohortEditors();
   initRevUnitCharts();
+  initRetentionDefenseCharts();
   updateHistoryControls();
   renderAll();
 }
