@@ -968,6 +968,132 @@ function tooltipHeader(axisValue) {
   return `<strong>${year}</strong>`;
 }
 
+function rawDataSources() {
+  const planRows = YEARS.map((year, index) => ({
+    year,
+    planRevenue: planRevenue[index],
+  }));
+  const driverRows = YEARS.map((year, index) => ({
+    year,
+    retention: baseDrivers.retention[index],
+    newCustomers: baseDrivers.newCustomers[index],
+    profilesReturning: baseDrivers.profilesReturning[index],
+    profilesNew: baseDrivers.profilesNew[index],
+    revReturningProfile: baseDrivers.revReturningProfile[index],
+    revNewProfile: baseDrivers.revNewProfile[index],
+  }));
+  const returningRows = historicalReturningCustomers.map((customers, index) => ({
+    year: YEARS[index],
+    returningCustomers: customers,
+  }));
+  const cohortRows = Object.entries(baseNewCustomerCohortCounts)
+    .flatMap(([year, cohorts]) => Object.entries(cohorts).map(([cohortYear, newCustomers]) => ({
+      year: Number(year),
+      cohortYear: Number(cohortYear),
+      newCustomers,
+    })))
+    .sort((left, right) => left.year - right.year || left.cohortYear - right.cohortYear);
+  const revUnitSourceRows = REV_UNIT_YEARS.map(year => ({
+    year,
+    newUnits: baseRevUnitNewUnits[year] ?? null,
+    newProperties: baseRevUnitNewProperties[year] ?? null,
+    hhpRevenue: baseRevUnitRevenue[year] ?? null,
+    unaffiliatedRevenue: baseUnaffiliatedRevenue[year] ?? null,
+  }));
+  const revUnitRpuRows = Object.entries(baseRevUnitRpu)
+    .flatMap(([year, cohorts]) => Object.entries(cohorts).map(([cohortYear, revPerUnit]) => ({
+      year: Number(year),
+      cohortYear: Number(cohortYear),
+      cohortAge: Number(year) - Number(cohortYear),
+      revPerUnit,
+    })))
+    .sort((left, right) => left.year - right.year || left.cohortYear - right.cohortYear);
+
+  return [
+    {
+      id: "plan-revenue",
+      title: "Plan Revenue",
+      category: "Revenue Targets",
+      description: "Annual plan revenue used as the target line across the model.",
+      columns: [
+        { key: "year", label: "Year", format: "year" },
+        { key: "planRevenue", label: "Plan Revenue", format: "currency0" },
+      ],
+      rows: planRows,
+    },
+    {
+      id: "hhp-drivers",
+      title: "HHP Driver Baselines",
+      category: "Household Pet Profile Revenue",
+      description: "Top-level historical and forecast driver assumptions for the HHP model.",
+      columns: [
+        { key: "year", label: "Year", format: "year" },
+        { key: "retention", label: "Retention", format: "percent" },
+        { key: "newCustomers", label: "New Customers", format: "integer" },
+        { key: "profilesReturning", label: "Profiles / Returning Customer", format: "decimal" },
+        { key: "profilesNew", label: "Profiles / New Customer", format: "decimal" },
+        { key: "revReturningProfile", label: "Rev / Returning Profile", format: "currency2" },
+        { key: "revNewProfile", label: "Rev / New Profile", format: "currency2" },
+      ],
+      rows: driverRows,
+    },
+    {
+      id: "historical-returning-customers",
+      title: "Historical Returning Customers",
+      category: "Household Pet Profile Revenue",
+      description: "Historical returning customer values used before model-calculated retention begins.",
+      columns: [
+        { key: "year", label: "Year", format: "year" },
+        { key: "returningCustomers", label: "Returning Customers", format: "integer" },
+      ],
+      rows: returningRows,
+    },
+    {
+      id: "new-customer-cohorts",
+      title: "New Customers by Property Cohort",
+      category: "New Customer Drilldown",
+      description: "Baseline customer counts by calendar year and property cohort year.",
+      columns: [
+        { key: "year", label: "Year", format: "year" },
+        { key: "cohortYear", label: "Property Cohort Year", format: "cohort" },
+        { key: "newCustomers", label: "New Customers", format: "integer" },
+      ],
+      rows: cohortRows,
+    },
+    {
+      id: "rev-unit-source",
+      title: "Rev / Unit Source Values",
+      category: "Rev Per Unit Plan",
+      description: "Starting unit, property, HHP revenue, and unaffiliated revenue values for the rev/unit model.",
+      columns: [
+        { key: "year", label: "Year", format: "year" },
+        { key: "newUnits", label: "New Units", format: "integer" },
+        { key: "newProperties", label: "New Properties", format: "integer" },
+        { key: "hhpRevenue", label: "HHP Revenue", format: "currency0" },
+        { key: "unaffiliatedRevenue", label: "Unaffiliated Revenue", format: "currency2" },
+      ],
+      rows: revUnitSourceRows,
+    },
+    {
+      id: "rev-unit-rpu",
+      title: "Rev / Unit Cohort Breakout",
+      category: "Rev Per Unit Plan",
+      description: "Revenue per unit by calendar year and unit cohort year.",
+      columns: [
+        { key: "year", label: "Year", format: "year" },
+        { key: "cohortYear", label: "Cohort Year", format: "cohort" },
+        { key: "cohortAge", label: "Cohort Age", format: "integer" },
+        { key: "revPerUnit", label: "Revenue / Unit", format: "currency2" },
+      ],
+      rows: revUnitRpuRows,
+    },
+  ];
+}
+
+function renderRawDataSources() {
+  window.RawDataViewer?.render("raw-data-module", rawDataSources());
+}
+
 function napkinChartByKey(key) {
   return state.cohortCharts[key] || state.revUnitCharts[key] || state.charts[key] || null;
 }
@@ -2114,8 +2240,7 @@ function revenuePathChartOption(outputs) {
   const scenarioName = displayScenarioName(activeScenario());
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
   const revenueSeries = [
-    { name: `${scenarioName} Existing Customers`, type: "bar", stack: "revenue", data: outputs.revenueExisting, itemStyle: { color: "#4f7fb8" } },
-    { name: `${scenarioName} New Customers`, type: "bar", stack: "revenue", data: outputs.revenueNew, itemStyle: { color: "#8ebf86" } },
+    { name: `${scenarioName} Revenue`, type: "line", data: outputs.revenue, symbolSize: 6, lineStyle: { color: "#1d4ed8", width: 3 }, itemStyle: { color: "#1d4ed8" } },
     { name: "Plan Revenue", type: "line", data: outputs.planRevenue, symbolSize: 6, lineStyle: { color: "#111827", width: 2 }, itemStyle: { color: "#111827" } },
   ];
   if (comparisonOutputs) {
@@ -2136,12 +2261,8 @@ function revenuePathChartOption(outputs) {
       formatter: params => {
         const lines = [tooltipHeader(params[0]?.axisValue)];
         params.forEach(item => {
-          lines.push(`${item.marker} ${item.seriesName}: ${formatCurrency(Number(item.value), 0)}`);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 0)}`);
         });
-        const total = params
-          .filter(item => item.seriesType === "bar" && item.seriesName.startsWith(scenarioName))
-          .reduce((sum, item) => sum + Number(item.value || 0), 0);
-        lines.push(`<strong>${scenarioName} Revenue: ${formatCurrency(total, 0)}</strong>`);
         return lines.join("<br/>");
       },
     },
@@ -4699,6 +4820,7 @@ function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = nu
   renderTable(outputs);
   renderNewCustomerDrilldown({ syncEditors: syncNewCustomerEditors, excludeEditor: excludeNewCustomerChart });
   renderRevUnitPlan();
+  renderRawDataSources();
   applyAnonymizedView();
 }
 
@@ -5030,6 +5152,7 @@ function bindControls() {
   document.getElementById("tab-chart").addEventListener("click", () => setView("chart"));
   document.getElementById("tab-table").addEventListener("click", () => setView("table"));
   document.getElementById("tab-rev-per-unit").addEventListener("click", () => setView("revPerUnit"));
+  document.getElementById("tab-raw-data").addEventListener("click", () => setView("rawData"));
   document.getElementById("canvas-zoom-out").addEventListener("click", () => {
     setCanvasZoom(state.canvasZoom - CANVAS_ZOOM_STEP);
   });
@@ -5091,12 +5214,14 @@ function setView(view) {
   document.getElementById("tab-chart").classList.toggle("active", view === "chart");
   document.getElementById("tab-table").classList.toggle("active", view === "table");
   document.getElementById("tab-rev-per-unit").classList.toggle("active", view === "revPerUnit");
+  document.getElementById("tab-raw-data").classList.toggle("active", view === "rawData");
   document.getElementById("tree-view").classList.toggle("active", view === "tree");
   document.getElementById("guided-view").classList.toggle("active", view === "guided");
   document.getElementById("chart-view").classList.toggle("active", view === "chart");
   document.getElementById("table-view").classList.toggle("active", view === "table");
   document.getElementById("new-customers-view").classList.toggle("active", view === "newCustomers");
   document.getElementById("rev-per-unit-view").classList.toggle("active", view === "revPerUnit");
+  document.getElementById("raw-data-view").classList.toggle("active", view === "rawData");
   renderNewCustomerUnitDrilldownToggle();
   if (view === "tree") {
     enterMetricTreeCanvas();

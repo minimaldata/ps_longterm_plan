@@ -58,6 +58,7 @@
         <button id="tab-guided" type="button">Guided Plan</button>
         <button id="tab-table" type="button">Spreadsheet View</button>
         <button id="tab-rev-per-unit" type="button">Rev Per Unit Plan</button>
+        <button id="tab-raw-data" type="button">Raw Data</button>
       </nav>
 
       <section id="tree-view" class="view">
@@ -283,6 +284,16 @@
             </div>
           </div>
         </div>
+      </section>
+
+      <section id="raw-data-view" class="view">
+        <div class="raw-data-toolbar">
+          <div>
+            <h2>Raw Data Sources</h2>
+            <p>Inspect the baseline datasets currently embedded in the planning model.</p>
+          </div>
+        </div>
+        <div id="raw-data-module"></div>
       </section>
 
       <section id="guided-view" class="view">
@@ -1014,6 +1025,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="./napkinChart.js"></script>
+    <script src="./raw-data.js"></script>
     <script src="./hhp-simple.js"></script>
   </body>
 </html>
