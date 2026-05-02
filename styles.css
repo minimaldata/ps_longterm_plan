@@ -167,6 +167,141 @@ select {
   margin-bottom: 14px;
 }
 
+.cost-total-panel {
+  margin-bottom: 14px;
+}
+
+.cost-driver-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cost-drilldown {
+  margin-top: 4px;
+}
+
+.cost-drilldown-top-panel {
+  margin-bottom: 14px;
+}
+
+.cost-drilldown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cost-total-panel,
+.cost-drilldown-top-panel,
+.cost-driver-grid > section,
+.cost-drilldown-grid > section {
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.cost-allocation-panel {
+  min-height: 360px;
+}
+
+.chart-output.cost-department-allocation-chart {
+  height: 390px;
+}
+
+.empty-state {
+  min-height: 300px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.allocation-control-empty {
+  min-height: 300px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.allocation-control-empty[hidden] {
+  display: none;
+}
+
+.chart[hidden] {
+  display: none;
+}
+
+.allocation-control-empty strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.allocation-control-empty span {
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.labor-allocation-line-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.labor-allocation-chip {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.labor-allocation-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.labor-allocation-chip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.labor-allocation-chip input:checked + span {
+  color: var(--text);
+  border-color: var(--chip-color);
+  background: color-mix(in srgb, var(--chip-color) 14%, #ffffff);
+}
+
+.selection-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 8px;
+  color: var(--muted);
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
 .tree-toolbar {
   display: flex;
   justify-content: space-between;
@@ -569,7 +704,8 @@ select {
 .drilldown-button,
 .back-button,
 .match-button,
-.set-button {
+.set-button,
+.cost-lock-button {
   min-height: 30px;
   padding: 5px 10px;
   font-size: 12px;
@@ -948,6 +1084,19 @@ select {
   background: var(--text);
   color: #ffffff;
   border-color: var(--text);
+}
+
+.cost-lock-button.locked {
+  background: var(--text);
+  color: #ffffff;
+  border-color: var(--text);
+}
+
+.set-button:disabled {
+  color: #98a2b3;
+  cursor: not-allowed;
+  background: #f2f4f7;
+  border-color: var(--line);
 }
 
 .cohort-editor-header {

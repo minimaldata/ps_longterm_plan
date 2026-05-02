@@ -57,6 +57,7 @@
         <button id="tab-tree" type="button">Everything</button>
         <button id="tab-initiatives" type="button">Initiatives</button>
         <button id="tab-guided" type="button">Guided Plan</button>
+        <button id="tab-costs" type="button">Costs</button>
         <button id="tab-table" type="button">Spreadsheet View</button>
         <button id="tab-rev-per-unit" type="button">Rev Per Unit Plan</button>
         <button id="tab-raw-data" type="button">Raw Data</button>
@@ -441,6 +442,323 @@
             <button class="guided-jump" data-target-view="revPerUnit" type="button">Open Rev / Unit Model</button>
           </section>
         </div>
+      </section>
+
+      <section id="costs-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>Costs</h2>
+            <p>Start with operating cost split between Labor and Non-Labor. Historical values come from the old Detailed P&amp;L.</p>
+          </div>
+        </div>
+        <div id="cost-main-panels">
+          <section class="cost-total-panel">
+            <div class="chart-heading">
+              <h2>Total Cost</h2>
+              <div class="chart-heading-actions">
+                <button class="cost-lock-button" data-cost-lock-key="total" type="button">Lock</button>
+                <div class="axis-button-row" data-napkin-y-axis-controls="total" aria-label="Total cost Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                    <span class="axis-triangle axis-triangle-up"></span>
+                  </button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                    <span class="axis-triangle axis-triangle-down"></span>
+                  </button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                    <span class="axis-triangle axis-triangle-up"></span>
+                  </button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                    <span class="axis-triangle axis-triangle-down"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div id="cost-total-chart" class="chart chart-output"></div>
+          </section>
+          <div class="cost-driver-grid">
+            <section>
+              <div class="chart-heading">
+                <h2>Labor</h2>
+                <div class="chart-heading-actions">
+                  <button class="cost-lock-button" data-cost-lock-key="labor" type="button">Lock</button>
+                  <button id="toggle-cost-labor-drilldown" class="drilldown-button" type="button">Drilldown</button>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="labor" aria-label="Labor cost Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div id="cost-labor-chart" class="chart chart-output"></div>
+            </section>
+            <section>
+              <div class="chart-heading">
+                <h2>Non-Labor</h2>
+                <div class="chart-heading-actions">
+                  <button class="cost-lock-button" data-cost-lock-key="nonLabor" type="button">Lock</button>
+                  <button id="toggle-cost-non-labor-drilldown" class="drilldown-button" type="button">Drilldown</button>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="nonLabor" aria-label="Non-labor cost Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div id="cost-non-labor-chart" class="chart chart-output"></div>
+            </section>
+          </div>
+        </div>
+        <section id="cost-labor-drilldown" class="cost-drilldown" hidden>
+          <div class="drilldown-header">
+            <div>
+              <h2>Labor Drilldown</h2>
+              <p>Break Labor into department-level operating expense from the old Detailed P&amp;L rollup.</p>
+            </div>
+            <button id="back-cost-labor-drilldown" class="back-button" type="button">Back</button>
+          </div>
+          <section class="cost-drilldown-top-panel">
+            <div class="chart-heading">
+              <h2>Labor Top Down</h2>
+              <div class="chart-heading-actions">
+                <button id="set-cost-labor-top-to-bottom" class="set-button" type="button">Set Top -&gt; Bottom</button>
+                <button id="set-cost-labor-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+                <div class="editor-tabs compact-tabs" data-cost-chart-mode="laborDrilldownTopDown" aria-label="Labor top-down chart mode">
+                  <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                  <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                </div>
+                <div class="axis-button-row" data-napkin-y-axis-controls="laborDrilldownTopDown" aria-label="Labor top-down Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+              </div>
+            </div>
+            <div id="cost-labor-topdown-chart" class="chart chart-output"></div>
+          </section>
+          <div class="cost-drilldown-grid">
+            <section>
+              <div class="chart-heading">
+                <h2>Department Allocation</h2>
+                <div class="chart-heading-actions">
+                  <button id="toggle-cost-labor-fte-drilldown" class="drilldown-button" type="button">Drilldown</button>
+                  <div class="editor-tabs compact-tabs" data-cost-chart-mode="laborDepartmentMix" aria-label="Department allocation chart mode">
+                    <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                    <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                  </div>
+                </div>
+              </div>
+              <div id="cost-labor-department-mix-chart" class="chart chart-output cost-department-allocation-chart"></div>
+            </section>
+            <section class="cost-allocation-panel">
+              <div class="chart-heading">
+                <h2>Allocation Controls</h2>
+                <div class="chart-heading-actions">
+                  <button id="toggle-labor-allocation-top-lock" class="cost-lock-button" type="button">Lock Top</button>
+                  <button id="toggle-labor-allocation-others-lock" class="cost-lock-button" type="button">Lock Others</button>
+                  <div class="editor-tabs compact-tabs" data-cost-chart-mode="laborAllocationControl" aria-label="Labor allocation control chart mode">
+                    <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                    <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                    <button data-cost-chart-mode-value="pct" type="button">Pct Total</button>
+                  </div>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="laborAllocationControl" aria-label="Labor allocation control Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                  </div>
+                </div>
+              </div>
+              <div id="labor-allocation-line-list" class="labor-allocation-line-list"></div>
+              <div id="cost-labor-allocation-empty" class="allocation-control-empty">
+                <strong>Select one or more departments</strong>
+                <span>Choose department chips above to create an editable allocation line.</span>
+              </div>
+              <div id="cost-labor-allocation-pct-empty" class="allocation-control-empty" hidden>
+                <strong>Select at least two departments</strong>
+                <span>Choose two or more department chips above to edit their share of the selected total.</span>
+              </div>
+              <div id="cost-labor-allocation-control-chart" class="chart chart-output"></div>
+              <div id="cost-labor-allocation-pct-chart" class="chart chart-output" hidden></div>
+            </section>
+          </div>
+        </section>
+        <section id="cost-labor-fte-drilldown" class="cost-drilldown" hidden>
+          <div class="drilldown-header">
+            <div>
+              <h2>Labor FTE Drilldown</h2>
+              <p>Explain Labor by FTE or equivalent and blended cost per FTE or equivalent.</p>
+            </div>
+            <button id="back-cost-labor-fte-drilldown" class="back-button" type="button">Back</button>
+          </div>
+          <section class="cost-drilldown-top-panel">
+            <div class="chart-heading">
+              <h2>Selected Labor Cost</h2>
+              <div class="chart-heading-actions">
+                <button id="set-cost-labor-fte-top-to-bottom" class="set-button" type="button">Set Top -&gt; Bottom</button>
+                <button id="set-cost-labor-fte-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+                <button id="toggle-labor-fte-top-lock" class="cost-lock-button" type="button">Lock Top</button>
+                <span id="labor-fte-selection-label" class="selection-label">All Departments</span>
+                <div class="editor-tabs compact-tabs" data-cost-chart-mode="laborFteSelectedCost" aria-label="Selected labor cost chart mode">
+                  <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                  <button data-cost-chart-mode-value="pct" type="button">Pct Total</button>
+                </div>
+                <div class="editor-tabs compact-tabs" data-cost-line-mode="laborFteSelectedCost" aria-label="Selected labor cost line mode">
+                  <button class="active" data-cost-line-mode-value="grouped" type="button">Grouped</button>
+                  <button data-cost-line-mode-value="separated" type="button">Separated</button>
+                </div>
+                <div class="axis-button-row" data-napkin-y-axis-controls="laborFteSelectedCost" aria-label="Selected labor cost Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+              </div>
+            </div>
+            <div id="labor-fte-line-list" class="labor-allocation-line-list"></div>
+            <div id="cost-labor-fte-selected-cost-chart" class="chart chart-output"></div>
+            <div id="cost-labor-fte-selected-cost-pct-empty" class="allocation-control-empty" hidden>
+              <strong>Select at least two departments</strong>
+              <span>Choose two or more department chips above to edit their share of selected labor cost.</span>
+            </div>
+            <div id="cost-labor-fte-selected-cost-pct-chart" class="chart chart-output" hidden></div>
+          </section>
+          <div class="cost-drilldown-grid">
+            <section>
+              <div class="chart-heading">
+                <h2>FTE / Equivalent</h2>
+                <div class="chart-heading-actions">
+                  <button class="cost-lock-button" data-labor-fte-lock="fte" data-locked-label="FTE" type="button">Lock</button>
+                  <div class="editor-tabs compact-tabs" data-cost-chart-mode="laborFteCount" aria-label="Labor FTE chart mode">
+                    <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                    <button data-cost-chart-mode-value="pct" type="button">Pct Total</button>
+                  </div>
+                  <div class="editor-tabs compact-tabs" data-cost-line-mode="laborFteCount" aria-label="Labor FTE line mode">
+                    <button class="active" data-cost-line-mode-value="grouped" type="button">Grouped</button>
+                    <button data-cost-line-mode-value="separated" type="button">Separated</button>
+                  </div>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="laborFteCount" aria-label="Labor FTE Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                  </div>
+                </div>
+              </div>
+              <div id="cost-labor-fte-count-chart" class="chart chart-output"></div>
+              <div id="cost-labor-fte-count-pct-empty" class="allocation-control-empty" hidden>
+                <strong>Select at least two departments</strong>
+                <span>Choose two or more department chips above, or clear the selection to edit all departments.</span>
+              </div>
+              <div id="cost-labor-fte-count-pct-chart" class="chart chart-output" hidden></div>
+            </section>
+            <section>
+              <div class="chart-heading">
+                <h2>Cost / FTE Equivalent</h2>
+                <div class="chart-heading-actions">
+                  <button class="cost-lock-button" data-labor-fte-lock="costPerFte" data-locked-label="Cost/FTE" type="button">Lock</button>
+                  <div class="editor-tabs compact-tabs" data-cost-line-mode="laborFteCostPerFte" aria-label="Labor cost per FTE line mode">
+                    <button class="active" data-cost-line-mode-value="grouped" type="button">Grouped</button>
+                    <button data-cost-line-mode-value="separated" type="button">Separated</button>
+                  </div>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="laborFteCostPerFte" aria-label="Labor cost per FTE Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                  </div>
+                </div>
+              </div>
+              <div id="cost-labor-fte-cost-per-fte-chart" class="chart chart-output"></div>
+            </section>
+          </div>
+        </section>
+        <section id="cost-non-labor-drilldown" class="cost-drilldown" hidden>
+          <div class="drilldown-header">
+            <div>
+              <h2>Non-Labor Drilldown</h2>
+              <p>Break Non-Labor into category-level operating expense from the old Detailed P&amp;L rollup.</p>
+            </div>
+            <button id="back-cost-non-labor-drilldown" class="back-button" type="button">Back</button>
+          </div>
+          <section class="cost-drilldown-top-panel">
+            <div class="chart-heading">
+              <h2>Non-Labor Top Down</h2>
+              <div class="chart-heading-actions">
+                <button id="set-cost-non-labor-top-to-bottom" class="set-button" type="button">Set Top -&gt; Bottom</button>
+                <button id="set-cost-non-labor-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+                <div class="editor-tabs compact-tabs" data-cost-chart-mode="nonLaborDrilldownTopDown" aria-label="Non-labor top-down chart mode">
+                  <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                  <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                </div>
+                <div class="axis-button-row" data-napkin-y-axis-controls="nonLaborDrilldownTopDown" aria-label="Non-labor top-down Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+              </div>
+            </div>
+            <div id="cost-non-labor-topdown-chart" class="chart chart-output"></div>
+          </section>
+          <div class="cost-drilldown-grid">
+            <section>
+              <div class="chart-heading">
+                <h2>Category Allocation</h2>
+                <div class="chart-heading-actions">
+                  <div class="editor-tabs compact-tabs" data-cost-chart-mode="nonLaborCategoryMix" aria-label="Non-labor category allocation chart mode">
+                    <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                    <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                  </div>
+                </div>
+              </div>
+              <div id="cost-non-labor-category-mix-chart" class="chart chart-output cost-department-allocation-chart"></div>
+            </section>
+            <section class="cost-allocation-panel">
+              <div class="chart-heading">
+                <h2>Allocation Controls</h2>
+                <div class="chart-heading-actions">
+                  <button id="toggle-non-labor-allocation-top-lock" class="cost-lock-button" type="button">Lock Top</button>
+                  <button id="toggle-non-labor-allocation-others-lock" class="cost-lock-button" type="button">Lock Others</button>
+                  <div class="editor-tabs compact-tabs" data-cost-chart-mode="nonLaborAllocationControl" aria-label="Non-labor allocation control chart mode">
+                    <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                    <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                  </div>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="nonLaborAllocationControl" aria-label="Non-labor allocation control Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                  </div>
+                </div>
+              </div>
+              <div id="non-labor-allocation-line-list" class="labor-allocation-line-list"></div>
+              <div id="cost-non-labor-allocation-empty" class="allocation-control-empty">
+                <strong>Select one or more categories</strong>
+                <span>Choose category chips above to create an editable allocation line.</span>
+              </div>
+              <div id="cost-non-labor-allocation-control-chart" class="chart chart-output"></div>
+            </section>
+          </div>
+        </section>
       </section>
 
       <section id="chart-view" class="view active">
@@ -1191,6 +1509,6 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="./napkinChart.js"></script>
     <script src="./raw-data.js"></script>
-    <script src="./hhp-simple.js?v=initiatives-module"></script>
+    <script src="./hhp-simple.js?v=labor-fte-separated-lines"></script>
   </body>
 </html>

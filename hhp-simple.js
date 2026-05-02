@@ -1,5 +1,6 @@
 const YEARS = [2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029];
 const FIRST_FORECAST_YEAR = 2026;
+const FIRST_COST_EDIT_YEAR = 2025;
 const STORAGE_KEY = "ps-hhp-simple-scenarios-v1";
 const TOP_DOWN_COLOR = "#6fa76b";
 const BOTTOM_UP_COLOR = "#4f7fb8";
@@ -100,6 +101,108 @@ const baseDrivers = {
   revNewProfile: [19.39, 23.82, 24.44, 28.63, 29.77, 29.77, 29.77, 29.77, 29.77],
 };
 
+const baseCosts = {
+  labor: [2770938, 5297866, 9316198, 13007538, 19229862.5, 24093112.5, 28568700, 32424900, 36646200],
+  nonLabor: [2583412, 6966031, 12436889, 13792362, 15739100, 19684400, 22264400, 24120000, 27974500],
+  laborDepartments: {
+    admin: [2770938, 5297866, 1661527, 2489400, 2986400, 3441906.25, 3803200, 3998400, 4158400],
+    product: [0, 0, 1704263, 1225100, 2273200, 3032506.25, 3776800, 4299900, 5021200],
+    engineering: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+    growth: [0, 0, 656920, 629000, 1521800, 2251900, 3011300, 3801000, 4622300],
+    sales: [0, 0, 1090265, 2658900, 4578162.5, 6111400, 7310300, 8400200, 9533800],
+    marketing: [0, 0, 685404, 1188038, 1714200, 2159400, 2614300, 2920300, 3272100],
+    clientSuccess: [0, 0, 1203867, 1544700, 2227500, 2622500, 3012600, 3375500, 3795800],
+    customerExperience: [0, 0, 556065, 827400, 945700, 1118600, 1298300, 1485200, 1679600],
+    assistanceAnimal: [0, 0, 1282492, 1773800, 2124900, 2462600, 2814000, 3179300, 3559300],
+    fidoTabby: [0, 0, 475395, 671200, 858000, 892300, 927900, 965100, 1003700],
+  },
+  nonLaborCategories: {
+    staffingCosts: [44261, 119347, 213077, 236300, 283600, 340300, 391300, 450100, 495200],
+    marketingCosts: [673707, 1816616, 3243317, 3596800, 3885200, 6444300, 7552100, 7705500, 9605000],
+    outsideMarketing: [1124, 3030, 5410, 6000, 6600, 6900, 7200, 7200, 7200],
+    conferences: [91144, 245764, 438778, 486600, 557500, 613300, 674600, 742100, 816300],
+    consultants: [422678, 1139728, 2034828, 2256600, 3135500, 3725400, 4394000, 5196300, 6161000],
+    legalProfessionalServices: [56211, 151570, 270607, 300100, 315100, 330900, 347500, 364900, 383100],
+    insurance: [16801, 45304, 80885, 89700, 112100, 145700, 196700, 265500, 358400],
+    softwareDevelopment: [724618, 1953892, 3488405, 3868600, 4061700, 4264400, 4477400, 4701000, 4935700],
+    softwareSubscriptions: [244680, 659766, 1177921, 1306300, 1567600, 1881200, 2163300, 2487900, 2861200],
+    rent: [64659, 174348, 311275, 345200, 345200, 345200, 345200, 345200, 345200],
+    travelMealsEntertainment: [144418, 389416, 695248, 771022, 886800, 975500, 1073200, 1180500, 1298700],
+    allOther: [99111, 267250, 477138, 529140, 582200, 611300, 641900, 673800, 707500],
+  },
+};
+
+const costMeta = {
+  total: { label: "Total Cost", chartId: "cost-total-chart", yMax: 75, color: "#2f6f73" },
+  labor: { label: "Labor", chartId: "cost-labor-chart", yMax: 45, color: "#4f7fb8" },
+  nonLabor: { label: "Non-Labor", chartId: "cost-non-labor-chart", yMax: 35, color: "#6fa76b" },
+};
+const COST_LOCK_KEYS = ["total", "labor", "nonLabor"];
+const LABOR_DEPARTMENT_KEYS = [
+  "admin",
+  "product",
+  "engineering",
+  "growth",
+  "sales",
+  "marketing",
+  "clientSuccess",
+  "customerExperience",
+  "assistanceAnimal",
+  "fidoTabby",
+];
+const laborDepartmentMeta = {
+  admin: { label: "Admin", chartId: "cost-labor-admin-chart", yMax: 7, color: "#4f7fb8" },
+  product: { label: "Product", chartId: "cost-labor-product-chart", yMax: 8, color: "#5c8fb7" },
+  engineering: { label: "Engineering", chartId: "cost-labor-engineering-chart", yMax: 1, color: "#7d90b2" },
+  growth: { label: "Growth", chartId: "cost-labor-growth-chart", yMax: 6, color: "#4b9b8e" },
+  sales: { label: "Sales", chartId: "cost-labor-sales-chart", yMax: 12, color: "#6fa76b" },
+  marketing: { label: "Marketing", chartId: "cost-labor-marketing-chart", yMax: 5, color: "#d39b2a" },
+  clientSuccess: { label: "Client Success", chartId: "cost-labor-client-success-chart", yMax: 5, color: "#7b6fb8" },
+  customerExperience: { label: "Customer Experience", chartId: "cost-labor-customer-experience-chart", yMax: 3, color: "#a96c50" },
+  assistanceAnimal: { label: "Assistance Animal", chartId: "cost-labor-assistance-animal-chart", yMax: 5, color: "#73866d" },
+  fidoTabby: { label: "FidoTabby", chartId: "cost-labor-fido-tabby-chart", yMax: 2, color: "#5d748c" },
+};
+const laborCostPerFte2025 = {
+  admin: 101500,
+  product: 119000,
+  engineering: 133000,
+  growth: 108500,
+  sales: 105000,
+  marketing: 101500,
+  clientSuccess: 84000,
+  customerExperience: 59500,
+  assistanceAnimal: 56000,
+  fidoTabby: 98000,
+};
+const NON_LABOR_CATEGORY_KEYS = [
+  "staffingCosts",
+  "marketingCosts",
+  "outsideMarketing",
+  "conferences",
+  "consultants",
+  "legalProfessionalServices",
+  "insurance",
+  "softwareDevelopment",
+  "softwareSubscriptions",
+  "rent",
+  "travelMealsEntertainment",
+  "allOther",
+];
+const nonLaborCategoryMeta = {
+  staffingCosts: { label: "Staffing Costs", yMax: 1, color: "#4f7fb8" },
+  marketingCosts: { label: "Marketing Costs", yMax: 12, color: "#6fa76b" },
+  outsideMarketing: { label: "Outside Marketing", yMax: 1, color: "#8ab5a3" },
+  conferences: { label: "Conferences", yMax: 2, color: "#d39b2a" },
+  consultants: { label: "Consultants", yMax: 8, color: "#7b6fb8" },
+  legalProfessionalServices: { label: "Legal & Professional Services", yMax: 1, color: "#a96c50" },
+  insurance: { label: "Insurance", yMax: 1, color: "#73866d" },
+  softwareDevelopment: { label: "Software Development", yMax: 7, color: "#4b9b8e" },
+  softwareSubscriptions: { label: "Software Subscriptions", yMax: 4, color: "#5c8fb7" },
+  rent: { label: "Rent", yMax: 1, color: "#b5787c" },
+  travelMealsEntertainment: { label: "Travel, Meals & Entertainment", yMax: 2, color: "#5d748c" },
+  allOther: { label: "All Other", yMax: 1, color: "#98a2b3" },
+};
+
 const historicalReturningCustomers = [48172, 118071, 220125, 344335];
 const baseNewCustomerCohortCounts = {
   2017: { 0: 90, 2017: 1025 },
@@ -145,9 +248,11 @@ const state = {
   selectedVersionId: "",
   charts: {},
   cohortCharts: {},
+  costCharts: {},
   outputCharts: {},
   currentView: "chart",
   syncingCharts: false,
+  syncingCostCharts: false,
   syncingCohortCharts: false,
   undoStack: [],
   redoStack: [],
@@ -170,6 +275,32 @@ const state = {
   canvasFocusNode: "revenue",
   canvasZoom: 1,
   anonymizedView: false,
+  costDrilldown: "",
+  selectedLaborAllocationKeys: [],
+  laborAllocationTopLocked: false,
+  laborAllocationOthersLocked: false,
+  selectedLaborFteKeys: [],
+  laborFteTopLocked: false,
+  laborFteLockedDriver: "",
+  selectedNonLaborAllocationKeys: [],
+  nonLaborAllocationTopLocked: false,
+  nonLaborAllocationOthersLocked: false,
+  costChartModes: {
+    laborDrilldownTopDown: "value",
+    laborDepartmentMix: "value",
+    laborAllocationControl: "value",
+    laborFteSelectedCost: "value",
+    laborFteCount: "value",
+    laborFteCostPerFte: "value",
+    nonLaborDrilldownTopDown: "value",
+    nonLaborCategoryMix: "value",
+    nonLaborAllocationControl: "value",
+  },
+  costChartLineModes: {
+    laborFteSelectedCost: "grouped",
+    laborFteCount: "grouped",
+    laborFteCostPerFte: "grouped",
+  },
   retentionImpactChartType: "line",
   retentionImpactCumulative: false,
   activeDefenseKey: "retentionRate",
@@ -318,11 +449,173 @@ function defaultRetentionPctTotalLines(bands) {
   });
 }
 
+function laborDepartmentTotalForYear(laborDepartments, index) {
+  return LABOR_DEPARTMENT_KEYS.reduce((sum, key) => {
+    return sum + Number(laborDepartments?.[key]?.[index] || 0);
+  }, 0);
+}
+
+function nonLaborCategoryTotalForYear(nonLaborCategories, index) {
+  return NON_LABOR_CATEGORY_KEYS.reduce((sum, key) => {
+    return sum + Number(nonLaborCategories?.[key]?.[index] || 0);
+  }, 0);
+}
+
+function scaledBaseLaborDepartments(targetLaborValues) {
+  const departments = {};
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    departments[key] = YEARS.map((_year, index) => {
+      const baseValue = Number(baseCosts.laborDepartments[key][index] || 0);
+      const baseTotal = Number(baseCosts.labor[index] || 0);
+      const targetTotal = Number(targetLaborValues?.[index] ?? baseTotal);
+      if (!baseTotal) return baseValue;
+      return baseValue * (targetTotal / baseTotal);
+    });
+  });
+  return departments;
+}
+
+function baseLaborCostPerFteValue(key, index) {
+  const baseValue = Number(laborCostPerFte2025[key] || 100000);
+  return baseValue * Math.pow(1.03, YEARS[index] - 2025);
+}
+
+function createBaseLaborCostPerFte() {
+  const values = {};
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    values[key] = YEARS.map((_year, index) => baseLaborCostPerFteValue(key, index));
+  });
+  return values;
+}
+
+function createBaseLaborFte(laborDepartments = baseCosts.laborDepartments, laborCostPerFte = createBaseLaborCostPerFte()) {
+  const values = {};
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    values[key] = YEARS.map((_year, index) => {
+      const costPerFte = Number(laborCostPerFte?.[key]?.[index] || baseLaborCostPerFteValue(key, index));
+      const laborCost = Number(laborDepartments?.[key]?.[index] || 0);
+      return costPerFte > 0 ? laborCost / costPerFte : 0;
+    });
+  });
+  return values;
+}
+
+function scaledBaseNonLaborCategories(targetNonLaborValues) {
+  const categories = {};
+  NON_LABOR_CATEGORY_KEYS.forEach(key => {
+    categories[key] = YEARS.map((_year, index) => {
+      const baseValue = Number(baseCosts.nonLaborCategories[key][index] || 0);
+      const baseTotal = Number(baseCosts.nonLabor[index] || 0);
+      const targetTotal = Number(targetNonLaborValues?.[index] ?? baseTotal);
+      if (!baseTotal) return baseValue;
+      return baseValue * (targetTotal / baseTotal);
+    });
+  });
+  return categories;
+}
+
+function syncLaborTotalsFromDepartments(scenario) {
+  scenario.costs.labor = YEARS.map((_year, index) => {
+    return laborDepartmentTotalForYear(scenario.costs.laborDepartments, index);
+  });
+}
+
+function normalizeCostPlan(scenario) {
+  if (!scenario.costs || typeof scenario.costs !== "object") {
+    scenario.costs = clone(baseCosts);
+  }
+  ["labor", "nonLabor"].forEach(key => {
+    if (!Array.isArray(scenario.costs[key])) {
+      scenario.costs[key] = clone(baseCosts[key]);
+    }
+    scenario.costs[key] = YEARS.map((_year, index) => {
+      const value = Number(scenario.costs[key][index]);
+      return Number.isFinite(value) ? value : baseCosts[key][index];
+    });
+  });
+  if (!scenario.costs.laborDepartments || typeof scenario.costs.laborDepartments !== "object") {
+    scenario.costs.laborDepartments = scaledBaseLaborDepartments(scenario.costs.labor);
+  }
+  if (!scenario.costs.laborCostPerFte || typeof scenario.costs.laborCostPerFte !== "object") {
+    scenario.costs.laborCostPerFte = createBaseLaborCostPerFte();
+  }
+  if (!scenario.costs.laborFte || typeof scenario.costs.laborFte !== "object") {
+    scenario.costs.laborFte = createBaseLaborFte(scenario.costs.laborDepartments, scenario.costs.laborCostPerFte);
+  }
+  if (!scenario.costs.nonLaborCategories || typeof scenario.costs.nonLaborCategories !== "object") {
+    scenario.costs.nonLaborCategories = scaledBaseNonLaborCategories(scenario.costs.nonLabor);
+  }
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    if (!Array.isArray(scenario.costs.laborDepartments[key])) {
+      scenario.costs.laborDepartments[key] = clone(baseCosts.laborDepartments[key]);
+    }
+    scenario.costs.laborDepartments[key] = YEARS.map((_year, index) => {
+      const value = Number(scenario.costs.laborDepartments[key][index]);
+      return Number.isFinite(value) ? value : baseCosts.laborDepartments[key][index];
+    });
+  });
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    if (!Array.isArray(scenario.costs.laborCostPerFte[key])) {
+      scenario.costs.laborCostPerFte[key] = YEARS.map((_year, index) => baseLaborCostPerFteValue(key, index));
+    }
+    scenario.costs.laborCostPerFte[key] = YEARS.map((_year, index) => {
+      const value = Number(scenario.costs.laborCostPerFte[key][index]);
+      return Number.isFinite(value) && value > 0 ? value : baseLaborCostPerFteValue(key, index);
+    });
+    if (!Array.isArray(scenario.costs.laborFte[key])) {
+      scenario.costs.laborFte[key] = createBaseLaborFte(scenario.costs.laborDepartments, scenario.costs.laborCostPerFte)[key];
+    }
+    scenario.costs.laborFte[key] = YEARS.map((_year, index) => {
+      const value = Number(scenario.costs.laborFte[key][index]);
+      return Number.isFinite(value) && value >= 0 ? value : 0;
+    });
+  });
+  NON_LABOR_CATEGORY_KEYS.forEach(key => {
+    if (!Array.isArray(scenario.costs.nonLaborCategories[key])) {
+      scenario.costs.nonLaborCategories[key] = clone(baseCosts.nonLaborCategories[key]);
+    }
+    scenario.costs.nonLaborCategories[key] = YEARS.map((_year, index) => {
+      const value = Number(scenario.costs.nonLaborCategories[key][index]);
+      return Number.isFinite(value) ? value : baseCosts.nonLaborCategories[key][index];
+    });
+  });
+  if (!scenario.costControlPoints || typeof scenario.costControlPoints !== "object") {
+    scenario.costControlPoints = {};
+  }
+  if (!scenario.costPctTotalLines || typeof scenario.costPctTotalLines !== "object") {
+    scenario.costPctTotalLines = {};
+  }
+  if (!scenario.costLocks || typeof scenario.costLocks !== "object") {
+    scenario.costLocks = {};
+  }
+  COST_LOCK_KEYS.forEach(key => {
+    scenario.costLocks[key] = Boolean(scenario.costLocks[key]);
+  });
+  if (scenario.costLocks.labor && scenario.costLocks.nonLabor) {
+    scenario.costLocks.nonLabor = false;
+  }
+  Object.keys(scenario.costControlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.costControlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.costControlPoints[key];
+    } else {
+      scenario.costControlPoints[key] = controlPoints;
+    }
+  });
+}
+
 function makeBaseScenario(name = "Finance Base Case") {
   const scenario = {
     id: "base",
     name,
     drivers: clone(baseDrivers),
+    costs: clone(baseCosts),
+    costControlPoints: {},
+    costPctTotalLines: {},
+    costLocks: {},
     newCustomerSource: "topDown",
     newCustomerDrilldown: createDefaultNewCustomerDrilldown(),
     revUnitPlan: createDefaultRevUnitPlan(),
@@ -348,6 +641,7 @@ function loadScenarios() {
 
 function normalizeScenario(scenario) {
   if (!scenario.newCustomerSource) scenario.newCustomerSource = "topDown";
+  normalizeCostPlan(scenario);
   if (!scenario.newCustomerDrilldown || !scenario.newCustomerDrilldown.counts) {
     scenario.newCustomerDrilldown = createDefaultNewCustomerDrilldown();
   }
@@ -417,6 +711,10 @@ function addScenarioVersion(scenario, label = "Update") {
     label,
     createdAt,
     drivers: clone(scenario.drivers),
+    costs: clone(scenario.costs || baseCosts),
+    costControlPoints: clone(scenario.costControlPoints || {}),
+    costPctTotalLines: clone(scenario.costPctTotalLines || {}),
+    costLocks: clone(scenario.costLocks || {}),
     newCustomerSource: scenario.newCustomerSource,
     newCustomerDrilldown: clone(scenario.newCustomerDrilldown),
     revUnitPlan: clone(scenario.revUnitPlan),
@@ -887,6 +1185,905 @@ function driverValues(scenario, key) {
   return key === "newCustomers" ? effectiveNewCustomers(scenario) : scenario.drivers[key];
 }
 
+function costValues(scenario, key) {
+  normalizeCostPlan(scenario);
+  if (key === "total") {
+    return YEARS.map((_year, index) => scenario.costs.labor[index] + scenario.costs.nonLabor[index]);
+  }
+  return scenario.costs[key] || clone(baseCosts[key]);
+}
+
+function laborDepartmentValues(scenario, key) {
+  normalizeCostPlan(scenario);
+  return scenario.costs.laborDepartments[key] || clone(baseCosts.laborDepartments[key]);
+}
+
+function laborBottomUpValues(scenario) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => laborDepartmentTotalForYear(scenario.costs.laborDepartments, index));
+}
+
+function selectedLaborAllocationKeys() {
+  return (state.selectedLaborAllocationKeys || []).filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+}
+
+function laborDepartmentGroupTotalForYear(laborDepartments, keys, index) {
+  return keys.reduce((sum, key) => sum + Number(laborDepartments?.[key]?.[index] || 0), 0);
+}
+
+function laborAllocationControlValues(scenario) {
+  normalizeCostPlan(scenario);
+  const keys = selectedLaborAllocationKeys();
+  return YEARS.map((_year, index) => laborDepartmentGroupTotalForYear(scenario.costs.laborDepartments, keys, index));
+}
+
+function selectedLaborFteKeys() {
+  return (state.selectedLaborFteKeys || []).filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+}
+
+function activeLaborFteKeys() {
+  const selected = selectedLaborFteKeys();
+  return selected.length ? selected : LABOR_DEPARTMENT_KEYS;
+}
+
+function laborFteFilterLabel() {
+  const selected = selectedLaborFteKeys();
+  if (!selected.length) return "All Departments";
+  if (selected.length === 1) return displayLabel(laborDepartmentMeta[selected[0]].label);
+  return `${selected.length} Departments`;
+}
+
+function laborFteCountValues(scenario, keys = activeLaborFteKeys()) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => {
+    return keys.reduce((sum, key) => sum + Number(scenario.costs.laborFte?.[key]?.[index] || 0), 0);
+  });
+}
+
+function laborFteSelectedCostValues(scenario, keys = activeLaborFteKeys()) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => laborDepartmentGroupTotalForYear(scenario.costs.laborDepartments, keys, index));
+}
+
+function laborFteBuildCostValues(scenario, keys = activeLaborFteKeys()) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => {
+    return keys.reduce((sum, key) => {
+      const fte = Number(scenario.costs.laborFte?.[key]?.[index] || 0);
+      const costPerFte = Number(scenario.costs.laborCostPerFte?.[key]?.[index] || 0);
+      return sum + (fte * costPerFte);
+    }, 0);
+  });
+}
+
+function laborFteCostPerFteValues(scenario, keys = activeLaborFteKeys()) {
+  const fteValues = laborFteCountValues(scenario, keys);
+  const costValues = laborFteBuildCostValues(scenario, keys);
+  return YEARS.map((_year, index) => {
+    const fte = Number(fteValues[index] || 0);
+    return fte > 0 ? costValues[index] / fte : 0;
+  });
+}
+
+function distributeLaborFteAcrossKeys(scenario, index, keys, targetFte) {
+  normalizeCostPlan(scenario);
+  if (!keys.length) return;
+  const actualValue = Math.max(0, Number(targetFte) || 0);
+  const currentTotal = keys.reduce((sum, key) => sum + Number(scenario.costs.laborFte[key][index] || 0), 0);
+  const baseFte = createBaseLaborFte(baseCosts.laborDepartments, createBaseLaborCostPerFte());
+  const baseTotal = keys.reduce((sum, key) => sum + Number(baseFte[key][index] || 0), 0);
+  keys.forEach(key => {
+    const currentValue = Number(scenario.costs.laborFte[key][index] || 0);
+    const baseValue = Number(baseFte[key][index] || 0);
+    const share = currentTotal > 0
+      ? currentValue / currentTotal
+      : baseTotal > 0 ? baseValue / baseTotal : 1 / keys.length;
+    scenario.costs.laborFte[key][index] = actualValue * share;
+  });
+}
+
+function scaleLaborCostPerFteAcrossKeys(scenario, index, keys, targetCostPerFte) {
+  normalizeCostPlan(scenario);
+  if (!keys.length) return;
+  const actualValue = Math.max(0, Number(targetCostPerFte) || 0);
+  const currentBlended = laborFteCostPerFteValues(scenario, keys)[index];
+  const scale = currentBlended > 0 ? actualValue / currentBlended : 1;
+  keys.forEach(key => {
+    scenario.costs.laborCostPerFte[key][index] = Math.max(0, Number(scenario.costs.laborCostPerFte[key][index] || 0) * scale);
+  });
+}
+
+function scaleLaborFteAcrossKeys(scenario, index, keys, scale) {
+  normalizeCostPlan(scenario);
+  if (!keys.length || !Number.isFinite(scale)) return;
+  keys.forEach(key => {
+    scenario.costs.laborFte[key][index] = Math.max(0, Number(scenario.costs.laborFte[key][index] || 0) * scale);
+  });
+}
+
+function scaleLaborCostPerFteValuesAcrossKeys(scenario, index, keys, scale) {
+  normalizeCostPlan(scenario);
+  if (!keys.length || !Number.isFinite(scale)) return;
+  keys.forEach(key => {
+    scenario.costs.laborCostPerFte[key][index] = Math.max(0, Number(scenario.costs.laborCostPerFte[key][index] || 0) * scale);
+  });
+}
+
+function adjustLaborFteToBuildCost(scenario, index, keys, targetCost) {
+  const currentBuild = laborFteBuildCostValues(scenario, keys)[index];
+  if (currentBuild > 0) {
+    scaleLaborFteAcrossKeys(scenario, index, keys, Math.max(0, Number(targetCost) || 0) / currentBuild);
+    return;
+  }
+  const averageCostPerFte = keys.reduce((sum, key) => sum + Number(scenario.costs.laborCostPerFte[key][index] || baseLaborCostPerFteValue(key, index)), 0) / keys.length;
+  distributeLaborFteAcrossKeys(scenario, index, keys, averageCostPerFte > 0 ? Math.max(0, Number(targetCost) || 0) / averageCostPerFte : 0);
+}
+
+function adjustLaborCostPerFteToBuildCost(scenario, index, keys, targetCost) {
+  const currentBuild = laborFteBuildCostValues(scenario, keys)[index];
+  if (currentBuild <= 0) return;
+  scaleLaborCostPerFteValuesAcrossKeys(scenario, index, keys, Math.max(0, Number(targetCost) || 0) / currentBuild);
+}
+
+function laborFteTopMatchesBottomUp(scenario = activeScenario()) {
+  const keys = activeLaborFteKeys();
+  const selectedCostValues = laborFteSelectedCostValues(scenario, keys);
+  const buildCostValues = laborFteBuildCostValues(scenario, keys);
+  return YEARS.every((year, index) => {
+    if (!editableCostYear(year)) return true;
+    return Math.abs(Number(selectedCostValues[index] || 0) - Number(buildCostValues[index] || 0)) < 1;
+  });
+}
+
+function setLaborFteBuildCostForYear(scenario, index, keys, targetCost) {
+  normalizeCostPlan(scenario);
+  const actualValue = Math.max(0, Number(targetCost) || 0);
+  const currentBuild = laborFteBuildCostValues(scenario, keys)[index];
+  if (state.laborFteLockedDriver === "fte") {
+    adjustLaborCostPerFteToBuildCost(scenario, index, keys, actualValue);
+  } else if (state.laborFteLockedDriver === "costPerFte") {
+    adjustLaborFteToBuildCost(scenario, index, keys, actualValue);
+  } else if (currentBuild > 0) {
+    const sharedScale = Math.sqrt(actualValue / currentBuild);
+    scaleLaborFteAcrossKeys(scenario, index, keys, sharedScale);
+    scaleLaborCostPerFteValuesAcrossKeys(scenario, index, keys, sharedScale);
+  } else {
+    adjustLaborFteToBuildCost(scenario, index, keys, actualValue);
+  }
+  addCostControlPointIfControlled("laborFteCount", YEARS[index]);
+  addCostControlPointIfControlled("laborFteCostPerFte", YEARS[index]);
+  addCostControlPointIfControlled("laborFteBuildCost", YEARS[index]);
+}
+
+function laborFteDependentEditBlocked(chartKey) {
+  return state.laborFteTopLocked && (
+    (chartKey === "laborFteCount" && state.laborFteLockedDriver === "costPerFte")
+    || (chartKey === "laborFteCostPerFte" && state.laborFteLockedDriver === "fte")
+  );
+}
+
+function rejectLaborFteDependentEdit(chart) {
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  syncCostCharts();
+  renderCostDrilldownView();
+}
+
+function setLaborDepartmentAllocationToFteBuildForYear(scenario, index, keys, targetCost = null) {
+  normalizeCostPlan(scenario);
+  const targetValue = Number.isFinite(Number(targetCost))
+    ? Math.max(0, Number(targetCost))
+    : laborFteBuildCostValues(scenario, keys)[index];
+  const buildValues = keys.map(key => {
+    return Number(scenario.costs.laborFte[key][index] || 0) * Number(scenario.costs.laborCostPerFte[key][index] || 0);
+  });
+  const buildTotal = buildValues.reduce((sum, value) => sum + value, 0);
+  keys.forEach(key => {
+    const buildValue = Number(scenario.costs.laborFte[key][index] || 0) * Number(scenario.costs.laborCostPerFte[key][index] || 0);
+    const share = buildTotal > 0 ? buildValue / buildTotal : 1 / keys.length;
+    scenario.costs.laborDepartments[key][index] = targetValue * share;
+    addCostControlPointIfControlled(laborDepartmentChartKey(key), YEARS[index]);
+  });
+  syncLaborTotalsFromDepartments(scenario);
+  addCostControlPointIfControlled("laborBottomUp", YEARS[index]);
+  addCostControlPointIfControlled("laborAllocationControl", YEARS[index]);
+  addCostControlPointIfControlled("labor", YEARS[index]);
+  addCostControlPointIfControlled("total", YEARS[index]);
+}
+
+function nonLaborCategoryValues(scenario, key) {
+  normalizeCostPlan(scenario);
+  return scenario.costs.nonLaborCategories[key] || clone(baseCosts.nonLaborCategories[key]);
+}
+
+function nonLaborBottomUpValues(scenario) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => nonLaborCategoryTotalForYear(scenario.costs.nonLaborCategories, index));
+}
+
+function selectedNonLaborAllocationKeys() {
+  return (state.selectedNonLaborAllocationKeys || []).filter(key => NON_LABOR_CATEGORY_KEYS.includes(key));
+}
+
+function nonLaborCategoryGroupTotalForYear(nonLaborCategories, keys, index) {
+  return keys.reduce((sum, key) => sum + Number(nonLaborCategories?.[key]?.[index] || 0), 0);
+}
+
+function nonLaborAllocationControlValues(scenario) {
+  normalizeCostPlan(scenario);
+  const keys = selectedNonLaborAllocationKeys();
+  return YEARS.map((_year, index) => nonLaborCategoryGroupTotalForYear(scenario.costs.nonLaborCategories, keys, index));
+}
+
+function controlledCostPairs(scenario, key, pairs) {
+  normalizeCostPlan(scenario);
+  const stored = scenario.costControlPoints?.[key];
+  if (!Array.isArray(stored)) return pairs;
+  const visibleX = new Set([
+    ...historicalCostYears(),
+    ...stored.map(Number),
+  ]);
+  const visiblePairs = pairs.filter(([x]) => visibleX.has(Number(x)));
+  if (visiblePairs.length >= 2) return visiblePairs;
+  if (pairs.length <= 2) return pairs;
+  return [pairs[0], pairs[pairs.length - 1]];
+}
+
+function rememberCostControlPoints(key, data) {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  scenario.costControlPoints[key] = (data || [])
+    .map(([x]) => Number(x))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+}
+
+function rememberCostControlYears(key, years) {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  scenario.costControlPoints[key] = Array.from(new Set((years || [])
+    .map(Number)
+    .filter(Number.isFinite)))
+    .sort((left, right) => left - right);
+}
+
+function editableCostYears() {
+  return YEARS.filter(editableCostYear);
+}
+
+function historicalCostYears() {
+  return YEARS.filter(year => !editableCostYear(year));
+}
+
+function addCostControlPointIfControlled(key, x) {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  if (!Array.isArray(scenario.costControlPoints[key])) return;
+  const next = new Set(scenario.costControlPoints[key].map(Number));
+  next.add(Number(x));
+  scenario.costControlPoints[key] = Array.from(next)
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+}
+
+function laborTopDownMatchesBottomUp(scenario = activeScenario()) {
+  normalizeCostPlan(scenario);
+  return YEARS.every((year, index) => {
+    if (!editableCostYear(year)) return true;
+    const topDown = Number(scenario.costs.labor[index] || 0);
+    const bottomUp = laborDepartmentTotalForYear(scenario.costs.laborDepartments, index);
+    return Math.abs(topDown - bottomUp) < 1;
+  });
+}
+
+function setLaborDepartmentTotalForYear(scenario, index, targetTotal) {
+  normalizeCostPlan(scenario);
+  setLaborDepartmentBottomUpTotalForYear(scenario, index, targetTotal);
+  scenario.costs.labor[index] = Math.max(0, Number(targetTotal) || 0);
+}
+
+function setLaborDepartmentBottomUpTotalForYear(scenario, index, targetTotal, { lockOthers = false, selectedKeys = [] } = {}) {
+  normalizeCostPlan(scenario);
+  const actualValue = Math.max(0, Number(targetTotal) || 0);
+  const selected = selectedKeys.filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+  if (lockOthers && selected.length) {
+    const unselected = LABOR_DEPARTMENT_KEYS.filter(key => !selected.includes(key));
+    const unselectedTotal = laborDepartmentGroupTotalForYear(scenario.costs.laborDepartments, unselected, index);
+    distributeLaborTotalAcrossKeys(scenario, index, selected, Math.max(0, actualValue - unselectedTotal));
+    addCostControlPointIfControlled("laborBottomUp", YEARS[index]);
+    addCostControlPointIfControlled("laborAllocationControl", YEARS[index]);
+    return;
+  }
+  const currentTotal = laborDepartmentTotalForYear(scenario.costs.laborDepartments, index);
+  const baseTotal = Number(baseCosts.labor[index] || 0);
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    const currentValue = Number(scenario.costs.laborDepartments[key][index] || 0);
+    const baseValue = Number(baseCosts.laborDepartments[key][index] || 0);
+    const share = currentTotal > 0
+      ? currentValue / currentTotal
+      : baseTotal > 0 ? baseValue / baseTotal : 1 / LABOR_DEPARTMENT_KEYS.length;
+    scenario.costs.laborDepartments[key][index] = actualValue * share;
+    addCostControlPointIfControlled(`laborDepartment:${key}`, YEARS[index]);
+  });
+  addCostControlPointIfControlled("laborBottomUp", YEARS[index]);
+}
+
+function setLaborDepartmentValue(scenario, departmentKey, year, value) {
+  const index = YEARS.indexOf(year);
+  if (index < 0 || !editableCostYear(year) || !Number.isFinite(value)) return;
+  normalizeCostPlan(scenario);
+  scenario.costs.laborDepartments[departmentKey][index] = Math.max(0, value * 1000000);
+  reconcileLaborDepartmentsToTopDown(scenario, index);
+}
+
+function reconcileLaborDepartmentsToTopDown(scenario, index) {
+  normalizeCostPlan(scenario);
+  const targetTotal = Math.max(0, Number(scenario.costs.labor[index] || 0));
+  const currentTotal = laborDepartmentTotalForYear(scenario.costs.laborDepartments, index);
+  const baseTotal = Number(baseCosts.labor[index] || 0);
+  if (targetTotal === 0) {
+    LABOR_DEPARTMENT_KEYS.forEach(key => {
+      scenario.costs.laborDepartments[key][index] = 0;
+    });
+    return;
+  }
+  if (currentTotal > 0) {
+    const scale = targetTotal / currentTotal;
+    LABOR_DEPARTMENT_KEYS.forEach(key => {
+      scenario.costs.laborDepartments[key][index] = Math.max(0, Number(scenario.costs.laborDepartments[key][index] || 0) * scale);
+    });
+    return;
+  }
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    const baseValue = Number(baseCosts.laborDepartments[key][index] || 0);
+    const share = baseTotal > 0 ? baseValue / baseTotal : 1 / LABOR_DEPARTMENT_KEYS.length;
+    scenario.costs.laborDepartments[key][index] = targetTotal * share;
+  });
+}
+
+function setLaborDepartmentValuesForYear(scenario, index, valuesByDepartment) {
+  normalizeCostPlan(scenario);
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    const value = Number(valuesByDepartment?.[key]);
+    scenario.costs.laborDepartments[key][index] = Number.isFinite(value) ? Math.max(0, value) : 0;
+    addCostControlPointIfControlled(laborDepartmentChartKey(key), YEARS[index]);
+  });
+  addCostControlPointIfControlled("laborBottomUp", YEARS[index]);
+}
+
+function distributeLaborTotalAcrossKeys(scenario, index, keys, targetTotal) {
+  if (!keys.length) return;
+  const actualValue = Math.max(0, Number(targetTotal) || 0);
+  const currentTotal = laborDepartmentGroupTotalForYear(scenario.costs.laborDepartments, keys, index);
+  const baseTotal = laborDepartmentGroupTotalForYear(baseCosts.laborDepartments, keys, index);
+  keys.forEach(key => {
+    const currentValue = Number(scenario.costs.laborDepartments[key][index] || 0);
+    const baseValue = Number(baseCosts.laborDepartments[key][index] || 0);
+    const share = currentTotal > 0
+      ? currentValue / currentTotal
+      : baseTotal > 0 ? baseValue / baseTotal : 1 / keys.length;
+    scenario.costs.laborDepartments[key][index] = actualValue * share;
+    addCostControlPointIfControlled(laborDepartmentChartKey(key), YEARS[index]);
+  });
+}
+
+function setLaborAllocationControlValue(scenario, index, selectedKeys, targetTotal, { lockTop = false } = {}) {
+  normalizeCostPlan(scenario);
+  const selected = selectedKeys.filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+  if (!selected.length) return;
+  const unselected = LABOR_DEPARTMENT_KEYS.filter(key => !selected.includes(key));
+  const existingBottomUpTotal = laborDepartmentTotalForYear(scenario.costs.laborDepartments, index);
+  let selectedTarget = Math.max(0, Number(targetTotal) || 0);
+  if (lockTop) {
+    selectedTarget = Math.min(selectedTarget, existingBottomUpTotal);
+  }
+  distributeLaborTotalAcrossKeys(scenario, index, selected, selectedTarget);
+  if (lockTop) {
+    distributeLaborTotalAcrossKeys(scenario, index, unselected, Math.max(0, existingBottomUpTotal - selectedTarget));
+  }
+  addCostControlPointIfControlled("laborBottomUp", YEARS[index]);
+  addCostControlPointIfControlled("laborAllocationControl", YEARS[index]);
+}
+
+function nonLaborTopDownMatchesBottomUp(scenario = activeScenario()) {
+  normalizeCostPlan(scenario);
+  return YEARS.every((year, index) => {
+    if (!editableCostYear(year)) return true;
+    const topDown = Number(scenario.costs.nonLabor[index] || 0);
+    const bottomUp = nonLaborCategoryTotalForYear(scenario.costs.nonLaborCategories, index);
+    return Math.abs(topDown - bottomUp) < 1;
+  });
+}
+
+function setNonLaborCategoryTotalForYear(scenario, index, targetTotal) {
+  normalizeCostPlan(scenario);
+  setNonLaborCategoryBottomUpTotalForYear(scenario, index, targetTotal);
+  scenario.costs.nonLabor[index] = Math.max(0, Number(targetTotal) || 0);
+}
+
+function distributeNonLaborTotalAcrossKeys(scenario, index, keys, targetTotal) {
+  if (!keys.length) return;
+  const actualValue = Math.max(0, Number(targetTotal) || 0);
+  const currentTotal = nonLaborCategoryGroupTotalForYear(scenario.costs.nonLaborCategories, keys, index);
+  const baseTotal = nonLaborCategoryGroupTotalForYear(baseCosts.nonLaborCategories, keys, index);
+  keys.forEach(key => {
+    const currentValue = Number(scenario.costs.nonLaborCategories[key][index] || 0);
+    const baseValue = Number(baseCosts.nonLaborCategories[key][index] || 0);
+    const share = currentTotal > 0
+      ? currentValue / currentTotal
+      : baseTotal > 0 ? baseValue / baseTotal : 1 / keys.length;
+    scenario.costs.nonLaborCategories[key][index] = actualValue * share;
+    addCostControlPointIfControlled(nonLaborCategoryChartKey(key), YEARS[index]);
+  });
+}
+
+function setNonLaborCategoryBottomUpTotalForYear(scenario, index, targetTotal, { lockOthers = false, selectedKeys = [] } = {}) {
+  normalizeCostPlan(scenario);
+  const actualValue = Math.max(0, Number(targetTotal) || 0);
+  const selected = selectedKeys.filter(key => NON_LABOR_CATEGORY_KEYS.includes(key));
+  if (lockOthers && selected.length) {
+    const unselected = NON_LABOR_CATEGORY_KEYS.filter(key => !selected.includes(key));
+    const unselectedTotal = nonLaborCategoryGroupTotalForYear(scenario.costs.nonLaborCategories, unselected, index);
+    distributeNonLaborTotalAcrossKeys(scenario, index, selected, Math.max(0, actualValue - unselectedTotal));
+    addCostControlPointIfControlled("nonLaborBottomUp", YEARS[index]);
+    addCostControlPointIfControlled("nonLaborAllocationControl", YEARS[index]);
+    return;
+  }
+  const currentTotal = nonLaborCategoryTotalForYear(scenario.costs.nonLaborCategories, index);
+  const baseTotal = Number(baseCosts.nonLabor[index] || 0);
+  NON_LABOR_CATEGORY_KEYS.forEach(key => {
+    const currentValue = Number(scenario.costs.nonLaborCategories[key][index] || 0);
+    const baseValue = Number(baseCosts.nonLaborCategories[key][index] || 0);
+    const share = currentTotal > 0
+      ? currentValue / currentTotal
+      : baseTotal > 0 ? baseValue / baseTotal : 1 / NON_LABOR_CATEGORY_KEYS.length;
+    scenario.costs.nonLaborCategories[key][index] = actualValue * share;
+    addCostControlPointIfControlled(nonLaborCategoryChartKey(key), YEARS[index]);
+  });
+  addCostControlPointIfControlled("nonLaborBottomUp", YEARS[index]);
+}
+
+function setNonLaborAllocationControlValue(scenario, index, selectedKeys, targetTotal, { lockTop = false } = {}) {
+  normalizeCostPlan(scenario);
+  const selected = selectedKeys.filter(key => NON_LABOR_CATEGORY_KEYS.includes(key));
+  if (!selected.length) return;
+  const unselected = NON_LABOR_CATEGORY_KEYS.filter(key => !selected.includes(key));
+  const existingBottomUpTotal = nonLaborCategoryTotalForYear(scenario.costs.nonLaborCategories, index);
+  let selectedTarget = Math.max(0, Number(targetTotal) || 0);
+  if (lockTop) {
+    selectedTarget = Math.min(selectedTarget, existingBottomUpTotal);
+  }
+  distributeNonLaborTotalAcrossKeys(scenario, index, selected, selectedTarget);
+  if (lockTop) {
+    distributeNonLaborTotalAcrossKeys(scenario, index, unselected, Math.max(0, existingBottomUpTotal - selectedTarget));
+  }
+  addCostControlPointIfControlled("nonLaborBottomUp", YEARS[index]);
+  addCostControlPointIfControlled("nonLaborAllocationControl", YEARS[index]);
+}
+
+function costZeroFallbackBase(values, index) {
+  let bestDistance = Infinity;
+  let bestValue = 0;
+  (values || []).forEach((value, valueIndex) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return;
+    const distance = Math.abs(valueIndex - index);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestValue = numericValue;
+    }
+  });
+  return bestValue > 0 ? Math.max(1, bestValue / 2) : 100000;
+}
+
+function costYoYDenominator(values, index) {
+  const previous = Number(values?.[index - 1] || 0);
+  const current = Number(values?.[index] || 0);
+  if (previous > 0) return previous;
+  if (current > 0) return current / 2;
+  return costZeroFallbackBase(values, index);
+}
+
+function costYoYPercentFromValues(values, index) {
+  if (index === 0) return 0;
+  const previous = Number(values[index - 1] || 0);
+  const current = Number(values[index] || 0);
+  if (previous <= 0 && current <= 0) return 0;
+  const denominator = costYoYDenominator(values, index);
+  return denominator > 0 ? ((current / denominator) - 1) * 100 : 0;
+}
+
+function valueFromEditedCostPoint(previousValue, editedValue, chartKey, currentValue = 0, values = [], index = 0) {
+  const numericValue = Number(editedValue);
+  if (!Number.isFinite(numericValue)) return null;
+  if (!isCostChartYoY(chartKey)) return numericValue * 1000000;
+  const previous = Math.max(0, Number(previousValue) || 0);
+  const current = Math.max(0, Number(currentValue) || 0);
+  if (previous <= 0 && current <= 0 && Math.abs(numericValue) < 0.000001) return 0;
+  const denominator = previous > 0
+    ? previous
+    : current > 0 ? current / 2 : costZeroFallbackBase(values, index);
+  return Math.max(0, denominator * (1 + numericValue / 100));
+}
+
+function isCostLocked(key, scenario = activeScenario()) {
+  normalizeCostPlan(scenario);
+  return Boolean(scenario.costLocks[key]);
+}
+
+function renderCostLockButtons() {
+  document.querySelectorAll("[data-cost-lock-key]").forEach(button => {
+    const key = button.dataset.costLockKey;
+    const locked = isCostLocked(key);
+    button.classList.toggle("locked", locked);
+    button.textContent = locked ? "Locked" : "Lock";
+    button.setAttribute("aria-pressed", locked ? "true" : "false");
+  });
+}
+
+function renderCostDrilldownView() {
+  const isLaborDrilldown = state.costDrilldown === "labor";
+  const isLaborFteDrilldown = state.costDrilldown === "laborFte";
+  const isNonLaborDrilldown = state.costDrilldown === "nonLabor";
+  const mainPanels = document.getElementById("cost-main-panels");
+  const laborDrilldown = document.getElementById("cost-labor-drilldown");
+  const laborFteDrilldown = document.getElementById("cost-labor-fte-drilldown");
+  const nonLaborDrilldown = document.getElementById("cost-non-labor-drilldown");
+  const setBottomToTopButton = document.getElementById("set-cost-labor-bottom-to-top");
+  const setTopToBottomButton = document.getElementById("set-cost-labor-top-to-bottom");
+  const setLaborFteBottomToTopButton = document.getElementById("set-cost-labor-fte-bottom-to-top");
+  const setLaborFteTopToBottomButton = document.getElementById("set-cost-labor-fte-top-to-bottom");
+  const setNonLaborBottomToTopButton = document.getElementById("set-cost-non-labor-bottom-to-top");
+  const setNonLaborTopToBottomButton = document.getElementById("set-cost-non-labor-top-to-bottom");
+  if (mainPanels) mainPanels.hidden = isLaborDrilldown || isLaborFteDrilldown || isNonLaborDrilldown;
+  if (laborDrilldown) laborDrilldown.hidden = !isLaborDrilldown;
+  if (laborFteDrilldown) laborFteDrilldown.hidden = !isLaborFteDrilldown;
+  if (nonLaborDrilldown) nonLaborDrilldown.hidden = !isNonLaborDrilldown;
+  const matched = laborTopDownMatchesBottomUp();
+  if (setBottomToTopButton) setBottomToTopButton.disabled = matched;
+  if (setTopToBottomButton) setTopToBottomButton.disabled = matched;
+  const laborFteMatched = laborFteTopMatchesBottomUp();
+  if (setLaborFteBottomToTopButton) setLaborFteBottomToTopButton.disabled = laborFteMatched;
+  if (setLaborFteTopToBottomButton) setLaborFteTopToBottomButton.disabled = laborFteMatched;
+  const nonLaborMatched = nonLaborTopDownMatchesBottomUp();
+  if (setNonLaborBottomToTopButton) setNonLaborBottomToTopButton.disabled = nonLaborMatched;
+  if (setNonLaborTopToBottomButton) setNonLaborTopToBottomButton.disabled = nonLaborMatched;
+  renderCostChartModeButtons();
+  renderCostChartLineModeButtons();
+  renderLaborAllocationControls();
+  renderLaborFteControls();
+  renderNonLaborAllocationControls();
+}
+
+function resizeCostCharts() {
+  setTimeout(() => {
+    Object.values(state.costCharts).forEach(chart => chart.resize());
+    state.outputCharts.costLaborDepartmentMix?.resize();
+    state.outputCharts.costNonLaborCategoryMix?.resize();
+  }, 0);
+}
+
+function toggleCostLock(key) {
+  if (!COST_LOCK_KEYS.includes(key)) return;
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const nextLocked = !scenario.costLocks[key];
+  scenario.costLocks[key] = nextLocked;
+  if (nextLocked && key === "labor") {
+    scenario.costLocks.nonLabor = false;
+  } else if (nextLocked && key === "nonLabor") {
+    scenario.costLocks.labor = false;
+  }
+  saveScenarios();
+  renderCostLockButtons();
+}
+
+function laborBottomUpInterpolatedDollarValue(year, index) {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const chart = state.costCharts.laborDrilldownTopDown;
+  if (chart && !isCostChartYoY("laborDrilldownTopDown")) {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (Number.isFinite(value)) return Math.max(0, value * 1000000);
+  }
+  return laborDepartmentTotalForYear(scenario.costs.laborDepartments, index);
+}
+
+function setLaborTopToBottom() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  if (laborTopDownMatchesBottomUp(scenario)) return;
+  pushUndoSnapshot();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    const targetLabor = laborBottomUpInterpolatedDollarValue(year, index);
+    scenario.costs.labor[index] = targetLabor;
+    addCostControlPointIfControlled("labor", year);
+    addCostControlPointIfControlled("total", year);
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function setLaborBottomToTop() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  if (laborTopDownMatchesBottomUp(scenario)) return;
+  pushUndoSnapshot();
+  const selectedKeys = selectedLaborAllocationKeys();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    setLaborDepartmentBottomUpTotalForYear(scenario, index, Number(scenario.costs.labor[index] || 0), {
+      lockOthers: state.laborAllocationOthersLocked,
+      selectedKeys,
+    });
+    addCostControlPointIfControlled("laborBottomUp", year);
+    addCostControlPointIfControlled("laborAllocationControl", year);
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function laborFteBuildInterpolatedDollarValue(year, index) {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const chart = state.costCharts.laborFteSelectedCost;
+  if (chart) {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (Number.isFinite(value)) return Math.max(0, value * 1000000);
+  }
+  return laborFteBuildCostValues(scenario, activeLaborFteKeys())[index];
+}
+
+function setLaborFteTopToBottom() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  if (laborFteTopMatchesBottomUp(scenario)) return;
+  pushUndoSnapshot();
+  const keys = activeLaborFteKeys();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    setLaborDepartmentAllocationToFteBuildForYear(scenario, index, keys, laborFteBuildInterpolatedDollarValue(year, index));
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function setLaborFteBottomToTop() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  if (laborFteTopMatchesBottomUp(scenario)) return;
+  pushUndoSnapshot();
+  const keys = activeLaborFteKeys();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    setLaborFteBuildCostForYear(scenario, index, keys, laborFteSelectedCostValues(scenario, keys)[index]);
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function nonLaborBottomUpInterpolatedDollarValue(year, index) {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const chart = state.costCharts.nonLaborDrilldownTopDown;
+  if (chart && !isCostChartYoY("nonLaborDrilldownTopDown")) {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (Number.isFinite(value)) return Math.max(0, value * 1000000);
+  }
+  return nonLaborCategoryTotalForYear(scenario.costs.nonLaborCategories, index);
+}
+
+function setNonLaborTopToBottom() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  if (nonLaborTopDownMatchesBottomUp(scenario)) return;
+  pushUndoSnapshot();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    const targetNonLabor = nonLaborBottomUpInterpolatedDollarValue(year, index);
+    scenario.costs.nonLabor[index] = targetNonLabor;
+    addCostControlPointIfControlled("nonLabor", year);
+    addCostControlPointIfControlled("total", year);
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function setNonLaborBottomToTop() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  if (nonLaborTopDownMatchesBottomUp(scenario)) return;
+  pushUndoSnapshot();
+  const selectedKeys = selectedNonLaborAllocationKeys();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    setNonLaborCategoryBottomUpTotalForYear(scenario, index, Number(scenario.costs.nonLabor[index] || 0), {
+      lockOthers: state.nonLaborAllocationOthersLocked,
+      selectedKeys,
+    });
+    addCostControlPointIfControlled("nonLaborBottomUp", year);
+    addCostControlPointIfControlled("nonLaborAllocationControl", year);
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function renderLaborAllocationControls() {
+  const list = document.getElementById("labor-allocation-line-list");
+  const mode = costChartMode("laborAllocationControl");
+  const isPctTotal = mode === "pct";
+  const lockButton = document.getElementById("toggle-labor-allocation-top-lock");
+  if (lockButton) {
+    lockButton.classList.toggle("locked", state.laborAllocationTopLocked);
+    lockButton.textContent = state.laborAllocationTopLocked ? "Top Locked" : "Lock Top";
+    lockButton.setAttribute("aria-pressed", state.laborAllocationTopLocked ? "true" : "false");
+  }
+  const lockOthersButton = document.getElementById("toggle-labor-allocation-others-lock");
+  if (lockOthersButton) {
+    lockOthersButton.classList.toggle("locked", state.laborAllocationOthersLocked);
+    lockOthersButton.textContent = state.laborAllocationOthersLocked ? "Others Locked" : "Lock Others";
+    lockOthersButton.setAttribute("aria-pressed", state.laborAllocationOthersLocked ? "true" : "false");
+    lockOthersButton.hidden = isPctTotal;
+  }
+  if (!list) return;
+  const selected = new Set(selectedLaborAllocationKeys());
+  const chart = document.getElementById("cost-labor-allocation-control-chart");
+  const emptyState = document.getElementById("cost-labor-allocation-empty");
+  const pctChart = document.getElementById("cost-labor-allocation-pct-chart");
+  const pctEmptyState = document.getElementById("cost-labor-allocation-pct-empty");
+  const axisControls = document.querySelector("[data-napkin-y-axis-controls='laborAllocationControl']");
+  const hasSelection = selected.size > 0;
+  const hasPctSelection = selected.size > 1;
+  if (chart) chart.hidden = isPctTotal || !hasSelection;
+  if (emptyState) emptyState.hidden = isPctTotal || hasSelection;
+  if (pctChart) pctChart.hidden = !isPctTotal || !hasPctSelection;
+  if (pctEmptyState) pctEmptyState.hidden = !isPctTotal || hasPctSelection;
+  if (axisControls) axisControls.hidden = isPctTotal;
+  list.innerHTML = LABOR_DEPARTMENT_KEYS.map(key => {
+    const meta = laborDepartmentMeta[key];
+    const checked = selected.has(key) ? " checked" : "";
+    return `
+      <label class="labor-allocation-chip">
+        <input type="checkbox" value="${key}"${checked}>
+        <span style="--chip-color: ${meta.color}">${displayLabel(meta.label)}</span>
+      </label>
+    `;
+  }).join("");
+}
+
+function renderLaborFteControls() {
+  const list = document.getElementById("labor-fte-line-list");
+  const label = document.getElementById("labor-fte-selection-label");
+  if (label) label.textContent = laborFteFilterLabel();
+  const selectedCostPctMode = costChartMode("laborFteSelectedCost") === "pct";
+  const fteCountPctMode = costChartMode("laborFteCount") === "pct";
+  const activeKeys = activeLaborFteKeys();
+  const hasPctSelection = activeKeys.length > 1;
+  const selectedCostChart = document.getElementById("cost-labor-fte-selected-cost-chart");
+  const selectedCostPctChart = document.getElementById("cost-labor-fte-selected-cost-pct-chart");
+  const selectedCostPctEmpty = document.getElementById("cost-labor-fte-selected-cost-pct-empty");
+  const selectedCostAxis = document.querySelector("[data-napkin-y-axis-controls='laborFteSelectedCost']");
+  if (selectedCostChart) selectedCostChart.hidden = selectedCostPctMode;
+  if (selectedCostPctChart) selectedCostPctChart.hidden = !selectedCostPctMode || !hasPctSelection;
+  if (selectedCostPctEmpty) selectedCostPctEmpty.hidden = !selectedCostPctMode || hasPctSelection;
+  if (selectedCostAxis) selectedCostAxis.hidden = selectedCostPctMode;
+  const fteCountChart = document.getElementById("cost-labor-fte-count-chart");
+  const fteCountPctChart = document.getElementById("cost-labor-fte-count-pct-chart");
+  const fteCountPctEmpty = document.getElementById("cost-labor-fte-count-pct-empty");
+  const fteCountAxis = document.querySelector("[data-napkin-y-axis-controls='laborFteCount']");
+  if (fteCountChart) fteCountChart.hidden = fteCountPctMode;
+  if (fteCountPctChart) fteCountPctChart.hidden = !fteCountPctMode || !hasPctSelection;
+  if (fteCountPctEmpty) fteCountPctEmpty.hidden = !fteCountPctMode || hasPctSelection;
+  if (fteCountAxis) fteCountAxis.hidden = fteCountPctMode;
+  renderCostChartLineModeButtons();
+  const topLockButton = document.getElementById("toggle-labor-fte-top-lock");
+  if (topLockButton) {
+    topLockButton.classList.toggle("locked", state.laborFteTopLocked);
+    topLockButton.textContent = state.laborFteTopLocked ? "Locked" : "Lock";
+    topLockButton.setAttribute("aria-pressed", state.laborFteTopLocked ? "true" : "false");
+  }
+  document.querySelectorAll("[data-labor-fte-lock]").forEach(button => {
+    const lockKey = button.dataset.laborFteLock;
+    const locked = state.laborFteLockedDriver === lockKey;
+    button.classList.toggle("locked", locked);
+    button.textContent = locked ? "Locked" : "Lock";
+    button.setAttribute("aria-pressed", locked ? "true" : "false");
+  });
+  if (!list) return;
+  const selected = new Set(selectedLaborFteKeys());
+  list.innerHTML = LABOR_DEPARTMENT_KEYS.map(key => {
+    const meta = laborDepartmentMeta[key];
+    const checked = selected.has(key) ? " checked" : "";
+    return `
+      <label class="labor-allocation-chip">
+        <input type="checkbox" value="${key}"${checked}>
+        <span style="--chip-color: ${meta.color}">${displayLabel(meta.label)}</span>
+      </label>
+    `;
+  }).join("");
+}
+
+function renderNonLaborAllocationControls() {
+  const list = document.getElementById("non-labor-allocation-line-list");
+  const lockButton = document.getElementById("toggle-non-labor-allocation-top-lock");
+  if (lockButton) {
+    lockButton.classList.toggle("locked", state.nonLaborAllocationTopLocked);
+    lockButton.textContent = state.nonLaborAllocationTopLocked ? "Top Locked" : "Lock Top";
+    lockButton.setAttribute("aria-pressed", state.nonLaborAllocationTopLocked ? "true" : "false");
+  }
+  const lockOthersButton = document.getElementById("toggle-non-labor-allocation-others-lock");
+  if (lockOthersButton) {
+    lockOthersButton.classList.toggle("locked", state.nonLaborAllocationOthersLocked);
+    lockOthersButton.textContent = state.nonLaborAllocationOthersLocked ? "Others Locked" : "Lock Others";
+    lockOthersButton.setAttribute("aria-pressed", state.nonLaborAllocationOthersLocked ? "true" : "false");
+  }
+  if (!list) return;
+  const selected = new Set(selectedNonLaborAllocationKeys());
+  const chart = document.getElementById("cost-non-labor-allocation-control-chart");
+  const emptyState = document.getElementById("cost-non-labor-allocation-empty");
+  const hasSelection = selected.size > 0;
+  if (chart) chart.hidden = !hasSelection;
+  if (emptyState) emptyState.hidden = hasSelection;
+  list.innerHTML = NON_LABOR_CATEGORY_KEYS.map(key => {
+    const meta = nonLaborCategoryMeta[key];
+    const checked = selected.has(key) ? " checked" : "";
+    return `
+      <label class="labor-allocation-chip">
+        <input type="checkbox" value="${key}"${checked}>
+        <span style="--chip-color: ${meta.color}">${displayLabel(meta.label)}</span>
+      </label>
+    `;
+  }).join("");
+}
+
+function renderCostChartModeButtons() {
+  document.querySelectorAll("[data-cost-chart-mode]").forEach(group => {
+    const chartKey = group.dataset.costChartMode;
+    const mode = costChartMode(chartKey);
+    group.querySelectorAll("[data-cost-chart-mode-value]").forEach(button => {
+      const active = button.dataset.costChartModeValue === mode;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  });
+}
+
+function renderCostChartLineModeButtons() {
+  document.querySelectorAll("[data-cost-line-mode]").forEach(group => {
+    const chartKey = group.dataset.costLineMode;
+    const visible = costChartMode(chartKey) === "value";
+    group.hidden = !visible;
+    const mode = costChartLineMode(chartKey);
+    group.querySelectorAll("[data-cost-line-mode-value]").forEach(button => {
+      const active = button.dataset.costLineModeValue === mode;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  });
+}
+
+function setCostChartMode(chartKey, mode) {
+  if (!["value", "yoy", "pct"].includes(mode)) return;
+  state.costChartModes[chartKey] = mode;
+  syncCostCharts();
+  resizeCostCharts();
+}
+
+function setCostChartLineMode(chartKey, mode) {
+  if (!["grouped", "separated"].includes(mode)) return;
+  state.costChartLineModes[chartKey] = mode;
+  syncCostCharts();
+  resizeCostCharts();
+}
+
 function compareScenario() {
   if (!state.compareScenarioId || !state.compareScenarioSnapshot) return null;
   return state.compareScenarioSnapshot;
@@ -930,6 +2127,7 @@ function restoreSnapshot(snapshot) {
   saveScenarios();
   renderScenarioSelect();
   syncDriverCharts();
+  syncCostCharts();
   syncRevUnitCharts();
   renderAll();
   updateHistoryControls();
@@ -958,6 +2156,10 @@ function updateHistoryControls() {
 
 function editableYear(year) {
   return year >= FIRST_FORECAST_YEAR;
+}
+
+function editableCostYear(year) {
+  return year >= FIRST_COST_EDIT_YEAR;
 }
 
 function formatValue(value, format) {
@@ -1201,7 +2403,7 @@ function renderRawDataSources() {
 }
 
 function napkinChartByKey(key) {
-  return state.cohortCharts[key] || state.revUnitCharts[key] || state.charts[key] || null;
+  return state.cohortCharts[key] || state.revUnitCharts[key] || state.costCharts[key] || state.charts[key] || null;
 }
 
 function stepYAxisLeadingDigit(value, direction) {
@@ -1474,6 +2676,1911 @@ function syncDriverCharts() {
   state.syncingCharts = false;
 }
 
+function costChartPairs(scenario, key) {
+  const pairs = costValues(scenario, key).map((value, index) => [YEARS[index], value / 1000000]);
+  return controlledCostPairs(scenario, key, pairs);
+}
+
+function laborBottomUpChartPairs(scenario) {
+  const pairs = laborBottomUpValues(scenario).map((value, index) => [YEARS[index], value / 1000000]);
+  return controlledCostPairs(scenario, "laborBottomUp", pairs);
+}
+
+function laborAllocationControlChartPairs(scenario) {
+  const pairs = laborAllocationControlValues(scenario).map((value, index) => [YEARS[index], value / 1000000]);
+  return controlledCostPairs(scenario, "laborAllocationControl", pairs);
+}
+
+function costYoYPairsFromValues(scenario, values, controlKey) {
+  const pairs = YEARS.map((year, index) => {
+    return [year, costYoYPercentFromValues(values, index)];
+  });
+  return pairs;
+}
+
+function costPairsFromValuesForMode(scenario, values, controlKey, chartKey) {
+  if (isCostChartYoY(chartKey)) return costYoYPairsFromValues(scenario, values, controlKey);
+  const pairs = values.map((value, index) => [YEARS[index], value / 1000000]);
+  return controlledCostPairs(scenario, controlKey, pairs);
+}
+
+function makeCostLine(key, scenario) {
+  const meta = costMeta[key];
+  return {
+    name: displayScenarioName(scenario),
+    color: meta.color,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: costChartPairs(scenario, key),
+  };
+}
+
+function makeCostComparisonLine(key, scenario) {
+  return {
+    name: `Comparison: ${displayScenarioName(scenario)}`,
+    color: "#98a2b3",
+    editable: false,
+    data: costChartPairs(scenario, key),
+  };
+}
+
+function costChartLines(key) {
+  const lines = [makeCostLine(key, activeScenario())];
+  const comparison = compareScenario();
+  if (comparison) lines.push(makeCostComparisonLine(key, comparison));
+  return lines;
+}
+
+function formatCostAxisValue(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return `$${trimNumber(Number(value), 0)}M`;
+}
+
+function formatCostTooltipValue(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return formatCurrency(Number(value) * 1000000, 0);
+}
+
+function costChartMode(chartKey) {
+  const mode = state.costChartModes?.[chartKey];
+  return ["yoy", "pct"].includes(mode) ? mode : "value";
+}
+
+function costChartLineMode(chartKey) {
+  return state.costChartLineModes?.[chartKey] === "separated" ? "separated" : "grouped";
+}
+
+function isCostChartSeparated(chartKey) {
+  return costChartMode(chartKey) === "value" && costChartLineMode(chartKey) === "separated";
+}
+
+function isCostChartYoY(chartKey) {
+  return costChartMode(chartKey) === "yoy";
+}
+
+function formatCostChartAxisValue(value, chartKey) {
+  if (isCostChartYoY(chartKey)) return formatPercentMetric(Number(value), 0);
+  return formatCostAxisValue(value);
+}
+
+function formatCostChartTooltipValue(value, chartKey) {
+  if (isCostChartYoY(chartKey)) return formatPercentMetric(Number(value), 1);
+  return formatCostTooltipValue(value);
+}
+
+function formatFteAxisValue(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return trimNumber(Number(value), 0);
+}
+
+function formatFteTooltipValue(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return trimNumber(Number(value), 1);
+}
+
+function formatCostPerFteAxisValue(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return `$${trimNumber(Number(value), 0)}k`;
+}
+
+function formatCostPerFteTooltipValue(value) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return formatCurrency(Number(value) * 1000, 0);
+}
+
+function costChartYAxisConfig(chartKey, valueMax) {
+  if (isCostChartYoY(chartKey)) {
+    return {
+      min: -100,
+      max: 100,
+      axisLabel: { formatter: value => formatCostChartAxisValue(value, chartKey) },
+    };
+  }
+  return {
+    min: 0,
+    max: valueMax,
+    axisLabel: { formatter: value => formatCostChartAxisValue(value, chartKey) },
+  };
+}
+
+function applyCostChartYAxisMode(chart, chartKey, valueMax) {
+  if (!chart?.baseOption?.yAxis) return;
+  const nextYAxis = {
+    ...chart.baseOption.yAxis,
+    ...costChartYAxisConfig(chartKey, valueMax),
+  };
+  chart.baseOption.yAxis = nextYAxis;
+  chart.chart.setOption({ yAxis: nextYAxis }, false);
+}
+
+function setScenarioCostValue(scenario, key, year, value) {
+  const index = YEARS.indexOf(year);
+  if (index < 0 || !editableCostYear(year) || !Number.isFinite(value)) return;
+  normalizeCostPlan(scenario);
+  const actualValue = Math.max(0, value * 1000000);
+  const locks = scenario.costLocks || {};
+  if (key === "total") {
+    const currentLabor = Number(scenario.costs.labor[index] || 0);
+    const currentNonLabor = Number(scenario.costs.nonLabor[index] || 0);
+    const currentTotal = currentLabor + currentNonLabor;
+    if (locks.labor && locks.nonLabor) return;
+    if (locks.labor) {
+      setNonLaborCategoryTotalForYear(scenario, index, Math.max(0, actualValue - currentLabor));
+      addCostControlPointIfControlled("nonLabor", year);
+      return;
+    }
+    if (locks.nonLabor) {
+      setLaborDepartmentTotalForYear(scenario, index, Math.max(0, actualValue - currentNonLabor));
+      addCostControlPointIfControlled("labor", year);
+      return;
+    }
+    const baseLabor = baseCosts.labor[index] || 0;
+    const baseNonLabor = baseCosts.nonLabor[index] || 0;
+    const baseTotal = baseLabor + baseNonLabor;
+    const laborShare = currentTotal > 0
+      ? currentLabor / currentTotal
+      : baseTotal > 0 ? baseLabor / baseTotal : 0.5;
+    setLaborDepartmentTotalForYear(scenario, index, actualValue * laborShare);
+    setNonLaborCategoryTotalForYear(scenario, index, actualValue * (1 - laborShare));
+    addCostControlPointIfControlled("labor", year);
+    addCostControlPointIfControlled("nonLabor", year);
+    return;
+  }
+  const siblingKey = key === "labor" ? "nonLabor" : "labor";
+  const currentTotal = scenario.costs.labor[index] + scenario.costs.nonLabor[index];
+  if (key === "labor") {
+    setLaborDepartmentTotalForYear(scenario, index, actualValue);
+  } else {
+    setNonLaborCategoryTotalForYear(scenario, index, actualValue);
+  }
+  if (locks.total && !locks[siblingKey]) {
+    if (siblingKey === "labor") {
+      setLaborDepartmentTotalForYear(scenario, index, Math.max(0, currentTotal - actualValue));
+    } else {
+      setNonLaborCategoryTotalForYear(scenario, index, Math.max(0, currentTotal - actualValue));
+    }
+    addCostControlPointIfControlled(siblingKey, year);
+  } else {
+    addCostControlPointIfControlled("total", year);
+  }
+}
+
+function initCostChart(key) {
+  const meta = costMeta[key];
+  const chart = new NapkinChart(
+    meta.chartId,
+    costChartLines(key),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        ...costChartYAxisConfig("laborDrilldownTopDown", meta.yMax),
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: formatCostTooltipValue,
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const seen = new Set();
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              if (seen.has(item.seriesName)) return;
+              seen.add(item.seriesName);
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostChartTooltipValue(Number(rawValue), "laborDrilldownTopDown")}`);
+            });
+          if (!rows.length && items[0]) {
+            const item = items[0];
+            const data = Array.isArray(item.data) ? item.data : item.value;
+            year = Array.isArray(data) ? data[0] : item.axisValue;
+            const rawValue = Array.isArray(data) ? data[1] : item.value;
+            rows.push(`${item.marker || ""} ${item.seriesName || displayLabel(meta.label)}: ${formatCostTooltipValue(Number(rawValue))}`);
+          }
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyCostChartYAxisMode(chart, "laborDrilldownTopDown", meta.yMax);
+  chart._refreshChart();
+  styleComparisonSeries(chart);
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (laborFteDependentEditBlocked("laborFteCount")) {
+      rejectLaborFteDependentEdit(chart);
+      return;
+    }
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    YEARS.forEach(year => {
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      setScenarioCostValue(activeScenario(), key, year, value);
+    });
+    rememberCostControlPoints(key, chart.lines[0].data);
+    saveScenarios();
+    styleComparisonSeries(chart);
+    syncCostCharts({ excludeChart: chart });
+  };
+  state.costCharts[key] = chart;
+}
+
+function laborDepartmentChartKey(key) {
+  return `laborDepartment:${key}`;
+}
+
+function laborDepartmentChartPairs(scenario, key) {
+  const chartKey = laborDepartmentChartKey(key);
+  return costPairsFromValuesForMode(scenario, laborDepartmentValues(scenario, key), chartKey, chartKey);
+}
+
+function laborDepartmentChartLines(key) {
+  const meta = laborDepartmentMeta[key];
+  const lines = [{
+    name: displayLabel(meta.label),
+    color: meta.color,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: laborDepartmentChartPairs(activeScenario(), key),
+  }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${displayScenarioName(comparison)}`,
+      color: "#98a2b3",
+      editable: false,
+      data: laborDepartmentChartPairs(comparison, key),
+    });
+  }
+  return lines;
+}
+
+function laborDrilldownTopDownChartLines() {
+  return [
+    {
+      name: "Bottom Up",
+      color: costMeta.labor.color,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: costPairsFromValuesForMode(activeScenario(), laborBottomUpValues(activeScenario()), "laborBottomUp", "laborDrilldownTopDown"),
+    },
+    {
+      name: "Top Down",
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(activeScenario(), costValues(activeScenario(), "labor"), "labor", "laborDrilldownTopDown"),
+    },
+  ];
+}
+
+function laborAllocationControlChartLines() {
+  const keys = selectedLaborAllocationKeys();
+  if (!keys.length) {
+    return [{
+      name: "Select Departments",
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(activeScenario(), YEARS.map(() => 0), "laborAllocationControl", "laborAllocationControl"),
+    }];
+  }
+  const label = keys.length === 1
+    ? displayLabel(laborDepartmentMeta[keys[0]].label)
+    : `${keys.length} Departments`;
+  return [{
+    name: label,
+    color: "#2f6f73",
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: costPairsFromValuesForMode(activeScenario(), laborAllocationControlValues(activeScenario()), "laborAllocationControl", "laborAllocationControl"),
+  }];
+}
+
+function laborAllocationPctStorageKey(keys = selectedLaborAllocationKeys()) {
+  return `labor:${keys.join("|")}`;
+}
+
+function defaultLaborAllocationPctLines(keys, scenario = activeScenario()) {
+  if (keys.length < 2) return [];
+  normalizeCostPlan(scenario);
+  return keys.slice(0, -1).map((_key, boundaryIndex) => {
+    return editableCostYears().map(year => {
+      const yearIndex = YEARS.indexOf(year);
+      const selectedTotal = laborDepartmentGroupTotalForYear(scenario.costs.laborDepartments, keys, yearIndex);
+      const boundaryTotal = keys.slice(0, boundaryIndex + 1).reduce((sum, key) => {
+        return sum + Number(scenario.costs.laborDepartments?.[key]?.[yearIndex] || 0);
+      }, 0);
+      const equalShareBoundary = ((boundaryIndex + 1) / keys.length) * 100;
+      const boundary = selectedTotal > 0 ? (boundaryTotal / selectedTotal) * 100 : equalShareBoundary;
+      return [year, Math.max(0, Math.min(100, boundary))];
+    });
+  });
+}
+
+function laborAllocationPctLineData(scenario = activeScenario(), keys = selectedLaborAllocationKeys()) {
+  normalizeCostPlan(scenario);
+  if (keys.length < 2) return [];
+  const storageKey = laborAllocationPctStorageKey(keys);
+  const expectedCount = keys.length - 1;
+  const stored = scenario.costPctTotalLines?.[storageKey];
+  if (!Array.isArray(stored) || stored.length !== expectedCount) {
+    scenario.costPctTotalLines[storageKey] = defaultLaborAllocationPctLines(keys, scenario);
+  }
+  return scenario.costPctTotalLines[storageKey];
+}
+
+function laborAllocationPctLineObjects(scenario = activeScenario()) {
+  const keys = selectedLaborAllocationKeys();
+  const lineData = laborAllocationPctLineData(scenario, keys);
+  return lineData
+    .map((data, index) => {
+      const key = keys[index];
+      const meta = laborDepartmentMeta[key];
+      return {
+        name: displayLabel(meta.label),
+        color: meta.color,
+        bandIndex: index,
+        editable: true,
+        editDomain: {
+          moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+          addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+          deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        },
+        data: clone(data),
+      };
+    })
+    .reverse();
+}
+
+function laborAllocationPctSharesForYear(scenario, keys, year) {
+  if (keys.length <= 1) return keys.length ? [1] : [];
+  const boundaries = laborAllocationPctLineData(scenario, keys)
+    .map(data => interpolateNapkinLineValue(data, year))
+    .map(value => Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
+  const shares = [];
+  let previous = 0;
+  boundaries.forEach(rawBoundary => {
+    const boundary = Math.max(previous, rawBoundary);
+    shares.push(Math.max(0, boundary - previous) / 100);
+    previous = boundary;
+  });
+  shares.push(Math.max(0, 100 - previous) / 100);
+  return shares;
+}
+
+function applyLaborAllocationPctShares() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const keys = selectedLaborAllocationKeys();
+  if (keys.length < 2) return;
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    const selectedTotal = laborDepartmentGroupTotalForYear(scenario.costs.laborDepartments, keys, index);
+    const shares = laborAllocationPctSharesForYear(scenario, keys, year);
+    keys.forEach((key, keyIndex) => {
+      scenario.costs.laborDepartments[key][index] = selectedTotal * (shares[keyIndex] || 0);
+      addCostControlPointIfControlled(laborDepartmentChartKey(key), year);
+    });
+    addCostControlPointIfControlled("laborBottomUp", year);
+    addCostControlPointIfControlled("laborAllocationControl", year);
+  });
+}
+
+function laborFtePctStorageKey(chartKey, keys = activeLaborFteKeys()) {
+  return `${chartKey}:${keys.join("|")}`;
+}
+
+function laborFtePctMetricValue(scenario, chartKey, key, index) {
+  normalizeCostPlan(scenario);
+  if (chartKey === "laborFteCount") {
+    return Number(scenario.costs.laborFte?.[key]?.[index] || 0);
+  }
+  return Number(scenario.costs.laborDepartments?.[key]?.[index] || 0);
+}
+
+function laborFtePctMetricTotal(scenario, chartKey, keys, index) {
+  return keys.reduce((sum, key) => sum + laborFtePctMetricValue(scenario, chartKey, key, index), 0);
+}
+
+function defaultLaborFtePctLines(chartKey, keys, scenario = activeScenario()) {
+  if (keys.length < 2) return [];
+  normalizeCostPlan(scenario);
+  return keys.slice(0, -1).map((_key, boundaryIndex) => {
+    return editableCostYears().map(year => {
+      const yearIndex = YEARS.indexOf(year);
+      const selectedTotal = laborFtePctMetricTotal(scenario, chartKey, keys, yearIndex);
+      const boundaryTotal = keys.slice(0, boundaryIndex + 1).reduce((sum, key) => {
+        return sum + laborFtePctMetricValue(scenario, chartKey, key, yearIndex);
+      }, 0);
+      const equalShareBoundary = ((boundaryIndex + 1) / keys.length) * 100;
+      const boundary = selectedTotal > 0 ? (boundaryTotal / selectedTotal) * 100 : equalShareBoundary;
+      return [year, Math.max(0, Math.min(100, boundary))];
+    });
+  });
+}
+
+function laborFtePctLineData(chartKey, scenario = activeScenario(), keys = activeLaborFteKeys()) {
+  normalizeCostPlan(scenario);
+  if (keys.length < 2) return [];
+  const storageKey = laborFtePctStorageKey(chartKey, keys);
+  const expectedCount = keys.length - 1;
+  const stored = scenario.costPctTotalLines?.[storageKey];
+  if (!Array.isArray(stored) || stored.length !== expectedCount) {
+    scenario.costPctTotalLines[storageKey] = defaultLaborFtePctLines(chartKey, keys, scenario);
+  }
+  return scenario.costPctTotalLines[storageKey];
+}
+
+function laborFtePctLineObjects(chartKey, scenario = activeScenario()) {
+  const keys = activeLaborFteKeys();
+  const lineData = laborFtePctLineData(chartKey, scenario, keys);
+  return lineData
+    .map((data, index) => {
+      const key = keys[index];
+      const meta = laborDepartmentMeta[key];
+      return {
+        name: displayLabel(meta.label),
+        color: meta.color,
+        bandIndex: index,
+        editable: true,
+        editDomain: {
+          moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+          addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+          deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        },
+        data: clone(data),
+      };
+    })
+    .reverse();
+}
+
+function laborFtePctSharesForYear(chartKey, scenario, keys, year) {
+  if (keys.length <= 1) return keys.length ? [1] : [];
+  const boundaries = laborFtePctLineData(chartKey, scenario, keys)
+    .map(data => interpolateNapkinLineValue(data, year))
+    .map(value => Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0);
+  const shares = [];
+  let previous = 0;
+  boundaries.forEach(rawBoundary => {
+    const boundary = Math.max(previous, rawBoundary);
+    shares.push(Math.max(0, boundary - previous) / 100);
+    previous = boundary;
+  });
+  shares.push(Math.max(0, 100 - previous) / 100);
+  return shares;
+}
+
+function applyLaborFteSelectedCostPctShares() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const keys = activeLaborFteKeys();
+  if (keys.length < 2) return;
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    const selectedTotal = laborFtePctMetricTotal(scenario, "laborFteSelectedCost", keys, index);
+    const shares = laborFtePctSharesForYear("laborFteSelectedCost", scenario, keys, year);
+    keys.forEach((key, keyIndex) => {
+      scenario.costs.laborDepartments[key][index] = selectedTotal * (shares[keyIndex] || 0);
+      addCostControlPointIfControlled(laborDepartmentChartKey(key), year);
+    });
+    addCostControlPointIfControlled("laborFteSelectedCost", year);
+    addCostControlPointIfControlled("laborBottomUp", year);
+    addCostControlPointIfControlled("laborAllocationControl", year);
+  });
+  syncLaborTotalsFromDepartments(scenario);
+}
+
+function applyLaborFteCountPctShares() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const keys = activeLaborFteKeys();
+  if (keys.length < 2) return;
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    const lockedBuild = laborFteBuildCostValues(scenario, keys)[index];
+    const selectedTotal = laborFtePctMetricTotal(scenario, "laborFteCount", keys, index);
+    const shares = laborFtePctSharesForYear("laborFteCount", scenario, keys, year);
+    keys.forEach((key, keyIndex) => {
+      scenario.costs.laborFte[key][index] = selectedTotal * (shares[keyIndex] || 0);
+    });
+    if (state.laborFteTopLocked) {
+      adjustLaborCostPerFteToBuildCost(scenario, index, keys, lockedBuild);
+      addCostControlPointIfControlled("laborFteCostPerFte", year);
+      addCostControlPointIfControlled("laborFteBuildCost", year);
+    }
+    addCostControlPointIfControlled("laborFteCount", year);
+  });
+}
+
+function laborFteMetricPairs(values, controlKey, scale = 1) {
+  const pairs = values.map((value, index) => [YEARS[index], value / scale]);
+  return controlledCostPairs(activeScenario(), controlKey, pairs);
+}
+
+function laborFteEditableDomain() {
+  return {
+    moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+  };
+}
+
+function laborFteDepartmentBuildValues(scenario, key) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => {
+    return Number(scenario.costs.laborFte?.[key]?.[index] || 0)
+      * Number(scenario.costs.laborCostPerFte?.[key]?.[index] || 0);
+  });
+}
+
+function laborFteDepartmentMetricPairs(scenario, values, controlKey, scale = 1) {
+  const pairs = values.map((value, index) => [YEARS[index], value / scale]);
+  return controlledCostPairs(scenario, controlKey, pairs);
+}
+
+function laborFteSelectedCostChartLines() {
+  normalizeCostPlan(activeScenario());
+  const keys = activeLaborFteKeys();
+  if (isCostChartSeparated("laborFteSelectedCost")) {
+    return [
+      ...keys.map(key => {
+        const meta = laborDepartmentMeta[key];
+        return {
+          name: displayLabel(meta.label),
+          color: meta.color,
+          departmentKey: key,
+          editable: true,
+          editDomain: laborFteEditableDomain(),
+          data: laborFteDepartmentMetricPairs(
+            activeScenario(),
+            laborFteDepartmentBuildValues(activeScenario(), key),
+            `laborFteBuildCost:${key}`,
+            1000000
+          ),
+        };
+      }),
+      {
+        name: "Department Allocation",
+        color: "#98a2b3",
+        editable: false,
+        data: costPairsFromValuesForMode(activeScenario(), laborFteSelectedCostValues(activeScenario(), keys), "laborFteSelectedCost", "laborFteSelectedCost"),
+      },
+    ];
+  }
+  return [
+    {
+      name: "FTE Build",
+      color: costMeta.labor.color,
+      editable: true,
+      editDomain: laborFteEditableDomain(),
+      data: costPairsFromValuesForMode(activeScenario(), laborFteBuildCostValues(activeScenario(), keys), "laborFteBuildCost", "laborFteSelectedCost"),
+    },
+    {
+      name: "Department Allocation",
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(activeScenario(), laborFteSelectedCostValues(activeScenario(), keys), "laborFteSelectedCost", "laborFteSelectedCost"),
+    },
+  ];
+}
+
+function laborFteCountChartLines() {
+  normalizeCostPlan(activeScenario());
+  const keys = activeLaborFteKeys();
+  if (isCostChartSeparated("laborFteCount")) {
+    return keys.map(key => {
+      const meta = laborDepartmentMeta[key];
+      return {
+        name: displayLabel(meta.label),
+        color: meta.color,
+        departmentKey: key,
+        editable: true,
+        editDomain: laborFteEditableDomain(),
+        data: laborFteDepartmentMetricPairs(
+          activeScenario(),
+          YEARS.map((_year, index) => Number(activeScenario().costs.laborFte?.[key]?.[index] || 0)),
+          `laborFteCount:${key}`
+        ),
+      };
+    });
+  }
+  return [{
+    name: `${laborFteFilterLabel()} FTE / Equivalent`,
+    color: "#2f6f73",
+    editable: true,
+    editDomain: laborFteEditableDomain(),
+    data: laborFteMetricPairs(laborFteCountValues(activeScenario(), keys), "laborFteCount"),
+  }];
+}
+
+function laborFteCostPerFteChartLines() {
+  normalizeCostPlan(activeScenario());
+  const keys = activeLaborFteKeys();
+  if (isCostChartSeparated("laborFteCostPerFte")) {
+    return keys.map(key => {
+      const meta = laborDepartmentMeta[key];
+      return {
+        name: displayLabel(meta.label),
+        color: meta.color,
+        departmentKey: key,
+        editable: true,
+        editDomain: laborFteEditableDomain(),
+        data: laborFteDepartmentMetricPairs(
+          activeScenario(),
+          YEARS.map((_year, index) => Number(activeScenario().costs.laborCostPerFte?.[key]?.[index] || 0)),
+          `laborFteCostPerFte:${key}`,
+          1000
+        ),
+      };
+    });
+  }
+  return [{
+    name: `${laborFteFilterLabel()} Cost / FTE`,
+    color: "#6fa76b",
+    editable: true,
+    editDomain: laborFteEditableDomain(),
+    data: laborFteMetricPairs(laborFteCostPerFteValues(activeScenario(), keys), "laborFteCostPerFte", 1000),
+  }];
+}
+
+function nonLaborCategoryChartKey(key) {
+  return `nonLaborCategory:${key}`;
+}
+
+function nonLaborDrilldownTopDownChartLines() {
+  return [
+    {
+      name: "Bottom Up",
+      color: costMeta.nonLabor.color,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: costPairsFromValuesForMode(activeScenario(), nonLaborBottomUpValues(activeScenario()), "nonLaborBottomUp", "nonLaborDrilldownTopDown"),
+    },
+    {
+      name: "Top Down",
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(activeScenario(), costValues(activeScenario(), "nonLabor"), "nonLabor", "nonLaborDrilldownTopDown"),
+    },
+  ];
+}
+
+function nonLaborAllocationControlChartLines() {
+  const keys = selectedNonLaborAllocationKeys();
+  if (!keys.length) {
+    return [{
+      name: "Select Categories",
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(activeScenario(), YEARS.map(() => 0), "nonLaborAllocationControl", "nonLaborAllocationControl"),
+    }];
+  }
+  const label = keys.length === 1
+    ? displayLabel(nonLaborCategoryMeta[keys[0]].label)
+    : `${keys.length} Categories`;
+  return [{
+    name: label,
+    color: "#2f6f73",
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: costPairsFromValuesForMode(activeScenario(), nonLaborAllocationControlValues(activeScenario()), "nonLaborAllocationControl", "nonLaborAllocationControl"),
+  }];
+}
+
+function styleCostReferenceSeries(chart) {
+  const option = chart.chart.getOption();
+  const series = (option.series || []).map(seriesItem => {
+    const name = String(seriesItem.name || "");
+    if (name !== "Top Down" && name !== "Department Allocation") return seriesItem;
+    return {
+      ...seriesItem,
+      silent: true,
+      showSymbol: false,
+      symbolSize: 0,
+      z: 2,
+      itemStyle: {
+        ...(seriesItem.itemStyle || {}),
+        color: "#98a2b3",
+        opacity: 1,
+      },
+      lineStyle: {
+        ...(seriesItem.lineStyle || {}),
+        color: "#98a2b3",
+        width: 3,
+        opacity: 1,
+        type: "solid",
+      },
+      tooltip: { show: true },
+    };
+  });
+  chart.chart.setOption({ series }, false);
+}
+
+function initLaborDrilldownTopDownChart() {
+  const meta = costMeta.labor;
+  const chart = new NapkinChart(
+    "cost-labor-topdown-chart",
+    laborDrilldownTopDownChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        ...costChartYAxisConfig("laborDrilldownTopDown", meta.yMax),
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: value => formatCostChartTooltipValue(value, "laborDrilldownTopDown"),
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const seen = new Set();
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              if (seen.has(item.seriesName)) return;
+              seen.add(item.seriesName);
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostChartTooltipValue(Number(rawValue), "laborDrilldownTopDown")}`);
+            });
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyCostChartYAxisMode(chart, "laborDrilldownTopDown", meta.yMax);
+  chart._refreshChart();
+  styleCostReferenceSeries(chart);
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const bottomUpValues = laborBottomUpValues(activeScenario());
+    const selectedKeys = selectedLaborAllocationKeys();
+    YEARS.forEach(year => {
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      const index = YEARS.indexOf(year);
+      if (index >= 0 && editableCostYear(year)) {
+        const previousValue = index > 0 ? Number(bottomUpValues[index - 1] || 0) : 0;
+        const currentValue = Number(bottomUpValues[index] || 0);
+        const targetValue = valueFromEditedCostPoint(previousValue, value, "laborDrilldownTopDown", currentValue, bottomUpValues, index);
+        if (targetValue !== null) {
+          setLaborDepartmentBottomUpTotalForYear(activeScenario(), index, targetValue, {
+            lockOthers: state.laborAllocationOthersLocked,
+            selectedKeys,
+          });
+          bottomUpValues[index] = laborDepartmentTotalForYear(activeScenario().costs.laborDepartments, index);
+        }
+      }
+    });
+    if (isCostChartYoY("laborDrilldownTopDown")) {
+      rememberCostControlYears("laborBottomUp", editableCostYears());
+    } else {
+      rememberCostControlPoints("laborBottomUp", chart.lines[0].data);
+    }
+    saveScenarios();
+    styleCostReferenceSeries(chart);
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.laborDrilldownTopDown = chart;
+}
+
+function initLaborAllocationControlChart() {
+  const chart = new NapkinChart(
+    "cost-labor-allocation-control-chart",
+    laborAllocationControlChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        ...costChartYAxisConfig("laborAllocationControl", costMeta.labor.yMax),
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: formatCostTooltipValue,
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostChartTooltipValue(Number(rawValue), "laborAllocationControl")}`);
+            });
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyCostChartYAxisMode(chart, "laborAllocationControl", costMeta.labor.yMax);
+  chart._refreshChart();
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    const selectedKeys = selectedLaborAllocationKeys();
+    if (!selectedKeys.length) {
+      syncCostCharts({ excludeChart: chart });
+      renderCostDrilldownView();
+      return;
+    }
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const allocationValues = laborAllocationControlValues(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (!editableCostYear(year)) return;
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      const previousValue = index > 0 ? Number(allocationValues[index - 1] || 0) : 0;
+      const currentValue = Number(allocationValues[index] || 0);
+      const targetValue = valueFromEditedCostPoint(previousValue, value, "laborAllocationControl", currentValue, allocationValues, index);
+      if (targetValue === null) return;
+      setLaborAllocationControlValue(activeScenario(), index, selectedKeys, targetValue, {
+        lockTop: state.laborAllocationTopLocked,
+      });
+      allocationValues[index] = laborDepartmentGroupTotalForYear(activeScenario().costs.laborDepartments, selectedKeys, index);
+    });
+    if (isCostChartYoY("laborAllocationControl")) {
+      rememberCostControlYears("laborAllocationControl", editableCostYears());
+      rememberCostControlYears("laborBottomUp", editableCostYears());
+    } else {
+      rememberCostControlPoints("laborAllocationControl", chart.lines[0].data);
+    }
+    saveScenarios();
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.laborAllocationControl = chart;
+}
+
+function initLaborAllocationPctChart() {
+  const element = document.getElementById("cost-labor-allocation-pct-chart");
+  if (!element || typeof NapkinChartArea === "undefined") return;
+  const baseOption = {
+    animation: false,
+    xAxis: {
+      type: "value",
+      min: FIRST_COST_EDIT_YEAR,
+      max: YEARS[YEARS.length - 1],
+      minInterval: 1,
+      axisLabel: { formatter: formatAxisYear },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      max: 100,
+      axisLabel: { formatter: value => formatPercentMetric(Number(value), 0) },
+    },
+    topAreaLabel: "Unassigned",
+    topAreaColor: "#98a2b3",
+    areaTint: 0.42,
+    grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
+    tooltip: { trigger: "axis" },
+  };
+  const chart = new NapkinChartArea(
+    "cost-labor-allocation-pct-chart",
+    laborAllocationPctLineObjects(),
+    true,
+    baseOption,
+    "none"
+  );
+  chart.enableZoomBar = false;
+  chart.windowStartX = FIRST_COST_EDIT_YEAR;
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    const keys = selectedLaborAllocationKeys();
+    if (keys.length < 2) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const storedLines = [];
+    chart.lines.forEach((line, fallbackIndex) => {
+      const bandIndex = Number.isInteger(line.bandIndex)
+        ? line.bandIndex
+        : chart.lines.length - fallbackIndex - 1;
+      storedLines[bandIndex] = clone(line.data);
+    });
+    normalizeCostPlan(activeScenario());
+    activeScenario().costPctTotalLines[laborAllocationPctStorageKey(keys)] = storedLines.filter(Array.isArray);
+    applyLaborAllocationPctShares();
+    saveScenarios();
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.laborAllocationPct = chart;
+  syncLaborAllocationPctChart();
+}
+
+function initLaborFteSelectedCostChart() {
+  const chart = new NapkinChart(
+    "cost-labor-fte-selected-cost-chart",
+    laborFteSelectedCostChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: costMeta.labor.yMax,
+        axisLabel: { formatter: formatCostAxisValue },
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: formatCostTooltipValue,
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostTooltipValue(Number(rawValue))}`);
+            });
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._refreshChart();
+  styleCostReferenceSeries(chart);
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const keys = activeLaborFteKeys();
+    if (isCostChartSeparated("laborFteSelectedCost")) {
+      chart.lines
+        .filter(line => line.departmentKey)
+        .forEach(line => {
+          const key = line.departmentKey;
+          YEARS.forEach((year, index) => {
+            if (!editableCostYear(year)) return;
+            const value = interpolateNapkinLineValue(line.data, year);
+            if (Number.isFinite(value)) {
+              setLaborFteBuildCostForYear(activeScenario(), index, [key], value * 1000000);
+            }
+          });
+          rememberCostControlPoints(`laborFteBuildCost:${key}`, line.data);
+        });
+    } else {
+      YEARS.forEach((year, index) => {
+        if (!editableCostYear(year)) return;
+        const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+        if (Number.isFinite(value)) {
+          setLaborFteBuildCostForYear(activeScenario(), index, keys, value * 1000000);
+        }
+      });
+      rememberCostControlPoints("laborFteBuildCost", chart.lines[0].data);
+    }
+    saveScenarios();
+    styleCostReferenceSeries(chart);
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.laborFteSelectedCost = chart;
+}
+
+function laborFtePctStateKey(chartKey) {
+  return `${chartKey}Pct`;
+}
+
+function initLaborFtePctChart(chartKey, domId, applyShares) {
+  const element = document.getElementById(domId);
+  if (!element || typeof NapkinChartArea === "undefined") return;
+  const baseOption = {
+    animation: false,
+    xAxis: {
+      type: "value",
+      min: FIRST_COST_EDIT_YEAR,
+      max: YEARS[YEARS.length - 1],
+      minInterval: 1,
+      axisLabel: { formatter: formatAxisYear },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      max: 100,
+      axisLabel: { formatter: value => formatPercentMetric(Number(value), 0) },
+    },
+    topAreaLabel: "Unassigned",
+    topAreaColor: "#98a2b3",
+    areaTint: 0.42,
+    grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
+    tooltip: { trigger: "axis" },
+  };
+  const chart = new NapkinChartArea(domId, laborFtePctLineObjects(chartKey), true, baseOption, "none");
+  chart.enableZoomBar = false;
+  chart.windowStartX = FIRST_COST_EDIT_YEAR;
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (chartKey === "laborFteCount" && laborFteDependentEditBlocked(chartKey)) {
+      rejectLaborFteDependentEdit(chart);
+      return;
+    }
+    const keys = activeLaborFteKeys();
+    if (keys.length < 2) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const storedLines = [];
+    chart.lines.forEach((line, fallbackIndex) => {
+      const bandIndex = Number.isInteger(line.bandIndex)
+        ? line.bandIndex
+        : chart.lines.length - fallbackIndex - 1;
+      storedLines[bandIndex] = clone(line.data);
+    });
+    normalizeCostPlan(activeScenario());
+    activeScenario().costPctTotalLines[laborFtePctStorageKey(chartKey, keys)] = storedLines.filter(Array.isArray);
+    applyShares();
+    saveScenarios();
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts[laborFtePctStateKey(chartKey)] = chart;
+  syncLaborFtePctChart(chartKey);
+}
+
+function initLaborFteCountChart() {
+  const chart = new NapkinChart(
+    "cost-labor-fte-count-chart",
+    laborFteCountChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 500,
+        axisLabel: { formatter: formatFteAxisValue },
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: formatFteTooltipValue,
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._refreshChart();
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (laborFteDependentEditBlocked("laborFteCount")) {
+      rejectLaborFteDependentEdit(chart);
+      return;
+    }
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const keys = activeLaborFteKeys();
+    if (isCostChartSeparated("laborFteCount")) {
+      const lockedBuildValues = laborFteBuildCostValues(activeScenario(), keys);
+      chart.lines
+        .filter(line => line.departmentKey)
+        .forEach(line => {
+          const key = line.departmentKey;
+          YEARS.forEach((year, index) => {
+            if (!editableCostYear(year)) return;
+            const value = interpolateNapkinLineValue(line.data, year);
+            if (Number.isFinite(value)) {
+              activeScenario().costs.laborFte[key][index] = Math.max(0, value);
+            }
+          });
+          rememberCostControlPoints(`laborFteCount:${key}`, line.data);
+        });
+      if (state.laborFteTopLocked) {
+        YEARS.forEach((year, index) => {
+          if (!editableCostYear(year)) return;
+          adjustLaborCostPerFteToBuildCost(activeScenario(), index, keys, lockedBuildValues[index]);
+        });
+      }
+    } else {
+      YEARS.forEach((year, index) => {
+        if (!editableCostYear(year)) return;
+        const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+        if (Number.isFinite(value)) {
+          const lockedBuild = laborFteBuildCostValues(activeScenario(), keys)[index];
+          distributeLaborFteAcrossKeys(activeScenario(), index, keys, value);
+          if (state.laborFteTopLocked) {
+            adjustLaborCostPerFteToBuildCost(activeScenario(), index, keys, lockedBuild);
+          }
+        }
+      });
+      rememberCostControlPoints("laborFteCount", chart.lines[0].data);
+    }
+    saveScenarios();
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.laborFteCount = chart;
+}
+
+function initLaborFteCostPerFteChart() {
+  const chart = new NapkinChart(
+    "cost-labor-fte-cost-per-fte-chart",
+    laborFteCostPerFteChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 200,
+        axisLabel: { formatter: formatCostPerFteAxisValue },
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: formatCostPerFteTooltipValue,
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._refreshChart();
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (laborFteDependentEditBlocked("laborFteCostPerFte")) {
+      rejectLaborFteDependentEdit(chart);
+      return;
+    }
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const keys = activeLaborFteKeys();
+    if (isCostChartSeparated("laborFteCostPerFte")) {
+      const lockedBuildValues = laborFteBuildCostValues(activeScenario(), keys);
+      chart.lines
+        .filter(line => line.departmentKey)
+        .forEach(line => {
+          const key = line.departmentKey;
+          YEARS.forEach((year, index) => {
+            if (!editableCostYear(year)) return;
+            const value = interpolateNapkinLineValue(line.data, year);
+            if (Number.isFinite(value)) {
+              activeScenario().costs.laborCostPerFte[key][index] = Math.max(0, value * 1000);
+            }
+          });
+          rememberCostControlPoints(`laborFteCostPerFte:${key}`, line.data);
+        });
+      if (state.laborFteTopLocked) {
+        YEARS.forEach((year, index) => {
+          if (!editableCostYear(year)) return;
+          adjustLaborFteToBuildCost(activeScenario(), index, keys, lockedBuildValues[index]);
+        });
+      }
+    } else {
+      YEARS.forEach((year, index) => {
+        if (!editableCostYear(year)) return;
+        const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+        if (Number.isFinite(value)) {
+          const lockedBuild = laborFteBuildCostValues(activeScenario(), keys)[index];
+          scaleLaborCostPerFteAcrossKeys(activeScenario(), index, keys, value * 1000);
+          if (state.laborFteTopLocked) {
+            adjustLaborFteToBuildCost(activeScenario(), index, keys, lockedBuild);
+          }
+        }
+      });
+      rememberCostControlPoints("laborFteCostPerFte", chart.lines[0].data);
+    }
+    saveScenarios();
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.laborFteCostPerFte = chart;
+}
+
+function initNonLaborDrilldownTopDownChart() {
+  const meta = costMeta.nonLabor;
+  const chart = new NapkinChart(
+    "cost-non-labor-topdown-chart",
+    nonLaborDrilldownTopDownChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        ...costChartYAxisConfig("nonLaborDrilldownTopDown", meta.yMax),
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: value => formatCostChartTooltipValue(value, "nonLaborDrilldownTopDown"),
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const seen = new Set();
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              if (seen.has(item.seriesName)) return;
+              seen.add(item.seriesName);
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostChartTooltipValue(Number(rawValue), "nonLaborDrilldownTopDown")}`);
+            });
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyCostChartYAxisMode(chart, "nonLaborDrilldownTopDown", meta.yMax);
+  chart._refreshChart();
+  styleCostReferenceSeries(chart);
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const bottomUpValues = nonLaborBottomUpValues(activeScenario());
+    const selectedKeys = selectedNonLaborAllocationKeys();
+    YEARS.forEach(year => {
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      const index = YEARS.indexOf(year);
+      if (index >= 0 && editableCostYear(year)) {
+        const previousValue = index > 0 ? Number(bottomUpValues[index - 1] || 0) : 0;
+        const currentValue = Number(bottomUpValues[index] || 0);
+        const targetValue = valueFromEditedCostPoint(previousValue, value, "nonLaborDrilldownTopDown", currentValue, bottomUpValues, index);
+        if (targetValue !== null) {
+          setNonLaborCategoryBottomUpTotalForYear(activeScenario(), index, targetValue, {
+            lockOthers: state.nonLaborAllocationOthersLocked,
+            selectedKeys,
+          });
+          bottomUpValues[index] = nonLaborCategoryTotalForYear(activeScenario().costs.nonLaborCategories, index);
+        }
+      }
+    });
+    if (isCostChartYoY("nonLaborDrilldownTopDown")) {
+      rememberCostControlYears("nonLaborBottomUp", editableCostYears());
+    } else {
+      rememberCostControlPoints("nonLaborBottomUp", chart.lines[0].data);
+    }
+    saveScenarios();
+    styleCostReferenceSeries(chart);
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.nonLaborDrilldownTopDown = chart;
+}
+
+function initNonLaborAllocationControlChart() {
+  const chart = new NapkinChart(
+    "cost-non-labor-allocation-control-chart",
+    nonLaborAllocationControlChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        ...costChartYAxisConfig("nonLaborAllocationControl", costMeta.nonLabor.yMax),
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: formatCostTooltipValue,
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostChartTooltipValue(Number(rawValue), "nonLaborAllocationControl")}`);
+            });
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyCostChartYAxisMode(chart, "nonLaborAllocationControl", costMeta.nonLabor.yMax);
+  chart._refreshChart();
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    const selectedKeys = selectedNonLaborAllocationKeys();
+    if (!selectedKeys.length) {
+      syncCostCharts({ excludeChart: chart });
+      renderCostDrilldownView();
+      return;
+    }
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const allocationValues = nonLaborAllocationControlValues(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (!editableCostYear(year)) return;
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      const previousValue = index > 0 ? Number(allocationValues[index - 1] || 0) : 0;
+      const currentValue = Number(allocationValues[index] || 0);
+      const targetValue = valueFromEditedCostPoint(previousValue, value, "nonLaborAllocationControl", currentValue, allocationValues, index);
+      if (targetValue === null) return;
+      setNonLaborAllocationControlValue(activeScenario(), index, selectedKeys, targetValue, {
+        lockTop: state.nonLaborAllocationTopLocked,
+      });
+      allocationValues[index] = nonLaborCategoryGroupTotalForYear(activeScenario().costs.nonLaborCategories, selectedKeys, index);
+    });
+    if (isCostChartYoY("nonLaborAllocationControl")) {
+      rememberCostControlYears("nonLaborAllocationControl", editableCostYears());
+      rememberCostControlYears("nonLaborBottomUp", editableCostYears());
+    } else {
+      rememberCostControlPoints("nonLaborAllocationControl", chart.lines[0].data);
+    }
+    saveScenarios();
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.nonLaborAllocationControl = chart;
+}
+
+function initLaborDepartmentChart(key) {
+  const meta = laborDepartmentMeta[key];
+  const chartKey = laborDepartmentChartKey(key);
+  const chart = new NapkinChart(
+    meta.chartId,
+    laborDepartmentChartLines(key),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: meta.yMax,
+        axisLabel: { formatter: formatCostAxisValue },
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        valueFormatter: formatCostTooltipValue,
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const seen = new Set();
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              if (seen.has(item.seriesName)) return;
+              seen.add(item.seriesName);
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostTooltipValue(Number(rawValue))}`);
+            });
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._refreshChart();
+  styleComparisonSeries(chart);
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    YEARS.forEach(year => {
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      setLaborDepartmentValue(activeScenario(), key, year, value);
+    });
+    rememberCostControlPoints(chartKey, chart.lines[0].data);
+    saveScenarios();
+    styleComparisonSeries(chart);
+    syncCostCharts({ excludeChart: chart });
+  };
+  state.costCharts[chartKey] = chart;
+}
+
+function laborDepartmentMixEchartSeriesValues(key) {
+  const values = laborDepartmentValues(activeScenario(), key);
+  if (isCostChartYoY("laborDepartmentMix")) {
+    return YEARS.map((_year, index) => {
+      return costYoYPercentFromValues(values, index);
+    });
+  }
+  return values.map(value => value / 1000000);
+}
+
+function renderLaborDepartmentMixEchart() {
+  const chart = state.outputCharts.costLaborDepartmentMix;
+  if (!chart) return;
+  const isYoY = isCostChartYoY("laborDepartmentMix");
+  const series = LABOR_DEPARTMENT_KEYS.map(key => {
+    const meta = laborDepartmentMeta[key];
+    return {
+      name: displayLabel(meta.label),
+      type: "line",
+      data: laborDepartmentMixEchartSeriesValues(key),
+      smooth: false,
+      symbolSize: 5,
+      lineStyle: { width: 2, color: meta.color },
+      itemStyle: { color: meta.color },
+    };
+  });
+  chart.setOption({
+    animation: false,
+    color: LABOR_DEPARTMENT_KEYS.map(key => laborDepartmentMeta[key].color),
+    legend: {
+      type: "scroll",
+      top: 0,
+      left: 0,
+      right: 0,
+      itemWidth: 12,
+      itemHeight: 8,
+      textStyle: { color: "#475467", fontSize: 11 },
+    },
+    tooltip: {
+      trigger: "axis",
+      formatter: params => {
+        const items = Array.isArray(params) ? params : [params];
+        return [
+          tooltipHeader(items[0]?.axisValue),
+          ...items.map(item => {
+            const value = Number(item.value);
+            const formatted = isYoY ? formatPercentMetric(value, 1) : formatCostTooltipValue(value);
+            return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatted}`;
+          }),
+        ].join("<br/>");
+      },
+    },
+    grid: { left: 12, right: 18, top: 52, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String), axisLabel: { formatter: formatAxisYear } },
+    yAxis: {
+      type: "value",
+      axisLabel: {
+        formatter: value => isYoY ? formatPercentMetric(Number(value), 0) : formatCostAxisValue(value),
+      },
+    },
+    series,
+  }, true);
+}
+
+function nonLaborCategoryMixEchartSeriesValues(key) {
+  const values = nonLaborCategoryValues(activeScenario(), key);
+  if (isCostChartYoY("nonLaborCategoryMix")) {
+    return YEARS.map((_year, index) => {
+      return costYoYPercentFromValues(values, index);
+    });
+  }
+  return values.map(value => value / 1000000);
+}
+
+function renderNonLaborCategoryMixEchart() {
+  const chart = state.outputCharts.costNonLaborCategoryMix;
+  if (!chart) return;
+  const isYoY = isCostChartYoY("nonLaborCategoryMix");
+  const series = NON_LABOR_CATEGORY_KEYS.map(key => {
+    const meta = nonLaborCategoryMeta[key];
+    return {
+      name: displayLabel(meta.label),
+      type: "line",
+      data: nonLaborCategoryMixEchartSeriesValues(key),
+      smooth: false,
+      symbolSize: 5,
+      lineStyle: { width: 2, color: meta.color },
+      itemStyle: { color: meta.color },
+    };
+  });
+  chart.setOption({
+    animation: false,
+    color: NON_LABOR_CATEGORY_KEYS.map(key => nonLaborCategoryMeta[key].color),
+    legend: {
+      type: "scroll",
+      top: 0,
+      left: 0,
+      right: 0,
+      itemWidth: 12,
+      itemHeight: 8,
+      textStyle: { color: "#475467", fontSize: 11 },
+    },
+    tooltip: {
+      trigger: "axis",
+      formatter: params => {
+        const items = Array.isArray(params) ? params : [params];
+        return [
+          tooltipHeader(items[0]?.axisValue),
+          ...items.map(item => {
+            const value = Number(item.value);
+            const formatted = isYoY ? formatPercentMetric(value, 1) : formatCostTooltipValue(value);
+            return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatted}`;
+          }),
+        ].join("<br/>");
+      },
+    },
+    grid: { left: 12, right: 18, top: 52, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String), axisLabel: { formatter: formatAxisYear } },
+    yAxis: {
+      type: "value",
+      axisLabel: {
+        formatter: value => isYoY ? formatPercentMetric(Number(value), 0) : formatCostAxisValue(value),
+      },
+    },
+    series,
+  }, true);
+}
+
+function syncCostCharts({ excludeChart = null } = {}) {
+  state.syncingCostCharts = true;
+  Object.entries(costMeta).forEach(([key]) => {
+    const chart = state.costCharts[key];
+    if (!chart || chart === excludeChart) return;
+    chart.lines = costChartLines(key);
+    chart._refreshChart();
+    styleComparisonSeries(chart);
+  });
+  LABOR_DEPARTMENT_KEYS.forEach(key => {
+    const chart = state.costCharts[laborDepartmentChartKey(key)];
+    if (!chart || chart === excludeChart) return;
+    chart.lines = laborDepartmentChartLines(key);
+    chart._refreshChart();
+    styleComparisonSeries(chart);
+  });
+  const laborTopDownChart = state.costCharts.laborDrilldownTopDown;
+  if (laborTopDownChart && laborTopDownChart !== excludeChart) {
+    laborTopDownChart.lines = laborDrilldownTopDownChartLines();
+    applyCostChartYAxisMode(laborTopDownChart, "laborDrilldownTopDown", costMeta.labor.yMax);
+    laborTopDownChart._refreshChart();
+    styleCostReferenceSeries(laborTopDownChart);
+  }
+  renderLaborDepartmentMixEchart();
+  const laborAllocationChart = state.costCharts.laborAllocationControl;
+  if (laborAllocationChart && laborAllocationChart !== excludeChart) {
+    laborAllocationChart.lines = laborAllocationControlChartLines();
+    applyCostChartYAxisMode(laborAllocationChart, "laborAllocationControl", costMeta.labor.yMax);
+    laborAllocationChart._refreshChart();
+  }
+  const laborAllocationPctChart = state.costCharts.laborAllocationPct;
+  if (laborAllocationPctChart && laborAllocationPctChart !== excludeChart) {
+    syncLaborAllocationPctChart();
+  }
+  const laborFteSelectedCostChart = state.costCharts.laborFteSelectedCost;
+  if (laborFteSelectedCostChart && laborFteSelectedCostChart !== excludeChart) {
+    laborFteSelectedCostChart.lines = laborFteSelectedCostChartLines();
+    laborFteSelectedCostChart._refreshChart();
+    styleCostReferenceSeries(laborFteSelectedCostChart);
+  }
+  const laborFteSelectedCostPctChart = state.costCharts.laborFteSelectedCostPct;
+  if (laborFteSelectedCostPctChart && laborFteSelectedCostPctChart !== excludeChart) {
+    syncLaborFtePctChart("laborFteSelectedCost");
+  }
+  const laborFteCountChart = state.costCharts.laborFteCount;
+  if (laborFteCountChart && laborFteCountChart !== excludeChart) {
+    laborFteCountChart.lines = laborFteCountChartLines();
+    laborFteCountChart._refreshChart();
+  }
+  const laborFteCountPctChart = state.costCharts.laborFteCountPct;
+  if (laborFteCountPctChart && laborFteCountPctChart !== excludeChart) {
+    syncLaborFtePctChart("laborFteCount");
+  }
+  const laborFteCostPerFteChart = state.costCharts.laborFteCostPerFte;
+  if (laborFteCostPerFteChart && laborFteCostPerFteChart !== excludeChart) {
+    laborFteCostPerFteChart.lines = laborFteCostPerFteChartLines();
+    laborFteCostPerFteChart._refreshChart();
+  }
+  const nonLaborTopDownChart = state.costCharts.nonLaborDrilldownTopDown;
+  if (nonLaborTopDownChart && nonLaborTopDownChart !== excludeChart) {
+    nonLaborTopDownChart.lines = nonLaborDrilldownTopDownChartLines();
+    applyCostChartYAxisMode(nonLaborTopDownChart, "nonLaborDrilldownTopDown", costMeta.nonLabor.yMax);
+    nonLaborTopDownChart._refreshChart();
+    styleCostReferenceSeries(nonLaborTopDownChart);
+  }
+  renderNonLaborCategoryMixEchart();
+  const nonLaborAllocationChart = state.costCharts.nonLaborAllocationControl;
+  if (nonLaborAllocationChart && nonLaborAllocationChart !== excludeChart) {
+    nonLaborAllocationChart.lines = nonLaborAllocationControlChartLines();
+    applyCostChartYAxisMode(nonLaborAllocationChart, "nonLaborAllocationControl", costMeta.nonLabor.yMax);
+    nonLaborAllocationChart._refreshChart();
+  }
+  state.syncingCostCharts = false;
+  renderCostDrilldownView();
+}
+
+function syncLaborAllocationPctChart() {
+  const chart = state.costCharts.laborAllocationPct;
+  if (!chart) return;
+  const keys = selectedLaborAllocationKeys();
+  if (keys.length < 2) {
+    chart.lines = [];
+    chart._refreshChart();
+    return;
+  }
+  const topKey = keys[keys.length - 1];
+  const topMeta = laborDepartmentMeta[topKey];
+  chart.lines = laborAllocationPctLineObjects();
+  chart.topAreaLabel = displayLabel(topMeta.label);
+  chart.topAreaColor = topMeta.color;
+  chart.baseOption.topAreaLabel = chart.topAreaLabel;
+  chart.baseOption.topAreaColor = chart.topAreaColor;
+  chart._refreshChart();
+  chart.resize();
+  requestAnimationFrame(() => chart.resize());
+}
+
+function syncLaborFtePctChart(chartKey) {
+  const chart = state.costCharts[laborFtePctStateKey(chartKey)];
+  if (!chart) return;
+  const keys = activeLaborFteKeys();
+  if (keys.length < 2) {
+    chart.lines = [];
+    chart._refreshChart();
+    return;
+  }
+  const topKey = keys[keys.length - 1];
+  const topMeta = laborDepartmentMeta[topKey];
+  chart.lines = laborFtePctLineObjects(chartKey);
+  chart.topAreaLabel = displayLabel(topMeta.label);
+  chart.topAreaColor = topMeta.color;
+  chart.baseOption.topAreaLabel = chart.topAreaLabel;
+  chart.baseOption.topAreaColor = chart.topAreaColor;
+  chart._refreshChart();
+  chart.resize();
+  requestAnimationFrame(() => chart.resize());
+}
+
 function initEchartById(id) {
   const element = document.getElementById(id);
   return element ? echarts.init(element) : null;
@@ -1514,6 +4621,8 @@ function initOutputCharts() {
   state.outputCharts.treeProfilesNewCustomer = initEchartById("tree-profiles-new-customer-chart");
   state.outputCharts.treeRevenueReturningProfile = initEchartById("tree-revenue-returning-profile-chart");
   state.outputCharts.treeRevenueNewProfile = initEchartById("tree-revenue-new-profile-chart");
+  state.outputCharts.costLaborDepartmentMix = initEchartById("cost-labor-department-mix-chart");
+  state.outputCharts.costNonLaborCategoryMix = initEchartById("cost-non-labor-category-mix-chart");
   window.addEventListener("resize", () => {
     Object.values(state.outputCharts).forEach(chart => chart?.resize());
   });
@@ -5762,6 +8871,9 @@ function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = nu
   renderNewCustomerDrilldown({ syncEditors: syncNewCustomerEditors, excludeEditor: excludeNewCustomerChart });
   renderRevUnitPlan();
   renderRawDataSources();
+  renderCostLockButtons();
+  renderCostDrilldownView();
+  renderLaborDepartmentMixEchart();
   applyAnonymizedView();
 }
 
@@ -5819,6 +8931,10 @@ function createScenarioCopy(name) {
     id,
     name,
     drivers: clone(activeScenario().drivers),
+    costs: clone(activeScenario().costs || baseCosts),
+    costControlPoints: clone(activeScenario().costControlPoints || {}),
+    costPctTotalLines: clone(activeScenario().costPctTotalLines || {}),
+    costLocks: clone(activeScenario().costLocks || {}),
     newCustomerSource: activeScenario().newCustomerSource,
     newCustomerDrilldown: clone(activeScenario().newCustomerDrilldown),
     revUnitPlan: clone(activeScenario().revUnitPlan),
@@ -5831,6 +8947,7 @@ function createScenarioCopy(name) {
   saveScenarios();
   renderScenarioSelect();
   syncDriverCharts();
+  syncCostCharts();
   syncRevUnitCharts();
   renderAll();
 }
@@ -5859,6 +8976,18 @@ function restoreVersion() {
   if (!version) return;
   pushUndoSnapshot();
   scenario.drivers = clone(version.drivers);
+  scenario.costs = version.costs
+    ? clone(version.costs)
+    : clone(baseCosts);
+  scenario.costControlPoints = version.costControlPoints
+    ? clone(version.costControlPoints)
+    : {};
+  scenario.costPctTotalLines = version.costPctTotalLines
+    ? clone(version.costPctTotalLines)
+    : {};
+  scenario.costLocks = version.costLocks
+    ? clone(version.costLocks)
+    : {};
   scenario.newCustomerSource = version.newCustomerSource || "topDown";
   scenario.newCustomerDrilldown = version.newCustomerDrilldown
     ? clone(version.newCustomerDrilldown)
@@ -5872,6 +9001,7 @@ function restoreVersion() {
   enforceNewCustomerBaseline(scenario);
   saveScenarios();
   syncDriverCharts();
+  syncCostCharts();
   syncRevUnitCharts();
   renderAll();
 }
@@ -5882,6 +9012,10 @@ function resetScenario() {
     state.scenarios.base = makeBaseScenario();
   } else {
     activeScenario().drivers = clone(baseDrivers);
+    activeScenario().costs = clone(baseCosts);
+    activeScenario().costControlPoints = {};
+    activeScenario().costPctTotalLines = {};
+    activeScenario().costLocks = {};
     activeScenario().newCustomerSource = "topDown";
     activeScenario().newCustomerDrilldown = createDefaultNewCustomerDrilldown();
     activeScenario().revUnitPlan = createDefaultRevUnitPlan();
@@ -5889,6 +9023,7 @@ function resetScenario() {
   }
   saveScenarios();
   syncDriverCharts();
+  syncCostCharts();
   syncRevUnitCharts();
   renderAll();
 }
@@ -5938,6 +9073,7 @@ function bindControls() {
   document.getElementById("anonymized-view-toggle")?.addEventListener("change", event => {
     state.anonymizedView = event.target.checked;
     syncDriverCharts();
+    syncCostCharts();
     syncRevUnitCharts();
     renderAll();
     renderScenarioSelect();
@@ -5949,14 +9085,137 @@ function bindControls() {
     updateHistoryControls();
     renderScenarioSelect();
     syncDriverCharts();
+    syncCostCharts();
     syncRevUnitCharts();
     renderAll();
   });
   document.getElementById("compare-scenario-select").addEventListener("change", event => {
     setCompareScenario(event.target.value);
     syncDriverCharts();
+    syncCostCharts();
     syncRevUnitCharts();
     renderAll();
+  });
+  document.querySelectorAll("[data-cost-lock-key]").forEach(button => {
+    button.addEventListener("click", event => {
+      toggleCostLock(event.currentTarget.dataset.costLockKey);
+    });
+  });
+  document.getElementById("toggle-cost-labor-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "labor";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("toggle-cost-labor-fte-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "laborFte";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("toggle-cost-non-labor-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "nonLabor";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("back-cost-labor-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("back-cost-labor-fte-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "labor";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("back-cost-non-labor-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("set-cost-labor-top-to-bottom")?.addEventListener("click", setLaborTopToBottom);
+  document.getElementById("set-cost-labor-bottom-to-top")?.addEventListener("click", setLaborBottomToTop);
+  document.getElementById("set-cost-labor-fte-top-to-bottom")?.addEventListener("click", setLaborFteTopToBottom);
+  document.getElementById("set-cost-labor-fte-bottom-to-top")?.addEventListener("click", setLaborFteBottomToTop);
+  document.getElementById("set-cost-non-labor-top-to-bottom")?.addEventListener("click", setNonLaborTopToBottom);
+  document.getElementById("set-cost-non-labor-bottom-to-top")?.addEventListener("click", setNonLaborBottomToTop);
+  document.getElementById("toggle-labor-allocation-top-lock")?.addEventListener("click", () => {
+    state.laborAllocationTopLocked = !state.laborAllocationTopLocked;
+    renderCostDrilldownView();
+  });
+  document.getElementById("toggle-labor-allocation-others-lock")?.addEventListener("click", () => {
+    state.laborAllocationOthersLocked = !state.laborAllocationOthersLocked;
+    renderCostDrilldownView();
+  });
+  document.getElementById("labor-allocation-line-list")?.addEventListener("change", event => {
+    const input = event.target.closest("input[type='checkbox']");
+    if (!input) return;
+    const checked = Array.from(document.querySelectorAll("#labor-allocation-line-list input[type='checkbox']:checked"))
+      .map(item => item.value)
+      .filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+    state.selectedLaborAllocationKeys = checked;
+    renderLaborAllocationControls();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("labor-fte-line-list")?.addEventListener("change", event => {
+    const input = event.target.closest("input[type='checkbox']");
+    if (!input) return;
+    const checked = Array.from(document.querySelectorAll("#labor-fte-line-list input[type='checkbox']:checked"))
+      .map(item => item.value)
+      .filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+    state.selectedLaborFteKeys = checked;
+    renderLaborFteControls();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("toggle-labor-fte-top-lock")?.addEventListener("click", () => {
+    state.laborFteTopLocked = !state.laborFteTopLocked;
+    renderCostDrilldownView();
+  });
+  document.querySelectorAll("[data-labor-fte-lock]").forEach(button => {
+    button.addEventListener("click", event => {
+      const lockKey = event.currentTarget.dataset.laborFteLock;
+      state.laborFteLockedDriver = state.laborFteLockedDriver === lockKey ? "" : lockKey;
+      renderCostDrilldownView();
+    });
+  });
+  document.getElementById("toggle-non-labor-allocation-top-lock")?.addEventListener("click", () => {
+    state.nonLaborAllocationTopLocked = !state.nonLaborAllocationTopLocked;
+    renderCostDrilldownView();
+  });
+  document.getElementById("toggle-non-labor-allocation-others-lock")?.addEventListener("click", () => {
+    state.nonLaborAllocationOthersLocked = !state.nonLaborAllocationOthersLocked;
+    renderCostDrilldownView();
+  });
+  document.getElementById("non-labor-allocation-line-list")?.addEventListener("change", event => {
+    const input = event.target.closest("input[type='checkbox']");
+    if (!input) return;
+    const checked = Array.from(document.querySelectorAll("#non-labor-allocation-line-list input[type='checkbox']:checked"))
+      .map(item => item.value)
+      .filter(key => NON_LABOR_CATEGORY_KEYS.includes(key));
+    state.selectedNonLaborAllocationKeys = checked;
+    renderNonLaborAllocationControls();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.querySelectorAll("[data-cost-chart-mode]").forEach(group => {
+    group.addEventListener("click", event => {
+      const button = event.target.closest("[data-cost-chart-mode-value]");
+      if (!button || !group.contains(button)) return;
+      setCostChartMode(group.dataset.costChartMode, button.dataset.costChartModeValue);
+    });
+  });
+  document.querySelectorAll("[data-cost-line-mode]").forEach(group => {
+    group.addEventListener("click", event => {
+      const button = event.target.closest("[data-cost-line-mode-value]");
+      if (!button || !group.contains(button)) return;
+      setCostChartLineMode(group.dataset.costLineMode, button.dataset.costLineModeValue);
+    });
   });
   document.getElementById("new-customers-source")?.addEventListener("change", event => {
     pushUndoSnapshot();
@@ -6155,6 +9414,7 @@ function bindControls() {
   document.getElementById("tab-tree").addEventListener("click", () => setView("tree"));
   document.getElementById("tab-initiatives").addEventListener("click", () => setView("initiatives"));
   document.getElementById("tab-guided").addEventListener("click", () => setView("guided"));
+  document.getElementById("tab-costs").addEventListener("click", () => setView("costs"));
   document.getElementById("tab-chart").addEventListener("click", () => setView("chart"));
   document.getElementById("tab-table").addEventListener("click", () => setView("table"));
   document.getElementById("tab-rev-per-unit").addEventListener("click", () => setView("revPerUnit"));
@@ -6225,6 +9485,7 @@ function setView(view) {
   document.getElementById("tab-tree").classList.toggle("active", view === "tree");
   document.getElementById("tab-initiatives").classList.toggle("active", view === "initiatives");
   document.getElementById("tab-guided").classList.toggle("active", view === "guided");
+  document.getElementById("tab-costs").classList.toggle("active", view === "costs");
   document.getElementById("tab-chart").classList.toggle("active", view === "chart");
   document.getElementById("tab-table").classList.toggle("active", view === "table");
   document.getElementById("tab-rev-per-unit").classList.toggle("active", view === "revPerUnit");
@@ -6232,6 +9493,7 @@ function setView(view) {
   document.getElementById("tree-view").classList.toggle("active", view === "tree");
   document.getElementById("initiatives-view").classList.toggle("active", view === "initiatives");
   document.getElementById("guided-view").classList.toggle("active", view === "guided");
+  document.getElementById("costs-view").classList.toggle("active", view === "costs");
   document.getElementById("chart-view").classList.toggle("active", view === "chart");
   document.getElementById("retention-defense-view").classList.toggle("active", view === "retentionDefense");
   document.getElementById("table-view").classList.toggle("active", view === "table");
@@ -6244,6 +9506,7 @@ function setView(view) {
   }
   setTimeout(() => {
     Object.values(state.charts).forEach(chart => chart.resize());
+    Object.values(state.costCharts).forEach(chart => chart.resize());
     Object.values(state.cohortCharts).forEach(chart => chart.resize());
     Object.values(state.outputCharts).forEach(chart => chart.resize());
     Object.values(state.revUnitCharts).forEach(chart => chart.resize());
@@ -6256,6 +9519,17 @@ function init() {
   bindControls();
   initOutputCharts();
   Object.keys(driverMeta).forEach(initDriverChart);
+  Object.keys(costMeta).forEach(initCostChart);
+  initLaborDrilldownTopDownChart();
+  initLaborAllocationControlChart();
+  initLaborAllocationPctChart();
+  initLaborFteSelectedCostChart();
+  initLaborFtePctChart("laborFteSelectedCost", "cost-labor-fte-selected-cost-pct-chart", applyLaborFteSelectedCostPctShares);
+  initLaborFteCountChart();
+  initLaborFtePctChart("laborFteCount", "cost-labor-fte-count-pct-chart", applyLaborFteCountPctShares);
+  initLaborFteCostPerFteChart();
+  initNonLaborDrilldownTopDownChart();
+  initNonLaborAllocationControlChart();
   initNewCustomerCohortEditors();
   initRevUnitCharts();
   initRetentionDefenseCharts();
