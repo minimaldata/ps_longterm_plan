@@ -21,12 +21,24 @@ const LEAF_DEFENSE_KEYS = [
   "revenueReturningProfile",
   "revenueNewProfile",
   "existingPropertyNewPayingCustomers",
+  "growthNewPayingCustomers",
+  "growthRevPerNewPayingCustomer",
+  "strProperties",
+  "strRevPerProperty",
+  "otherRevenue",
+  "nonLaborCost",
+  "laborFte",
+  "laborCostPerFte",
   "newCustomersPerUnit",
   "newProperties",
   "newUnitsPerProperty",
+  "priorPayingCustomers",
 ];
 
-const planRevenue = [5546199, 10450032, 16513061, 25376000, 36444600, 46813700, 65766000, 83585600, 128908000];
+const planRevenue = [5546199, 11835538, 19529444, 30709500, 42235617, 66845700, 95697000, 123957600, 180563000];
+const growthRevenue = [0, 1385506, 2636508, 5052000, 7000000, null, null, null, null];
+const strRevenue = [0, 0, 0, 0, 0, null, null, null, null];
+const otherRevenue = [null, null, 1678634, 848400, 1000000, null, null, null, null];
 const NEW_CUSTOMER_COHORT_YEARS = [0, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029];
 const NEW_CUSTOMER_BASELINE_YEAR = 2025;
 const NEW_CUSTOMER_BASELINE_VALUE = 536412;
@@ -100,6 +112,118 @@ const baseDrivers = {
   revReturningProfile: [14.16, 18.32, 20.76, 24.65, 26.21, 26.21, 26.21, 26.21, 26.21],
   revNewProfile: [19.39, 23.82, 24.44, 28.63, 29.77, 29.77, 29.77, 29.77, 29.77],
 };
+
+function baseGrowthRevenueTopDownValues() {
+  let latestValue = 0;
+  return YEARS.map((year, index) => {
+    const value = growthRevenue[index];
+    if (value !== null && value !== undefined) {
+      latestValue = Number(value);
+      return latestValue;
+    }
+    return year >= FIRST_FORECAST_YEAR ? latestValue : null;
+  });
+}
+
+function baseGrowthRevPerNewPayingCustomerValues() {
+  const historicalRatios = growthRevenue
+    .map((value, index) => {
+      const customers = Number(baseDrivers.newCustomers[index] || 0);
+      return value !== null && value !== undefined && customers > 0 ? Number(value) / customers : null;
+    })
+    .filter(value => Number.isFinite(value));
+  const fallback = historicalRatios.length ? historicalRatios[historicalRatios.length - 1] : 0;
+  return YEARS.map((_year, index) => {
+    const customers = Number(baseDrivers.newCustomers[index] || 0);
+    const revenue = growthRevenue[index];
+    if (revenue !== null && revenue !== undefined && customers > 0) return Number(revenue) / customers;
+    return fallback;
+  });
+}
+
+function createDefaultGrowthRevenuePlan() {
+  return {
+    topDown: baseGrowthRevenueTopDownValues(),
+    revPerNewPayingCustomer: baseGrowthRevPerNewPayingCustomerValues(),
+    controlPoints: {},
+  };
+}
+
+function baseStrRevenueTopDownValues() {
+  let latestValue = 0;
+  return YEARS.map((year, index) => {
+    const value = strRevenue[index];
+    if (value !== null && value !== undefined) {
+      latestValue = Number(value);
+      return latestValue;
+    }
+    return year >= FIRST_FORECAST_YEAR ? latestValue : null;
+  });
+}
+
+function baseStrPropertiesValues() {
+  return YEARS.map(() => 0);
+}
+
+function baseStrRevPerPropertyValues() {
+  return YEARS.map(() => 0);
+}
+
+function createDefaultStrRevenuePlan() {
+  return {
+    topDown: baseStrRevenueTopDownValues(),
+    numStrProperties: baseStrPropertiesValues(),
+    revPerStrProperty: baseStrRevPerPropertyValues(),
+    controlPoints: {},
+  };
+}
+
+function baseOtherRevenueTopDownValues() {
+  let latestValue = 0;
+  return YEARS.map((year, index) => {
+    const value = otherRevenue[index];
+    if (value !== null && value !== undefined) {
+      latestValue = Number(value);
+      return latestValue;
+    }
+    return year >= FIRST_FORECAST_YEAR ? latestValue : null;
+  });
+}
+
+function createDefaultOtherRevenuePlan() {
+  return {
+    topDown: baseOtherRevenueTopDownValues(),
+    controlPoints: {},
+  };
+}
+
+function createDefaultTotalRevenuePlan() {
+  return {
+    topDown: clone(planRevenue),
+    controlPoints: {},
+  };
+}
+
+function baseLtrRevenueTopDownValues() {
+  const growth = baseGrowthRevenueTopDownValues();
+  const str = baseStrRevenueTopDownValues();
+  const other = baseOtherRevenueTopDownValues();
+  return YEARS.map((_year, index) => {
+    const value = Number(planRevenue[index] || 0)
+      - Number(growth[index] || 0)
+      - Number(str[index] || 0)
+      - Number(other[index] || 0);
+    return Math.max(0, value);
+  });
+}
+
+function createDefaultLtrRevenuePlan() {
+  return {
+    topDown: baseLtrRevenueTopDownValues(),
+    edited: true,
+    controlPoints: {},
+  };
+}
 
 const baseCosts = {
   labor: [2770938, 5297866, 9316198, 13007538, 19229862.5, 24093112.5, 28568700, 32424900, 36646200],
@@ -249,10 +373,20 @@ const state = {
   charts: {},
   cohortCharts: {},
   costCharts: {},
+  growthCharts: {},
+  strCharts: {},
+  otherRevenueCharts: {},
+  revenueDrilldownCharts: {},
+  profitCharts: {},
   outputCharts: {},
   currentView: "chart",
   syncingCharts: false,
   syncingCostCharts: false,
+  syncingGrowthCharts: false,
+  syncingStrCharts: false,
+  syncingOtherRevenueCharts: false,
+  syncingRevenueDrilldownCharts: false,
+  syncingProfitCharts: false,
   syncingCohortCharts: false,
   undoStack: [],
   redoStack: [],
@@ -285,6 +419,10 @@ const state = {
   selectedNonLaborAllocationKeys: [],
   nonLaborAllocationTopLocked: false,
   nonLaborAllocationOthersLocked: false,
+  selectedNonLaborCategoryKey: "conferences",
+  selectedNonLaborCategoryDepartmentKeys: [],
+  nonLaborCategoryTopLocked: false,
+  nonLaborCategoryOthersLocked: false,
   costChartModes: {
     laborDrilldownTopDown: "value",
     laborDepartmentMix: "value",
@@ -295,11 +433,14 @@ const state = {
     nonLaborDrilldownTopDown: "value",
     nonLaborCategoryMix: "value",
     nonLaborAllocationControl: "value",
+    nonLaborCategorySelectedSpend: "value",
+    nonLaborCategoryDepartmentControl: "value",
   },
   costChartLineModes: {
     laborFteSelectedCost: "grouped",
     laborFteCount: "grouped",
     laborFteCostPerFte: "grouped",
+    nonLaborCategoryDepartmentControl: "grouped",
   },
   retentionImpactChartType: "line",
   retentionImpactCumulative: false,
@@ -361,9 +502,23 @@ function displayScenarioName(scenarioOrName) {
 }
 
 const canvasNodeTree = {
-  revenue: { parent: null, children: ["payingCustomers", "revenuePerCustomer"] },
-  payingCustomers: { parent: "revenue", children: ["newPayingCustomers", "returningPayingCustomers"] },
-  revenuePerCustomer: { parent: "revenue", children: ["profilesPerCustomer", "revenuePerProfile"] },
+  profit: { parent: null, children: ["revenue", "cost"] },
+  revenue: { parent: "profit", children: ["ltrRevenue", "strRevenue", "growthRevenue", "otherRevenue"] },
+  ltrRevenue: { parent: "revenue", children: ["payingCustomers", "revenuePerCustomer"] },
+  growthRevenue: { parent: "revenue", children: ["growthNewPayingCustomers", "growthRevPerNewPayingCustomer"] },
+  growthNewPayingCustomers: { parent: "growthRevenue", children: [] },
+  growthRevPerNewPayingCustomer: { parent: "growthRevenue", children: [] },
+  strRevenue: { parent: "revenue", children: ["strProperties", "strRevPerProperty"] },
+  strProperties: { parent: "strRevenue", children: [] },
+  strRevPerProperty: { parent: "strRevenue", children: [] },
+  otherRevenue: { parent: "revenue", children: [] },
+  cost: { parent: "profit", children: ["laborCost", "nonLaborCost"] },
+  laborCost: { parent: "cost", children: ["laborFte", "laborCostPerFte"] },
+  nonLaborCost: { parent: "cost", children: [] },
+  laborFte: { parent: "laborCost", children: [] },
+  laborCostPerFte: { parent: "laborCost", children: [] },
+  payingCustomers: { parent: "ltrRevenue", children: ["newPayingCustomers", "returningPayingCustomers"] },
+  revenuePerCustomer: { parent: "ltrRevenue", children: ["profilesPerCustomer", "revenuePerProfile"] },
   newPayingCustomers: { parent: "payingCustomers", children: ["existingPropertyNewPayingCustomers", "newPropertyNewPayingCustomers"] },
   returningPayingCustomers: { parent: "payingCustomers", children: ["priorPayingCustomers", "retentionRate"] },
   profilesPerCustomer: { parent: "revenuePerCustomer", children: ["profilesReturningCustomer", "profilesNewCustomer"] },
@@ -383,8 +538,10 @@ const canvasNodeTree = {
 };
 
 const canvasLayoutRows = [
-  ["revenue"],
-  ["payingCustomers", "revenuePerCustomer"],
+  ["profit"],
+  ["revenue", "cost"],
+  ["ltrRevenue", "strRevenue", "growthRevenue", "otherRevenue", "laborCost", "nonLaborCost"],
+  ["payingCustomers", "revenuePerCustomer", "strProperties", "strRevPerProperty", "growthNewPayingCustomers", "growthRevPerNewPayingCustomer", "laborFte", "laborCostPerFte"],
   ["newPayingCustomers", "returningPayingCustomers", "profilesPerCustomer", "revenuePerProfile"],
   [
     "existingPropertyNewPayingCustomers",
@@ -514,6 +671,27 @@ function scaledBaseNonLaborCategories(targetNonLaborValues) {
   return categories;
 }
 
+function baseLaborDepartmentShareForYear(departmentKey, index) {
+  const referenceIndex = Math.max(0, YEARS.indexOf(2025));
+  const baseTotal = Number(baseCosts.labor[referenceIndex] || 0);
+  if (baseTotal > 0) return Number(baseCosts.laborDepartments[departmentKey]?.[referenceIndex] || 0) / baseTotal;
+  return 1 / LABOR_DEPARTMENT_KEYS.length;
+}
+
+function createBaseNonLaborCategoryDepartments(nonLaborCategories = baseCosts.nonLaborCategories) {
+  const categoryDepartments = {};
+  NON_LABOR_CATEGORY_KEYS.forEach(categoryKey => {
+    categoryDepartments[categoryKey] = {};
+    LABOR_DEPARTMENT_KEYS.forEach(departmentKey => {
+      categoryDepartments[categoryKey][departmentKey] = YEARS.map((_year, index) => {
+        const categoryValue = Number(nonLaborCategories?.[categoryKey]?.[index] ?? baseCosts.nonLaborCategories[categoryKey][index] ?? 0);
+        return categoryValue * baseLaborDepartmentShareForYear(departmentKey, index);
+      });
+    });
+  });
+  return categoryDepartments;
+}
+
 function syncLaborTotalsFromDepartments(scenario) {
   scenario.costs.labor = YEARS.map((_year, index) => {
     return laborDepartmentTotalForYear(scenario.costs.laborDepartments, index);
@@ -544,6 +722,9 @@ function normalizeCostPlan(scenario) {
   }
   if (!scenario.costs.nonLaborCategories || typeof scenario.costs.nonLaborCategories !== "object") {
     scenario.costs.nonLaborCategories = scaledBaseNonLaborCategories(scenario.costs.nonLabor);
+  }
+  if (!scenario.costs.nonLaborCategoryDepartments || typeof scenario.costs.nonLaborCategoryDepartments !== "object") {
+    scenario.costs.nonLaborCategoryDepartments = createBaseNonLaborCategoryDepartments(scenario.costs.nonLaborCategories);
   }
   LABOR_DEPARTMENT_KEYS.forEach(key => {
     if (!Array.isArray(scenario.costs.laborDepartments[key])) {
@@ -579,6 +760,20 @@ function normalizeCostPlan(scenario) {
       return Number.isFinite(value) ? value : baseCosts.nonLaborCategories[key][index];
     });
   });
+  NON_LABOR_CATEGORY_KEYS.forEach(categoryKey => {
+    if (!scenario.costs.nonLaborCategoryDepartments[categoryKey] || typeof scenario.costs.nonLaborCategoryDepartments[categoryKey] !== "object") {
+      scenario.costs.nonLaborCategoryDepartments[categoryKey] = createBaseNonLaborCategoryDepartments(scenario.costs.nonLaborCategories)[categoryKey];
+    }
+    LABOR_DEPARTMENT_KEYS.forEach(departmentKey => {
+      if (!Array.isArray(scenario.costs.nonLaborCategoryDepartments[categoryKey][departmentKey])) {
+        scenario.costs.nonLaborCategoryDepartments[categoryKey][departmentKey] = createBaseNonLaborCategoryDepartments(scenario.costs.nonLaborCategories)[categoryKey][departmentKey];
+      }
+      scenario.costs.nonLaborCategoryDepartments[categoryKey][departmentKey] = YEARS.map((_year, index) => {
+        const value = Number(scenario.costs.nonLaborCategoryDepartments[categoryKey][departmentKey][index]);
+        return Number.isFinite(value) && value >= 0 ? value : 0;
+      });
+    });
+  });
   if (!scenario.costControlPoints || typeof scenario.costControlPoints !== "object") {
     scenario.costControlPoints = {};
   }
@@ -607,6 +802,213 @@ function normalizeCostPlan(scenario) {
   });
 }
 
+function normalizeRevenuePaths(scenario) {
+  if (!scenario.revenuePaths || typeof scenario.revenuePaths !== "object") {
+    scenario.revenuePaths = {};
+  }
+  if (!scenario.revenuePaths.total || typeof scenario.revenuePaths.total !== "object") {
+    scenario.revenuePaths.total = createDefaultTotalRevenuePlan();
+  }
+  if (!scenario.revenuePaths.ltr || typeof scenario.revenuePaths.ltr !== "object") {
+    scenario.revenuePaths.ltr = createDefaultLtrRevenuePlan();
+  }
+  if (!scenario.revenuePaths.growth || typeof scenario.revenuePaths.growth !== "object") {
+    scenario.revenuePaths.growth = createDefaultGrowthRevenuePlan();
+  }
+  if (!scenario.revenuePaths.str || typeof scenario.revenuePaths.str !== "object") {
+    scenario.revenuePaths.str = createDefaultStrRevenuePlan();
+  }
+  if (!scenario.revenuePaths.other || typeof scenario.revenuePaths.other !== "object") {
+    scenario.revenuePaths.other = createDefaultOtherRevenuePlan();
+  }
+  const totalDefaults = createDefaultTotalRevenuePlan();
+  if (!Array.isArray(scenario.revenuePaths.total.topDown)) {
+    scenario.revenuePaths.total.topDown = clone(totalDefaults.topDown);
+  }
+  scenario.revenuePaths.total.topDown = YEARS.map((_year, index) => {
+    const rawValue = scenario.revenuePaths.total.topDown[index];
+    const value = Number(rawValue);
+    return Number.isFinite(value) ? Math.max(0, value) : totalDefaults.topDown[index];
+  });
+  if (!scenario.revenuePaths.total.controlPoints || typeof scenario.revenuePaths.total.controlPoints !== "object") {
+    scenario.revenuePaths.total.controlPoints = {};
+  }
+  Object.keys(scenario.revenuePaths.total.controlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.revenuePaths.total.controlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.revenuePaths.total.controlPoints[key];
+    } else {
+      scenario.revenuePaths.total.controlPoints[key] = controlPoints;
+    }
+  });
+  const ltrDefaults = createDefaultLtrRevenuePlan();
+  if (!Array.isArray(scenario.revenuePaths.ltr.topDown)) {
+    scenario.revenuePaths.ltr.topDown = clone(ltrDefaults.topDown);
+  }
+  scenario.revenuePaths.ltr.topDown = YEARS.map((_year, index) => {
+    const rawValue = scenario.revenuePaths.ltr.topDown[index];
+    if (rawValue === null || rawValue === undefined || rawValue === "") return ltrDefaults.topDown[index];
+    const value = Number(rawValue);
+    return Number.isFinite(value) ? Math.max(0, value) : ltrDefaults.topDown[index];
+  });
+  scenario.revenuePaths.ltr.edited = true;
+  if (!scenario.revenuePaths.ltr.controlPoints || typeof scenario.revenuePaths.ltr.controlPoints !== "object") {
+    scenario.revenuePaths.ltr.controlPoints = {};
+  }
+  Object.keys(scenario.revenuePaths.ltr.controlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.revenuePaths.ltr.controlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.revenuePaths.ltr.controlPoints[key];
+    } else {
+      scenario.revenuePaths.ltr.controlPoints[key] = controlPoints;
+    }
+  });
+  const defaults = createDefaultGrowthRevenuePlan();
+  ["topDown", "revPerNewPayingCustomer"].forEach(key => {
+    if (!Array.isArray(scenario.revenuePaths.growth[key])) {
+      scenario.revenuePaths.growth[key] = clone(defaults[key]);
+    }
+    scenario.revenuePaths.growth[key] = YEARS.map((_year, index) => {
+      const rawValue = scenario.revenuePaths.growth[key][index];
+      if (rawValue === null || rawValue === undefined || rawValue === "") {
+        return key === "topDown" ? null : defaults[key][index];
+      }
+      const value = Number(rawValue);
+      return Number.isFinite(value) ? Math.max(0, value) : defaults[key][index];
+    });
+  });
+  if (!scenario.revenuePaths.growth.controlPoints || typeof scenario.revenuePaths.growth.controlPoints !== "object") {
+    scenario.revenuePaths.growth.controlPoints = {};
+  }
+  Object.keys(scenario.revenuePaths.growth.controlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.revenuePaths.growth.controlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.revenuePaths.growth.controlPoints[key];
+    } else {
+      scenario.revenuePaths.growth.controlPoints[key] = controlPoints;
+    }
+  });
+  const strDefaults = createDefaultStrRevenuePlan();
+  ["topDown", "numStrProperties", "revPerStrProperty"].forEach(key => {
+    if (!Array.isArray(scenario.revenuePaths.str[key])) {
+      scenario.revenuePaths.str[key] = clone(strDefaults[key]);
+    }
+    scenario.revenuePaths.str[key] = YEARS.map((_year, index) => {
+      const rawValue = scenario.revenuePaths.str[key][index];
+      if (rawValue === null || rawValue === undefined || rawValue === "") {
+        return key === "topDown" ? null : strDefaults[key][index];
+      }
+      const value = Number(rawValue);
+      return Number.isFinite(value) ? Math.max(0, value) : strDefaults[key][index];
+    });
+  });
+  if (!scenario.revenuePaths.str.controlPoints || typeof scenario.revenuePaths.str.controlPoints !== "object") {
+    scenario.revenuePaths.str.controlPoints = {};
+  }
+  Object.keys(scenario.revenuePaths.str.controlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.revenuePaths.str.controlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.revenuePaths.str.controlPoints[key];
+    } else {
+      scenario.revenuePaths.str.controlPoints[key] = controlPoints;
+    }
+  });
+  const otherDefaults = createDefaultOtherRevenuePlan();
+  if (!Array.isArray(scenario.revenuePaths.other.topDown)) {
+    scenario.revenuePaths.other.topDown = clone(otherDefaults.topDown);
+  }
+  scenario.revenuePaths.other.topDown = YEARS.map((_year, index) => {
+    const rawValue = scenario.revenuePaths.other.topDown[index];
+    if (rawValue === null || rawValue === undefined || rawValue === "") return null;
+    const value = Number(rawValue);
+    return Number.isFinite(value) ? Math.max(0, value) : otherDefaults.topDown[index];
+  });
+  if (!scenario.revenuePaths.other.controlPoints || typeof scenario.revenuePaths.other.controlPoints !== "object") {
+    scenario.revenuePaths.other.controlPoints = {};
+  }
+  Object.keys(scenario.revenuePaths.other.controlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.revenuePaths.other.controlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.revenuePaths.other.controlPoints[key];
+    } else {
+      scenario.revenuePaths.other.controlPoints[key] = controlPoints;
+    }
+  });
+}
+
+function createDefaultProfitPlan() {
+  return {
+    profit: YEARS.map(() => null),
+    revenue: YEARS.map(() => null),
+    profitEdited: false,
+    revenueEdited: false,
+    locks: {
+      profit: false,
+      revenue: false,
+      cost: false,
+    },
+    controlPoints: {},
+  };
+}
+
+function normalizeProfitPlan(scenario) {
+  if (!scenario.profitPlan || typeof scenario.profitPlan !== "object") {
+    scenario.profitPlan = createDefaultProfitPlan();
+  }
+  const defaults = createDefaultProfitPlan();
+  ["profit", "revenue"].forEach(key => {
+    if (!Array.isArray(scenario.profitPlan[key])) {
+      scenario.profitPlan[key] = clone(defaults[key]);
+    }
+    scenario.profitPlan[key] = YEARS.map((_year, index) => {
+      const rawValue = scenario.profitPlan[key][index];
+      if (rawValue === null || rawValue === undefined || rawValue === "") return null;
+      const value = Number(rawValue);
+      return Number.isFinite(value) ? value : null;
+    });
+  });
+  scenario.profitPlan.profitEdited = Boolean(scenario.profitPlan.profitEdited);
+  scenario.profitPlan.revenueEdited = Boolean(scenario.profitPlan.revenueEdited);
+  if (!scenario.profitPlan.locks || typeof scenario.profitPlan.locks !== "object") {
+    scenario.profitPlan.locks = clone(defaults.locks);
+  }
+  ["profit", "revenue", "cost"].forEach(key => {
+    scenario.profitPlan.locks[key] = Boolean(scenario.profitPlan.locks[key]);
+  });
+  if (scenario.profitPlan.locks.revenue && scenario.profitPlan.locks.cost) {
+    scenario.profitPlan.locks.cost = false;
+  }
+  if (!scenario.profitPlan.controlPoints || typeof scenario.profitPlan.controlPoints !== "object") {
+    scenario.profitPlan.controlPoints = {};
+  }
+  Object.keys(scenario.profitPlan.controlPoints).forEach(key => {
+    const controlPoints = Array.from(new Set((scenario.profitPlan.controlPoints[key] || [])
+      .map(Number)
+      .filter(Number.isFinite)))
+      .sort((left, right) => left - right);
+    if (controlPoints.length < 2) {
+      delete scenario.profitPlan.controlPoints[key];
+    } else {
+      scenario.profitPlan.controlPoints[key] = controlPoints;
+    }
+  });
+}
+
 function makeBaseScenario(name = "Finance Base Case") {
   const scenario = {
     id: "base",
@@ -619,6 +1021,14 @@ function makeBaseScenario(name = "Finance Base Case") {
     newCustomerSource: "topDown",
     newCustomerDrilldown: createDefaultNewCustomerDrilldown(),
     revUnitPlan: createDefaultRevUnitPlan(),
+    revenuePaths: {
+      total: createDefaultTotalRevenuePlan(),
+      ltr: createDefaultLtrRevenuePlan(),
+      growth: createDefaultGrowthRevenuePlan(),
+      str: createDefaultStrRevenuePlan(),
+      other: createDefaultOtherRevenuePlan(),
+    },
+    profitPlan: createDefaultProfitPlan(),
     defenses: createDefaultDefenses(),
   };
   addScenarioVersion(scenario, "Initial");
@@ -642,6 +1052,8 @@ function loadScenarios() {
 function normalizeScenario(scenario) {
   if (!scenario.newCustomerSource) scenario.newCustomerSource = "topDown";
   normalizeCostPlan(scenario);
+  normalizeRevenuePaths(scenario);
+  normalizeProfitPlan(scenario);
   if (!scenario.newCustomerDrilldown || !scenario.newCustomerDrilldown.counts) {
     scenario.newCustomerDrilldown = createDefaultNewCustomerDrilldown();
   }
@@ -718,6 +1130,8 @@ function addScenarioVersion(scenario, label = "Update") {
     newCustomerSource: scenario.newCustomerSource,
     newCustomerDrilldown: clone(scenario.newCustomerDrilldown),
     revUnitPlan: clone(scenario.revUnitPlan),
+    revenuePaths: clone(scenario.revenuePaths || { growth: createDefaultGrowthRevenuePlan(), str: createDefaultStrRevenuePlan(), other: createDefaultOtherRevenuePlan() }),
+    profitPlan: clone(scenario.profitPlan || createDefaultProfitPlan()),
     defenses: clone(scenario.defenses || createDefaultDefenses()),
   };
   scenario.versions.push(version);
@@ -1405,6 +1819,16 @@ function selectedNonLaborAllocationKeys() {
   return (state.selectedNonLaborAllocationKeys || []).filter(key => NON_LABOR_CATEGORY_KEYS.includes(key));
 }
 
+function selectedNonLaborCategoryKey() {
+  return NON_LABOR_CATEGORY_KEYS.includes(state.selectedNonLaborCategoryKey)
+    ? state.selectedNonLaborCategoryKey
+    : "conferences";
+}
+
+function selectedNonLaborCategoryDepartmentKeys() {
+  return (state.selectedNonLaborCategoryDepartmentKeys || []).filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+}
+
 function nonLaborCategoryGroupTotalForYear(nonLaborCategories, keys, index) {
   return keys.reduce((sum, key) => sum + Number(nonLaborCategories?.[key]?.[index] || 0), 0);
 }
@@ -1413,6 +1837,35 @@ function nonLaborAllocationControlValues(scenario) {
   normalizeCostPlan(scenario);
   const keys = selectedNonLaborAllocationKeys();
   return YEARS.map((_year, index) => nonLaborCategoryGroupTotalForYear(scenario.costs.nonLaborCategories, keys, index));
+}
+
+function nonLaborCategoryDepartmentValues(scenario, categoryKey, departmentKey) {
+  normalizeCostPlan(scenario);
+  return scenario.costs.nonLaborCategoryDepartments?.[categoryKey]?.[departmentKey] || YEARS.map(() => 0);
+}
+
+function nonLaborCategoryDepartmentBottomUpValues(scenario, categoryKey = selectedNonLaborCategoryKey()) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => {
+    return LABOR_DEPARTMENT_KEYS.reduce((sum, departmentKey) => {
+      return sum + Number(scenario.costs.nonLaborCategoryDepartments?.[categoryKey]?.[departmentKey]?.[index] || 0);
+    }, 0);
+  });
+}
+
+function nonLaborCategoryDepartmentGroupTotalForYear(categoryDepartments, categoryKey, departmentKeys, index) {
+  return departmentKeys.reduce((sum, departmentKey) => {
+    return sum + Number(categoryDepartments?.[categoryKey]?.[departmentKey]?.[index] || 0);
+  }, 0);
+}
+
+function nonLaborCategoryDepartmentControlValues(scenario) {
+  normalizeCostPlan(scenario);
+  const categoryKey = selectedNonLaborCategoryKey();
+  const keys = selectedNonLaborCategoryDepartmentKeys();
+  return YEARS.map((_year, index) => {
+    return nonLaborCategoryDepartmentGroupTotalForYear(scenario.costs.nonLaborCategoryDepartments, categoryKey, keys, index);
+  });
 }
 
 function controlledCostPairs(scenario, key, pairs) {
@@ -1661,6 +2114,71 @@ function setNonLaborAllocationControlValue(scenario, index, selectedKeys, target
   addCostControlPointIfControlled("nonLaborAllocationControl", YEARS[index]);
 }
 
+function nonLaborCategoryDepartmentChartKey(categoryKey, departmentKey) {
+  return `nonLaborCategoryDepartment:${categoryKey}:${departmentKey}`;
+}
+
+function distributeNonLaborCategoryDepartmentAcrossKeys(scenario, index, categoryKey, departmentKeys, targetTotal) {
+  normalizeCostPlan(scenario);
+  const keys = departmentKeys.filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+  if (!keys.length || !NON_LABOR_CATEGORY_KEYS.includes(categoryKey)) return;
+  const actualValue = Math.max(0, Number(targetTotal) || 0);
+  const currentTotal = nonLaborCategoryDepartmentGroupTotalForYear(scenario.costs.nonLaborCategoryDepartments, categoryKey, keys, index);
+  const baseDepartments = createBaseNonLaborCategoryDepartments(baseCosts.nonLaborCategories);
+  const baseTotal = nonLaborCategoryDepartmentGroupTotalForYear(baseDepartments, categoryKey, keys, index);
+  keys.forEach(key => {
+    const currentValue = Number(scenario.costs.nonLaborCategoryDepartments[categoryKey][key][index] || 0);
+    const baseValue = Number(baseDepartments[categoryKey]?.[key]?.[index] || 0);
+    const share = currentTotal > 0
+      ? currentValue / currentTotal
+      : baseTotal > 0 ? baseValue / baseTotal : 1 / keys.length;
+    scenario.costs.nonLaborCategoryDepartments[categoryKey][key][index] = actualValue * share;
+    addCostControlPointIfControlled(nonLaborCategoryDepartmentChartKey(categoryKey, key), YEARS[index]);
+  });
+}
+
+function setNonLaborCategoryDepartmentBottomUpTotalForYear(scenario, index, categoryKey, targetTotal, { lockOthers = false, selectedKeys = [] } = {}) {
+  normalizeCostPlan(scenario);
+  if (!NON_LABOR_CATEGORY_KEYS.includes(categoryKey)) return;
+  const selected = selectedKeys.filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+  const actualValue = Math.max(0, Number(targetTotal) || 0);
+  if (lockOthers && selected.length) {
+    const unselected = LABOR_DEPARTMENT_KEYS.filter(key => !selected.includes(key));
+    const unselectedTotal = nonLaborCategoryDepartmentGroupTotalForYear(scenario.costs.nonLaborCategoryDepartments, categoryKey, unselected, index);
+    distributeNonLaborCategoryDepartmentAcrossKeys(scenario, index, categoryKey, selected, Math.max(0, actualValue - unselectedTotal));
+  } else {
+    distributeNonLaborCategoryDepartmentAcrossKeys(scenario, index, categoryKey, LABOR_DEPARTMENT_KEYS, actualValue);
+  }
+  addCostControlPointIfControlled(`nonLaborCategoryDepartmentBottomUp:${categoryKey}`, YEARS[index]);
+  addCostControlPointIfControlled(`nonLaborCategoryDepartmentControl:${categoryKey}`, YEARS[index]);
+}
+
+function setNonLaborCategoryDepartmentControlValue(scenario, index, categoryKey, selectedKeys, targetTotal, { lockTop = false } = {}) {
+  normalizeCostPlan(scenario);
+  const selected = selectedKeys.filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+  if (!selected.length || !NON_LABOR_CATEGORY_KEYS.includes(categoryKey)) return;
+  const unselected = LABOR_DEPARTMENT_KEYS.filter(key => !selected.includes(key));
+  const existingBottomUpTotal = nonLaborCategoryDepartmentBottomUpValues(scenario, categoryKey)[index];
+  let selectedTarget = Math.max(0, Number(targetTotal) || 0);
+  if (lockTop) selectedTarget = Math.min(selectedTarget, existingBottomUpTotal);
+  distributeNonLaborCategoryDepartmentAcrossKeys(scenario, index, categoryKey, selected, selectedTarget);
+  if (lockTop) {
+    distributeNonLaborCategoryDepartmentAcrossKeys(scenario, index, categoryKey, unselected, Math.max(0, existingBottomUpTotal - selectedTarget));
+  }
+  addCostControlPointIfControlled(`nonLaborCategoryDepartmentBottomUp:${categoryKey}`, YEARS[index]);
+  addCostControlPointIfControlled(`nonLaborCategoryDepartmentControl:${categoryKey}`, YEARS[index]);
+}
+
+function nonLaborCategoryTopMatchesBottomUp(scenario = activeScenario(), categoryKey = selectedNonLaborCategoryKey()) {
+  normalizeCostPlan(scenario);
+  const topDown = nonLaborCategoryValues(scenario, categoryKey);
+  const bottomUp = nonLaborCategoryDepartmentBottomUpValues(scenario, categoryKey);
+  return YEARS.every((year, index) => {
+    if (!editableCostYear(year)) return true;
+    return Math.abs(Number(topDown[index] || 0) - Number(bottomUp[index] || 0)) < 1;
+  });
+}
+
 function costZeroFallbackBase(values, index) {
   let bestDistance = Infinity;
   let bestValue = 0;
@@ -1725,20 +2243,26 @@ function renderCostDrilldownView() {
   const isLaborDrilldown = state.costDrilldown === "labor";
   const isLaborFteDrilldown = state.costDrilldown === "laborFte";
   const isNonLaborDrilldown = state.costDrilldown === "nonLabor";
+  const isNonLaborCategoryDrilldown = state.costDrilldown === "nonLaborCategory";
   const mainPanels = document.getElementById("cost-main-panels");
   const laborDrilldown = document.getElementById("cost-labor-drilldown");
   const laborFteDrilldown = document.getElementById("cost-labor-fte-drilldown");
   const nonLaborDrilldown = document.getElementById("cost-non-labor-drilldown");
+  const nonLaborCategoryDrilldown = document.getElementById("cost-non-labor-category-drilldown");
   const setBottomToTopButton = document.getElementById("set-cost-labor-bottom-to-top");
   const setTopToBottomButton = document.getElementById("set-cost-labor-top-to-bottom");
   const setLaborFteBottomToTopButton = document.getElementById("set-cost-labor-fte-bottom-to-top");
   const setLaborFteTopToBottomButton = document.getElementById("set-cost-labor-fte-top-to-bottom");
   const setNonLaborBottomToTopButton = document.getElementById("set-cost-non-labor-bottom-to-top");
   const setNonLaborTopToBottomButton = document.getElementById("set-cost-non-labor-top-to-bottom");
-  if (mainPanels) mainPanels.hidden = isLaborDrilldown || isLaborFteDrilldown || isNonLaborDrilldown;
+  const setNonLaborCategoryBottomToTopButton = document.getElementById("set-cost-non-labor-category-bottom-to-top");
+  const setNonLaborCategoryTopToBottomButton = document.getElementById("set-cost-non-labor-category-top-to-bottom");
+  const anyDrilldown = isLaborDrilldown || isLaborFteDrilldown || isNonLaborDrilldown || isNonLaborCategoryDrilldown;
+  if (mainPanels) mainPanels.hidden = anyDrilldown;
   if (laborDrilldown) laborDrilldown.hidden = !isLaborDrilldown;
   if (laborFteDrilldown) laborFteDrilldown.hidden = !isLaborFteDrilldown;
   if (nonLaborDrilldown) nonLaborDrilldown.hidden = !isNonLaborDrilldown;
+  if (nonLaborCategoryDrilldown) nonLaborCategoryDrilldown.hidden = !isNonLaborCategoryDrilldown;
   const matched = laborTopDownMatchesBottomUp();
   if (setBottomToTopButton) setBottomToTopButton.disabled = matched;
   if (setTopToBottomButton) setTopToBottomButton.disabled = matched;
@@ -1748,11 +2272,15 @@ function renderCostDrilldownView() {
   const nonLaborMatched = nonLaborTopDownMatchesBottomUp();
   if (setNonLaborBottomToTopButton) setNonLaborBottomToTopButton.disabled = nonLaborMatched;
   if (setNonLaborTopToBottomButton) setNonLaborTopToBottomButton.disabled = nonLaborMatched;
+  const nonLaborCategoryMatched = nonLaborCategoryTopMatchesBottomUp();
+  if (setNonLaborCategoryBottomToTopButton) setNonLaborCategoryBottomToTopButton.disabled = nonLaborCategoryMatched;
+  if (setNonLaborCategoryTopToBottomButton) setNonLaborCategoryTopToBottomButton.disabled = nonLaborCategoryMatched;
   renderCostChartModeButtons();
   renderCostChartLineModeButtons();
   renderLaborAllocationControls();
   renderLaborFteControls();
   renderNonLaborAllocationControls();
+  renderNonLaborCategoryControls();
 }
 
 function resizeCostCharts() {
@@ -1760,6 +2288,7 @@ function resizeCostCharts() {
     Object.values(state.costCharts).forEach(chart => chart.resize());
     state.outputCharts.costLaborDepartmentMix?.resize();
     state.outputCharts.costNonLaborCategoryMix?.resize();
+    state.outputCharts.costNonLaborCategoryDepartmentMix?.resize();
   }, 0);
 }
 
@@ -1916,6 +2445,55 @@ function setNonLaborBottomToTop() {
   renderAll();
 }
 
+function selectedNonLaborCategoryBottomUpInterpolatedDollarValue(year, index) {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const categoryKey = selectedNonLaborCategoryKey();
+  const chart = state.costCharts.nonLaborCategorySelectedSpend;
+  if (chart && !isCostChartYoY("nonLaborCategorySelectedSpend")) {
+    const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+    if (Number.isFinite(value)) return Math.max(0, value * 1000000);
+  }
+  return nonLaborCategoryDepartmentBottomUpValues(scenario, categoryKey)[index];
+}
+
+function setNonLaborCategoryTopToBottom() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const categoryKey = selectedNonLaborCategoryKey();
+  if (nonLaborCategoryTopMatchesBottomUp(scenario, categoryKey)) return;
+  pushUndoSnapshot();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    scenario.costs.nonLaborCategories[categoryKey][index] = selectedNonLaborCategoryBottomUpInterpolatedDollarValue(year, index);
+    addCostControlPointIfControlled(nonLaborCategoryChartKey(categoryKey), year);
+    addCostControlPointIfControlled("nonLaborBottomUp", year);
+    addCostControlPointIfControlled("nonLaborAllocationControl", year);
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function setNonLaborCategoryBottomToTop() {
+  const scenario = activeScenario();
+  normalizeCostPlan(scenario);
+  const categoryKey = selectedNonLaborCategoryKey();
+  if (nonLaborCategoryTopMatchesBottomUp(scenario, categoryKey)) return;
+  pushUndoSnapshot();
+  const selectedKeys = selectedNonLaborCategoryDepartmentKeys();
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    setNonLaborCategoryDepartmentBottomUpTotalForYear(scenario, index, categoryKey, Number(scenario.costs.nonLaborCategories[categoryKey][index] || 0), {
+      lockOthers: state.nonLaborCategoryOthersLocked,
+      selectedKeys,
+    });
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
 function renderLaborAllocationControls() {
   const list = document.getElementById("labor-allocation-line-list");
   const mode = costChartMode("laborAllocationControl");
@@ -2044,6 +2622,58 @@ function renderNonLaborAllocationControls() {
   }).join("");
 }
 
+function renderNonLaborCategoryControls() {
+  const categoryKey = selectedNonLaborCategoryKey();
+  const categoryMeta = nonLaborCategoryMeta[categoryKey];
+  const picker = document.getElementById("non-labor-category-picker");
+  if (picker) {
+    picker.innerHTML = NON_LABOR_CATEGORY_KEYS.map(key => {
+      const meta = nonLaborCategoryMeta[key];
+      const checked = key === categoryKey ? " checked" : "";
+      return `
+        <label class="labor-allocation-chip">
+          <input type="radio" name="non-labor-category-picker" value="${key}"${checked}>
+          <span style="--chip-color: ${meta.color}">${displayLabel(meta.label)}</span>
+        </label>
+      `;
+    }).join("");
+  }
+  const title = document.getElementById("non-labor-category-selected-title");
+  if (title) title.textContent = `${displayLabel(categoryMeta.label)} Spend`;
+  const label = document.getElementById("non-labor-category-selection-label");
+  if (label) label.textContent = displayLabel(categoryMeta.label);
+  const topLockButton = document.getElementById("toggle-non-labor-category-top-lock");
+  if (topLockButton) {
+    topLockButton.classList.toggle("locked", state.nonLaborCategoryTopLocked);
+    topLockButton.textContent = state.nonLaborCategoryTopLocked ? "Top Locked" : "Lock Top";
+    topLockButton.setAttribute("aria-pressed", state.nonLaborCategoryTopLocked ? "true" : "false");
+  }
+  const othersLockButton = document.getElementById("toggle-non-labor-category-others-lock");
+  if (othersLockButton) {
+    othersLockButton.classList.toggle("locked", state.nonLaborCategoryOthersLocked);
+    othersLockButton.textContent = state.nonLaborCategoryOthersLocked ? "Others Locked" : "Lock Others";
+    othersLockButton.setAttribute("aria-pressed", state.nonLaborCategoryOthersLocked ? "true" : "false");
+  }
+  const list = document.getElementById("non-labor-category-department-line-list");
+  if (!list) return;
+  const selected = new Set(selectedNonLaborCategoryDepartmentKeys());
+  const hasSelection = selected.size > 0;
+  const chart = document.getElementById("cost-non-labor-category-department-control-chart");
+  const emptyState = document.getElementById("cost-non-labor-category-department-empty");
+  if (chart) chart.hidden = !hasSelection;
+  if (emptyState) emptyState.hidden = hasSelection;
+  list.innerHTML = LABOR_DEPARTMENT_KEYS.map(key => {
+    const meta = laborDepartmentMeta[key];
+    const checked = selected.has(key) ? " checked" : "";
+    return `
+      <label class="labor-allocation-chip">
+        <input type="checkbox" value="${key}"${checked}>
+        <span style="--chip-color: ${meta.color}">${displayLabel(meta.label)}</span>
+      </label>
+    `;
+  }).join("");
+}
+
 function renderCostChartModeButtons() {
   document.querySelectorAll("[data-cost-chart-mode]").forEach(group => {
     const chartKey = group.dataset.costChartMode;
@@ -2129,6 +2759,11 @@ function restoreSnapshot(snapshot) {
   syncDriverCharts();
   syncCostCharts();
   syncRevUnitCharts();
+  syncRevenueDrilldownCharts();
+  syncProfitCharts();
+  syncOtherRevenueCharts();
+  syncStrRevenueCharts();
+  syncGrowthRevenueCharts();
   renderAll();
   updateHistoryControls();
 }
@@ -2403,20 +3038,35 @@ function renderRawDataSources() {
 }
 
 function napkinChartByKey(key) {
-  return state.cohortCharts[key] || state.revUnitCharts[key] || state.costCharts[key] || state.charts[key] || null;
+  const explicitCharts = {
+    revenueDrilldownLtr: state.revenueDrilldownCharts.ltr,
+    revenueDrilldownGrowth: state.revenueDrilldownCharts.growth,
+    revenueDrilldownStr: state.revenueDrilldownCharts.str,
+    revenueDrilldownOther: state.revenueDrilldownCharts.other,
+    profitTop: state.profitCharts.profit,
+    profitRevenue: state.profitCharts.revenue,
+    profitCost: state.profitCharts.cost,
+  };
+  return explicitCharts[key]
+    || state.cohortCharts[key]
+    || state.revUnitCharts[key]
+    || state.costCharts[key]
+    || state.charts[key]
+    || null;
 }
 
 function stepYAxisLeadingDigit(value, direction) {
   if (!Number.isFinite(value) || value <= 0) return null;
-  const rounded = Math.max(1, Math.round(value));
-  const place = Math.pow(10, Math.floor(Math.log10(rounded)));
-  const lead = Math.floor(rounded / place);
+  const place = Math.pow(10, Math.floor(Math.log10(value)));
+  const normalized = value / place;
+  const lead = direction === "up"
+    ? Math.floor(normalized + 0.000001)
+    : Math.ceil(normalized - 0.000001);
   if (direction === "up") {
     return lead >= 9 ? 10 * place : (lead + 1) * place;
   }
   if (direction === "down") {
     if (lead > 1) return (lead - 1) * place;
-    if (place === 1) return Math.max(1, rounded - 1);
     return 9 * (place / 10);
   }
   return null;
@@ -2737,7 +3387,19 @@ function costChartLines(key) {
 
 function formatCostAxisValue(value) {
   if (isAnonymizedView()) return anonymizedMetricValue();
-  return `$${trimNumber(Number(value), 0)}M`;
+  const numericValue = Number(value);
+  const absValue = Math.abs(numericValue);
+  if (absValue === 0) return "$0";
+  if (absValue >= 1) {
+    const decimals = absValue < 10 ? 1 : 0;
+    return `$${trimNumber(numericValue, decimals)}M`;
+  }
+  if (absValue >= 0.001) {
+    const thousands = numericValue * 1000;
+    const decimals = Math.abs(thousands) < 10 ? 1 : 0;
+    return `$${trimNumber(thousands, decimals)}k`;
+  }
+  return formatCurrency(numericValue * 1000000, 0);
 }
 
 function formatCostTooltipValue(value) {
@@ -3438,11 +4100,96 @@ function nonLaborAllocationControlChartLines() {
   }];
 }
 
+function nonLaborCategorySelectedSpendChartLines() {
+  const categoryKey = selectedNonLaborCategoryKey();
+  const meta = nonLaborCategoryMeta[categoryKey];
+  return [
+    {
+      name: "Department Build",
+      color: meta.color,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: costPairsFromValuesForMode(
+        activeScenario(),
+        nonLaborCategoryDepartmentBottomUpValues(activeScenario(), categoryKey),
+        `nonLaborCategoryDepartmentBottomUp:${categoryKey}`,
+        "nonLaborCategorySelectedSpend"
+      ),
+    },
+    {
+      name: "Category Allocation",
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(
+        activeScenario(),
+        nonLaborCategoryValues(activeScenario(), categoryKey),
+        nonLaborCategoryChartKey(categoryKey),
+        "nonLaborCategorySelectedSpend"
+      ),
+    },
+  ];
+}
+
+function nonLaborCategoryDepartmentControlChartLines() {
+  const categoryKey = selectedNonLaborCategoryKey();
+  const selected = selectedNonLaborCategoryDepartmentKeys();
+  if (!selected.length) {
+    return [{
+      name: "Select Departments",
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(activeScenario(), YEARS.map(() => 0), `nonLaborCategoryDepartmentControl:${categoryKey}`, "nonLaborCategoryDepartmentControl"),
+    }];
+  }
+  const editDomain = {
+    moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+  };
+  if (isCostChartSeparated("nonLaborCategoryDepartmentControl")) {
+    return selected.map(key => {
+      const meta = laborDepartmentMeta[key];
+      return {
+        name: displayLabel(meta.label),
+        color: meta.color,
+        departmentKey: key,
+        editable: true,
+        editDomain,
+        data: costPairsFromValuesForMode(
+          activeScenario(),
+          nonLaborCategoryDepartmentValues(activeScenario(), categoryKey, key),
+          nonLaborCategoryDepartmentChartKey(categoryKey, key),
+          "nonLaborCategoryDepartmentControl"
+        ),
+      };
+    });
+  }
+  const label = selected.length === 1
+    ? displayLabel(laborDepartmentMeta[selected[0]].label)
+    : `${selected.length} Departments`;
+  return [{
+    name: label,
+    color: nonLaborCategoryMeta[categoryKey].color,
+    editable: true,
+    editDomain,
+    data: costPairsFromValuesForMode(
+      activeScenario(),
+      nonLaborCategoryDepartmentControlValues(activeScenario()),
+      `nonLaborCategoryDepartmentControl:${categoryKey}`,
+      "nonLaborCategoryDepartmentControl"
+    ),
+  }];
+}
+
 function styleCostReferenceSeries(chart) {
   const option = chart.chart.getOption();
   const series = (option.series || []).map(seriesItem => {
     const name = String(seriesItem.name || "");
-    if (name !== "Top Down" && name !== "Department Allocation") return seriesItem;
+    if (name !== "Top Down" && name !== "Department Allocation" && name !== "Category Allocation") return seriesItem;
     return {
       ...seriesItem,
       silent: true,
@@ -3721,6 +4468,109 @@ function initLaborAllocationPctChart() {
   syncLaborAllocationPctChart();
 }
 
+function applyLaborFteSeparatedLegend(chart, chartKey) {
+  if (!chart?.baseOption) return;
+  const separated = isCostChartSeparated(chartKey);
+  chart.baseOption.legend = separated
+    ? {
+      show: true,
+      type: "scroll",
+      selectedMode: false,
+      top: 0,
+      left: 8,
+      right: 8,
+      itemWidth: 10,
+      itemHeight: 8,
+      textStyle: { color: "#475467", fontSize: 11 },
+    }
+    : { show: false };
+  chart.baseOption.grid = {
+    ...(chart.baseOption.grid || {}),
+    top: separated ? 48 : 14,
+  };
+}
+
+function laborFteTooltipRows(params) {
+  const items = Array.isArray(params) ? params : [params];
+  const seen = new Set();
+  return items.filter(item => {
+    if (!item || item.seriesType !== "line") return false;
+    if (item.seriesIndex % 2 !== 1) return false;
+    if (seen.has(item.seriesName)) return false;
+    seen.add(item.seriesName);
+    return true;
+  });
+}
+
+function formatLaborFteSeparatedTooltip(params, chartKey, valueFormatter) {
+  const items = Array.isArray(params) ? params : [params];
+  const chart = state.costCharts[chartKey];
+  const hoveredName = isCostChartSeparated(chartKey) ? chart?._appHoveredLineName : "";
+  let year = items[0]?.axisValue;
+  const rows = laborFteTooltipRows(items).map(item => {
+    const data = Array.isArray(item.data) ? item.data : item.value;
+    year = Array.isArray(data) ? data[0] : item.axisValue;
+    const rawValue = Array.isArray(data) ? data[1] : item.value;
+    const label = escapeHtml(displayLabel(item.seriesName || ""));
+    const row = `${item.marker || ""} ${label}: ${valueFormatter(Number(rawValue))}`;
+    return hoveredName && item.seriesName === hoveredName ? `<strong>${row}</strong>` : row;
+  });
+  return [tooltipHeader(year), ...rows].join("<br/>");
+}
+
+function setLaborFteSeparatedHover(chart, chartKey, lineName) {
+  const nextName = isCostChartSeparated(chartKey) ? String(lineName || "") : "";
+  if (chart?._appHoveredLineName === nextName) return;
+  chart._appHoveredLineName = nextName;
+  styleLaborFteSeparatedLegendSeries(chart, chartKey);
+}
+
+function bindLaborFteSeparatedHover(chart, chartKey) {
+  if (!chart?.chart || chart._appSeparatedHoverBound) return;
+  chart._appSeparatedHoverBound = true;
+  chart.chart.on("mouseover", params => {
+    if (!isCostChartSeparated(chartKey)) return;
+    const lineName = params?.seriesName || (params?.componentType === "legend" ? params.name : "");
+    if (!lineName) return;
+    setLaborFteSeparatedHover(chart, chartKey, lineName);
+  });
+  chart.chart.on("mouseout", params => {
+    if (!isCostChartSeparated(chartKey)) return;
+    if (!params?.seriesName && params?.componentType !== "legend") return;
+    setLaborFteSeparatedHover(chart, chartKey, "");
+  });
+  chart.chart.getZr().on("globalout", () => setLaborFteSeparatedHover(chart, chartKey, ""));
+}
+
+function styleLaborFteSeparatedLegendSeries(chart, chartKey) {
+  if (!chart?.chart) return;
+  bindLaborFteSeparatedHover(chart, chartKey);
+  if (!isCostChartSeparated(chartKey)) {
+    chart._appHoveredLineName = "";
+  }
+  const hoveredName = isCostChartSeparated(chartKey) ? chart._appHoveredLineName : "";
+  const option = chart.chart.getOption();
+  const series = (option.series || []).map(seriesItem => {
+    if (seriesItem.type !== "line") return seriesItem;
+    const baseWidth = Number(seriesItem._appBaseLineWidth || seriesItem.lineStyle?.width || 2);
+    const isHovered = hoveredName && seriesItem.name === hoveredName;
+    return {
+      ...seriesItem,
+      _appBaseLineWidth: baseWidth,
+      legendHoverLink: false,
+      emphasis: {
+        ...(seriesItem.emphasis || {}),
+        disabled: true,
+      },
+      lineStyle: {
+        ...(seriesItem.lineStyle || {}),
+        width: isHovered ? Math.max(baseWidth + 2, 4) : baseWidth,
+      },
+    };
+  });
+  chart.chart.setOption({ legend: chart.baseOption.legend, series }, false);
+}
+
 function initLaborFteSelectedCostChart() {
   const chart = new NapkinChart(
     "cost-labor-fte-selected-cost-chart",
@@ -3744,21 +4594,7 @@ function initLaborFteSelectedCostChart() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        valueFormatter: formatCostTooltipValue,
-        formatter: params => {
-          const items = Array.isArray(params) ? params : [params];
-          const rows = [];
-          let year = items[0]?.axisValue;
-          items
-            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
-            .forEach(item => {
-              const data = Array.isArray(item.data) ? item.data : item.value;
-              year = Array.isArray(data) ? data[0] : item.axisValue;
-              const rawValue = Array.isArray(data) ? data[1] : item.value;
-              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatCostTooltipValue(Number(rawValue))}`);
-            });
-          return [tooltipHeader(year), ...rows].join("<br/>");
-        },
+        formatter: params => formatLaborFteSeparatedTooltip(params, "laborFteSelectedCost", formatCostTooltipValue),
       },
     },
     "none",
@@ -3767,8 +4603,10 @@ function initLaborFteSelectedCostChart() {
   chart.windowStartX = YEARS[0];
   chart.windowEndX = YEARS[YEARS.length - 1];
   chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyLaborFteSeparatedLegend(chart, "laborFteSelectedCost");
   chart._refreshChart();
   styleCostReferenceSeries(chart);
+  styleLaborFteSeparatedLegendSeries(chart, "laborFteSelectedCost");
   chart._appEditSnapshot = null;
   chart._appEditCommitted = false;
   chart.chart.getZr().on("mousedown", () => {
@@ -3908,7 +4746,7 @@ function initLaborFteCountChart() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        valueFormatter: formatFteTooltipValue,
+        formatter: params => formatLaborFteSeparatedTooltip(params, "laborFteCount", formatFteTooltipValue),
       },
     },
     "none",
@@ -3917,7 +4755,9 @@ function initLaborFteCountChart() {
   chart.windowStartX = YEARS[0];
   chart.windowEndX = YEARS[YEARS.length - 1];
   chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyLaborFteSeparatedLegend(chart, "laborFteCount");
   chart._refreshChart();
+  styleLaborFteSeparatedLegendSeries(chart, "laborFteCount");
   chart._appEditSnapshot = null;
   chart._appEditCommitted = false;
   chart.chart.getZr().on("mousedown", () => {
@@ -4001,7 +4841,7 @@ function initLaborFteCostPerFteChart() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        valueFormatter: formatCostPerFteTooltipValue,
+        formatter: params => formatLaborFteSeparatedTooltip(params, "laborFteCostPerFte", formatCostPerFteTooltipValue),
       },
     },
     "none",
@@ -4010,7 +4850,9 @@ function initLaborFteCostPerFteChart() {
   chart.windowStartX = YEARS[0];
   chart.windowEndX = YEARS[YEARS.length - 1];
   chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyLaborFteSeparatedLegend(chart, "laborFteCostPerFte");
   chart._refreshChart();
+  styleLaborFteSeparatedLegendSeries(chart, "laborFteCostPerFte");
   chart._appEditSnapshot = null;
   chart._appEditCommitted = false;
   chart.chart.getZr().on("mousedown", () => {
@@ -4257,6 +5099,203 @@ function initNonLaborAllocationControlChart() {
   state.costCharts.nonLaborAllocationControl = chart;
 }
 
+function initNonLaborCategorySelectedSpendChart() {
+  const selectedYMax = nonLaborCategoryMeta[selectedNonLaborCategoryKey()]?.yMax || costMeta.nonLabor.yMax;
+  const chart = new NapkinChart(
+    "cost-non-labor-category-selected-chart",
+    nonLaborCategorySelectedSpendChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        ...costChartYAxisConfig("nonLaborCategorySelectedSpend", selectedYMax),
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatLaborFteSeparatedTooltip(params, "nonLaborCategorySelectedSpend", value => {
+          return formatCostChartTooltipValue(value, "nonLaborCategorySelectedSpend");
+        }),
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyCostChartYAxisMode(chart, "nonLaborCategorySelectedSpend", selectedYMax);
+  chart._refreshChart();
+  styleCostReferenceSeries(chart);
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const categoryKey = selectedNonLaborCategoryKey();
+    const bottomUpValues = nonLaborCategoryDepartmentBottomUpValues(activeScenario(), categoryKey);
+    const selectedKeys = selectedNonLaborCategoryDepartmentKeys();
+    YEARS.forEach((year, index) => {
+      if (!editableCostYear(year)) return;
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      const previousValue = index > 0 ? Number(bottomUpValues[index - 1] || 0) : 0;
+      const currentValue = Number(bottomUpValues[index] || 0);
+      let targetValue = valueFromEditedCostPoint(previousValue, value, "nonLaborCategorySelectedSpend", currentValue, bottomUpValues, index);
+      if (targetValue === null) return;
+      if (state.nonLaborCategoryTopLocked) {
+        targetValue = Number(activeScenario().costs.nonLaborCategories[categoryKey][index] || 0);
+      }
+      setNonLaborCategoryDepartmentBottomUpTotalForYear(activeScenario(), index, categoryKey, targetValue, {
+        lockOthers: state.nonLaborCategoryOthersLocked,
+        selectedKeys,
+      });
+      bottomUpValues[index] = nonLaborCategoryDepartmentBottomUpValues(activeScenario(), categoryKey)[index];
+    });
+    if (isCostChartYoY("nonLaborCategorySelectedSpend")) {
+      rememberCostControlYears(`nonLaborCategoryDepartmentBottomUp:${categoryKey}`, editableCostYears());
+    } else {
+      rememberCostControlPoints(`nonLaborCategoryDepartmentBottomUp:${categoryKey}`, chart.lines[0].data);
+    }
+    saveScenarios();
+    styleCostReferenceSeries(chart);
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.nonLaborCategorySelectedSpend = chart;
+}
+
+function initNonLaborCategoryDepartmentControlChart() {
+  const selectedYMax = nonLaborCategoryMeta[selectedNonLaborCategoryKey()]?.yMax || costMeta.nonLabor.yMax;
+  const chart = new NapkinChart(
+    "cost-non-labor-category-department-control-chart",
+    nonLaborCategoryDepartmentControlChartLines(),
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        ...costChartYAxisConfig("nonLaborCategoryDepartmentControl", selectedYMax),
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => formatLaborFteSeparatedTooltip(params, "nonLaborCategoryDepartmentControl", value => {
+          return formatCostChartTooltipValue(value, "nonLaborCategoryDepartmentControl");
+        }),
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  applyCostChartYAxisMode(chart, "nonLaborCategoryDepartmentControl", selectedYMax);
+  applyLaborFteSeparatedLegend(chart, "nonLaborCategoryDepartmentControl");
+  chart._refreshChart();
+  styleLaborFteSeparatedLegendSeries(chart, "nonLaborCategoryDepartmentControl");
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingCostCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingCostCharts) return;
+    const categoryKey = selectedNonLaborCategoryKey();
+    const selectedKeys = selectedNonLaborCategoryDepartmentKeys();
+    if (!selectedKeys.length) {
+      syncCostCharts({ excludeChart: chart });
+      renderCostDrilldownView();
+      return;
+    }
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    if (isCostChartSeparated("nonLaborCategoryDepartmentControl")) {
+      chart.lines
+        .filter(line => line.departmentKey)
+        .forEach(line => {
+          const key = line.departmentKey;
+          const departmentValues = nonLaborCategoryDepartmentValues(activeScenario(), categoryKey, key);
+          YEARS.forEach((year, index) => {
+            if (!editableCostYear(year)) return;
+            const value = interpolateNapkinLineValue(line.data, year);
+            const previousValue = index > 0 ? Number(departmentValues[index - 1] || 0) : 0;
+            const currentValue = Number(departmentValues[index] || 0);
+            const targetValue = valueFromEditedCostPoint(previousValue, value, "nonLaborCategoryDepartmentControl", currentValue, departmentValues, index);
+            if (targetValue !== null) {
+              activeScenario().costs.nonLaborCategoryDepartments[categoryKey][key][index] = targetValue;
+              addCostControlPointIfControlled(nonLaborCategoryDepartmentChartKey(categoryKey, key), year);
+              if (state.nonLaborCategoryTopLocked) {
+                const topValue = Number(activeScenario().costs.nonLaborCategories[categoryKey][index] || 0);
+                setNonLaborCategoryDepartmentBottomUpTotalForYear(activeScenario(), index, categoryKey, topValue);
+              }
+            }
+          });
+          if (isCostChartYoY("nonLaborCategoryDepartmentControl")) {
+            rememberCostControlYears(nonLaborCategoryDepartmentChartKey(categoryKey, key), editableCostYears());
+          } else {
+            rememberCostControlPoints(nonLaborCategoryDepartmentChartKey(categoryKey, key), line.data);
+          }
+        });
+    } else {
+      const allocationValues = nonLaborCategoryDepartmentControlValues(activeScenario());
+      YEARS.forEach((year, index) => {
+        if (!editableCostYear(year)) return;
+        const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+        const previousValue = index > 0 ? Number(allocationValues[index - 1] || 0) : 0;
+        const currentValue = Number(allocationValues[index] || 0);
+        const targetValue = valueFromEditedCostPoint(previousValue, value, "nonLaborCategoryDepartmentControl", currentValue, allocationValues, index);
+        if (targetValue === null) return;
+        setNonLaborCategoryDepartmentControlValue(activeScenario(), index, categoryKey, selectedKeys, targetValue, {
+          lockTop: state.nonLaborCategoryTopLocked,
+        });
+        allocationValues[index] = nonLaborCategoryDepartmentGroupTotalForYear(
+          activeScenario().costs.nonLaborCategoryDepartments,
+          categoryKey,
+          selectedKeys,
+          index
+        );
+      });
+      if (isCostChartYoY("nonLaborCategoryDepartmentControl")) {
+        rememberCostControlYears(`nonLaborCategoryDepartmentControl:${categoryKey}`, editableCostYears());
+      } else {
+        rememberCostControlPoints(`nonLaborCategoryDepartmentControl:${categoryKey}`, chart.lines[0].data);
+      }
+    }
+    saveScenarios();
+    syncCostCharts({ excludeChart: chart });
+    renderCostDrilldownView();
+  };
+  state.costCharts.nonLaborCategoryDepartmentControl = chart;
+}
+
 function initLaborDepartmentChart(key) {
   const meta = laborDepartmentMeta[key];
   const chartKey = laborDepartmentChartKey(key);
@@ -4463,6 +5502,69 @@ function renderNonLaborCategoryMixEchart() {
   }, true);
 }
 
+function nonLaborCategoryDepartmentMixEchartSeriesValues(departmentKey) {
+  const categoryKey = selectedNonLaborCategoryKey();
+  const values = nonLaborCategoryDepartmentValues(activeScenario(), categoryKey, departmentKey);
+  if (isCostChartYoY("nonLaborCategoryDepartmentControl")) {
+    return YEARS.map((_year, index) => costYoYPercentFromValues(values, index));
+  }
+  return values.map(value => value / 1000000);
+}
+
+function renderNonLaborCategoryDepartmentMixEchart() {
+  const chart = state.outputCharts.costNonLaborCategoryDepartmentMix;
+  if (!chart) return;
+  const isYoY = isCostChartYoY("nonLaborCategoryDepartmentControl");
+  const series = LABOR_DEPARTMENT_KEYS.map(key => {
+    const meta = laborDepartmentMeta[key];
+    return {
+      name: displayLabel(meta.label),
+      type: "line",
+      data: nonLaborCategoryDepartmentMixEchartSeriesValues(key),
+      smooth: false,
+      symbolSize: 5,
+      lineStyle: { width: 2, color: meta.color },
+      itemStyle: { color: meta.color },
+    };
+  });
+  chart.setOption({
+    animation: false,
+    color: LABOR_DEPARTMENT_KEYS.map(key => laborDepartmentMeta[key].color),
+    legend: {
+      type: "scroll",
+      top: 0,
+      left: 0,
+      right: 0,
+      itemWidth: 12,
+      itemHeight: 8,
+      textStyle: { color: "#475467", fontSize: 11 },
+    },
+    tooltip: {
+      trigger: "axis",
+      formatter: params => {
+        const items = Array.isArray(params) ? params : [params];
+        return [
+          tooltipHeader(items[0]?.axisValue),
+          ...items.map(item => {
+            const value = Number(item.value);
+            const formatted = isYoY ? formatPercentMetric(value, 1) : formatCostTooltipValue(value);
+            return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatted}`;
+          }),
+        ].join("<br/>");
+      },
+    },
+    grid: { left: 12, right: 18, top: 52, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String), axisLabel: { formatter: formatAxisYear } },
+    yAxis: {
+      type: "value",
+      axisLabel: {
+        formatter: value => isYoY ? formatPercentMetric(Number(value), 0) : formatCostAxisValue(value),
+      },
+    },
+    series,
+  }, true);
+}
+
 function syncCostCharts({ excludeChart = null } = {}) {
   state.syncingCostCharts = true;
   Object.entries(costMeta).forEach(([key]) => {
@@ -4500,8 +5602,10 @@ function syncCostCharts({ excludeChart = null } = {}) {
   const laborFteSelectedCostChart = state.costCharts.laborFteSelectedCost;
   if (laborFteSelectedCostChart && laborFteSelectedCostChart !== excludeChart) {
     laborFteSelectedCostChart.lines = laborFteSelectedCostChartLines();
+    applyLaborFteSeparatedLegend(laborFteSelectedCostChart, "laborFteSelectedCost");
     laborFteSelectedCostChart._refreshChart();
     styleCostReferenceSeries(laborFteSelectedCostChart);
+    styleLaborFteSeparatedLegendSeries(laborFteSelectedCostChart, "laborFteSelectedCost");
   }
   const laborFteSelectedCostPctChart = state.costCharts.laborFteSelectedCostPct;
   if (laborFteSelectedCostPctChart && laborFteSelectedCostPctChart !== excludeChart) {
@@ -4510,7 +5614,9 @@ function syncCostCharts({ excludeChart = null } = {}) {
   const laborFteCountChart = state.costCharts.laborFteCount;
   if (laborFteCountChart && laborFteCountChart !== excludeChart) {
     laborFteCountChart.lines = laborFteCountChartLines();
+    applyLaborFteSeparatedLegend(laborFteCountChart, "laborFteCount");
     laborFteCountChart._refreshChart();
+    styleLaborFteSeparatedLegendSeries(laborFteCountChart, "laborFteCount");
   }
   const laborFteCountPctChart = state.costCharts.laborFteCountPct;
   if (laborFteCountPctChart && laborFteCountPctChart !== excludeChart) {
@@ -4519,7 +5625,9 @@ function syncCostCharts({ excludeChart = null } = {}) {
   const laborFteCostPerFteChart = state.costCharts.laborFteCostPerFte;
   if (laborFteCostPerFteChart && laborFteCostPerFteChart !== excludeChart) {
     laborFteCostPerFteChart.lines = laborFteCostPerFteChartLines();
+    applyLaborFteSeparatedLegend(laborFteCostPerFteChart, "laborFteCostPerFte");
     laborFteCostPerFteChart._refreshChart();
+    styleLaborFteSeparatedLegendSeries(laborFteCostPerFteChart, "laborFteCostPerFte");
   }
   const nonLaborTopDownChart = state.costCharts.nonLaborDrilldownTopDown;
   if (nonLaborTopDownChart && nonLaborTopDownChart !== excludeChart) {
@@ -4529,11 +5637,29 @@ function syncCostCharts({ excludeChart = null } = {}) {
     styleCostReferenceSeries(nonLaborTopDownChart);
   }
   renderNonLaborCategoryMixEchart();
+  renderNonLaborCategoryDepartmentMixEchart();
   const nonLaborAllocationChart = state.costCharts.nonLaborAllocationControl;
   if (nonLaborAllocationChart && nonLaborAllocationChart !== excludeChart) {
     nonLaborAllocationChart.lines = nonLaborAllocationControlChartLines();
     applyCostChartYAxisMode(nonLaborAllocationChart, "nonLaborAllocationControl", costMeta.nonLabor.yMax);
     nonLaborAllocationChart._refreshChart();
+  }
+  const nonLaborCategorySelectedSpendChart = state.costCharts.nonLaborCategorySelectedSpend;
+  if (nonLaborCategorySelectedSpendChart && nonLaborCategorySelectedSpendChart !== excludeChart) {
+    const selectedYMax = nonLaborCategoryMeta[selectedNonLaborCategoryKey()]?.yMax || costMeta.nonLabor.yMax;
+    nonLaborCategorySelectedSpendChart.lines = nonLaborCategorySelectedSpendChartLines();
+    applyCostChartYAxisMode(nonLaborCategorySelectedSpendChart, "nonLaborCategorySelectedSpend", selectedYMax);
+    nonLaborCategorySelectedSpendChart._refreshChart();
+    styleCostReferenceSeries(nonLaborCategorySelectedSpendChart);
+  }
+  const nonLaborCategoryDepartmentControlChart = state.costCharts.nonLaborCategoryDepartmentControl;
+  if (nonLaborCategoryDepartmentControlChart && nonLaborCategoryDepartmentControlChart !== excludeChart) {
+    const selectedYMax = nonLaborCategoryMeta[selectedNonLaborCategoryKey()]?.yMax || costMeta.nonLabor.yMax;
+    nonLaborCategoryDepartmentControlChart.lines = nonLaborCategoryDepartmentControlChartLines();
+    applyCostChartYAxisMode(nonLaborCategoryDepartmentControlChart, "nonLaborCategoryDepartmentControl", selectedYMax);
+    applyLaborFteSeparatedLegend(nonLaborCategoryDepartmentControlChart, "nonLaborCategoryDepartmentControl");
+    nonLaborCategoryDepartmentControlChart._refreshChart();
+    styleLaborFteSeparatedLegendSeries(nonLaborCategoryDepartmentControlChart, "nonLaborCategoryDepartmentControl");
   }
   state.syncingCostCharts = false;
   renderCostDrilldownView();
@@ -4589,20 +5715,32 @@ function initEchartById(id) {
 function initOutputCharts() {
   state.outputCharts.revenue = initEchartById("revenue-chart");
   state.outputCharts.gap = initEchartById("gap-chart");
+  state.outputCharts.revenueDrilldownTotal = initEchartById("revenue-drilldown-total-chart");
   state.outputCharts.retentionDefense = initEchartById("retention-defense-chart");
   state.outputCharts.retentionRevenueImpact = initEchartById("retention-revenue-impact-chart");
   state.outputCharts.initiativeImpact = initEchartById("initiative-impact-chart");
   state.outputCharts.initiativeTeamImpact = initEchartById("initiative-team-impact-chart");
-  state.outputCharts.newCustomerDrilldown = initEchartById("new-customers-drilldown-chart");
   state.outputCharts.newCustomerTotal = initEchartById("new-customers-total-chart");
   state.outputCharts.newCustomerUnitBridge = initEchartById("new-customers-unit-bridge-chart");
-  state.outputCharts.newCustomerUnitDelta = initEchartById("new-customers-unit-delta-chart");
   state.outputCharts.newCustomerNewUnitsBridge = initEchartById("new-customers-new-units-bridge-chart");
-  state.outputCharts.newCustomerNewUnitsDelta = initEchartById("new-customers-new-units-delta-chart");
   state.outputCharts.newCustomerAllCohorts = initEchartById("new-customers-all-cohorts-chart");
   state.outputCharts.revUnitRevenueComparison = initEchartById("rev-unit-revenue-comparison-chart");
   state.outputCharts.revUnitAggregateRpu = initEchartById("rev-unit-aggregate-rpu-chart");
   state.outputCharts.treeRevenue = initEchartById("tree-revenue-chart");
+  state.outputCharts.treeLtrRevenue = initEchartById("tree-ltr-revenue-chart");
+  state.outputCharts.treeStrRevenue = initEchartById("tree-str-revenue-chart");
+  state.outputCharts.treeStrProperties = initEchartById("tree-str-properties-chart");
+  state.outputCharts.treeStrRevPerProperty = initEchartById("tree-str-rev-per-property-chart");
+  state.outputCharts.treeGrowthRevenue = initEchartById("tree-growth-revenue-chart");
+  state.outputCharts.treeGrowthNewPayingCustomers = initEchartById("tree-growth-new-paying-customers-chart");
+  state.outputCharts.treeGrowthRevPerNewPayingCustomer = initEchartById("tree-growth-rev-per-new-paying-customer-chart");
+  state.outputCharts.treeOtherRevenue = initEchartById("tree-other-revenue-chart");
+  state.outputCharts.treeProfit = initEchartById("tree-profit-chart");
+  state.outputCharts.treeCost = initEchartById("tree-cost-chart");
+  state.outputCharts.treeLaborCost = initEchartById("tree-labor-cost-chart");
+  state.outputCharts.treeNonLaborCost = initEchartById("tree-non-labor-cost-chart");
+  state.outputCharts.treeLaborFte = initEchartById("tree-labor-fte-chart");
+  state.outputCharts.treeLaborCostPerFte = initEchartById("tree-labor-cost-per-fte-chart");
   state.outputCharts.treePayingCustomers = initEchartById("tree-paying-customers-chart");
   state.outputCharts.treeNewPayingCustomers = initEchartById("tree-new-paying-customers-chart");
   state.outputCharts.treeExistingPropertyNewPayingCustomers = initEchartById("tree-existing-property-new-paying-customers-chart");
@@ -4621,10 +5759,20 @@ function initOutputCharts() {
   state.outputCharts.treeProfilesNewCustomer = initEchartById("tree-profiles-new-customer-chart");
   state.outputCharts.treeRevenueReturningProfile = initEchartById("tree-revenue-returning-profile-chart");
   state.outputCharts.treeRevenueNewProfile = initEchartById("tree-revenue-new-profile-chart");
+  state.outputCharts.saasRuleOf40 = initEchartById("saas-rule-of-40-chart");
+  state.outputCharts.saasCac = initEchartById("saas-cac-chart");
+  state.outputCharts.saasRevenuePerFte = initEchartById("saas-revenue-per-fte-chart");
+  state.outputCharts.growthRevenueProxyCustomers = initEchartById("growth-revenue-proxy-customers-chart");
   state.outputCharts.costLaborDepartmentMix = initEchartById("cost-labor-department-mix-chart");
   state.outputCharts.costNonLaborCategoryMix = initEchartById("cost-non-labor-category-mix-chart");
+  state.outputCharts.costNonLaborCategoryDepartmentMix = initEchartById("cost-non-labor-category-department-mix-chart");
   window.addEventListener("resize", () => {
     Object.values(state.outputCharts).forEach(chart => chart?.resize());
+    Object.values(state.growthCharts).forEach(chart => chart?.resize());
+    Object.values(state.strCharts).forEach(chart => chart?.resize());
+    Object.values(state.otherRevenueCharts).forEach(chart => chart?.resize());
+    Object.values(state.revenueDrilldownCharts).forEach(chart => chart?.resize());
+    Object.values(state.profitCharts).forEach(chart => chart?.resize());
   });
 }
 
@@ -5065,7 +6213,9 @@ function formatYearEditorTooltip(params, formatter = formatIntegerMetric) {
 
 function renderOutputCharts(outputs) {
   state.outputCharts.revenue.setOption(revenuePathChartOption(outputs), true);
+  renderLtrSetControls(outputs);
 
+  if (!state.outputCharts.gap) return;
   const comparison = compareScenario();
   const comparisonOutputs = comparison ? calculateOutputs(comparison) : null;
   const gapSeries = [{
@@ -5102,6 +6252,32 @@ function renderOutputCharts(outputs) {
     yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
     series: gapSeries,
   }, true);
+}
+
+function ltrTopMatchesBottomUp(scenario = activeScenario(), outputs = calculateOutputs(scenario)) {
+  const topDown = ltrRevenueTopDownValues(scenario, outputs);
+  const bottomUp = ltrRevenueBottomUpValues(scenario, outputs);
+  return YEARS.every((_year, index) => Math.abs(Number(topDown[index] || 0) - Number(bottomUp[index] || 0)) < 1);
+}
+
+function renderLtrSetControls(outputs = calculateOutputs(activeScenario())) {
+  const button = document.getElementById("set-ltr-bottom-to-top");
+  if (!button) return;
+  button.disabled = ltrTopMatchesBottomUp(activeScenario(), outputs);
+}
+
+function setLtrBottomToTop() {
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  const outputs = calculateOutputs(scenario);
+  normalizeRevenuePaths(scenario);
+  scenario.revenuePaths.ltr.topDown = ltrRevenueBottomUpValues(scenario, outputs).map(value => Math.max(0, Number(value) || 0));
+  scenario.revenuePaths.ltr.edited = true;
+  scenario.revenuePaths.ltr.controlPoints.topDown = YEARS.filter(year => year >= FIRST_FORECAST_YEAR);
+  saveScenarios();
+  syncRevenueDrilldownCharts();
+  syncProfitCharts();
+  renderAll();
 }
 
 const leafDefenseConfigs = {
@@ -5184,6 +6360,108 @@ const leafDefenseConfigs = {
       return activeValues.map((value, index) => value - baseValues[index]);
     },
   },
+  growthNewPayingCustomers: {
+    title: "Growth New Paying Customers",
+    shortTitle: "Growth New Customers",
+    format: "integer",
+    color: TOP_DOWN_COLOR,
+    treeAction: "growthRevenue",
+    values: scenario => growthRevenueProxyCustomers(scenario),
+    baseValues: () => baseDrivers.newCustomers,
+  },
+  growthRevPerNewPayingCustomer: {
+    title: "Growth Revenue / New Paying Customer",
+    shortTitle: "Growth Rev / New Customer",
+    format: "currency2",
+    color: BOTTOM_UP_COLOR,
+    treeAction: "growthRevenue",
+    values: scenario => growthRevenueRevPerNewCustomerValues(scenario),
+    baseValues: () => createDefaultGrowthRevenuePlan().revPerNewPayingCustomer,
+    applyBaseline: scenario => {
+      growthRevenuePlan(scenario).revPerNewPayingCustomer = clone(createDefaultGrowthRevenuePlan().revPerNewPayingCustomer);
+    },
+  },
+  strProperties: {
+    title: "STR Properties",
+    shortTitle: "STR Properties",
+    format: "integer",
+    color: "#6fa76b",
+    treeAction: "strRevenue",
+    values: scenario => strRevenuePropertiesValues(scenario),
+    baseValues: () => createDefaultStrRevenuePlan().numStrProperties,
+    applyBaseline: scenario => {
+      strRevenuePlan(scenario).numStrProperties = clone(createDefaultStrRevenuePlan().numStrProperties);
+    },
+  },
+  strRevPerProperty: {
+    title: "Revenue / STR Property",
+    shortTitle: "Rev / STR Property",
+    format: "currency0",
+    color: BOTTOM_UP_COLOR,
+    treeAction: "strRevenue",
+    values: scenario => strRevenueRevPerPropertyValues(scenario),
+    baseValues: () => createDefaultStrRevenuePlan().revPerStrProperty,
+    applyBaseline: scenario => {
+      strRevenuePlan(scenario).revPerStrProperty = clone(createDefaultStrRevenuePlan().revPerStrProperty);
+    },
+  },
+  otherRevenue: {
+    title: "Other Revenue",
+    shortTitle: "Other Revenue",
+    format: "currency0",
+    color: "#a96c50",
+    treeAction: "otherRevenue",
+    values: scenario => otherRevenueTopDownValues(scenario),
+    baseValues: () => createDefaultOtherRevenuePlan().topDown,
+    applyBaseline: scenario => {
+      otherRevenuePlan(scenario).topDown = clone(createDefaultOtherRevenuePlan().topDown);
+    },
+  },
+  nonLaborCost: {
+    title: "Non-Labor Cost",
+    shortTitle: "Non-Labor Cost",
+    format: "currency0",
+    color: costMeta.nonLabor.color,
+    treeAction: "nonLaborCost",
+    values: scenario => costValues(scenario, "nonLabor"),
+    baseValues: () => baseCosts.nonLabor,
+    applyBaseline: scenario => {
+      normalizeCostPlan(scenario);
+      scenario.costs.nonLabor = clone(baseCosts.nonLabor);
+    },
+  },
+  laborFte: {
+    title: "Labor FTE / Equivalent",
+    shortTitle: "Labor FTE",
+    format: "decimal",
+    color: "#4f7fb8",
+    treeAction: "laborFte",
+    values: scenario => laborFteTotalValues(scenario),
+    baseValues: () => {
+      const base = { costs: clone(baseCosts) };
+      normalizeCostPlan(base);
+      return laborFteTotalValues(base);
+    },
+    applyBaseline: scenario => {
+      normalizeCostPlan(scenario);
+      const base = { costs: clone(baseCosts) };
+      normalizeCostPlan(base);
+      scenario.costs.laborFte = clone(base.costs.laborFte);
+    },
+  },
+  laborCostPerFte: {
+    title: "Labor Cost / FTE Equivalent",
+    shortTitle: "Cost / FTE",
+    format: "currency0",
+    color: "#7b6fb8",
+    treeAction: "laborFte",
+    values: scenario => laborCostPerFteAggregateValues(scenario),
+    baseValues: () => {
+      const base = { costs: clone(baseCosts) };
+      normalizeCostPlan(base);
+      return laborCostPerFteAggregateValues(base);
+    },
+  },
   newCustomersPerUnit: {
     title: "New Customers per Unit",
     shortTitle: "New Customers / Unit",
@@ -5247,6 +6525,21 @@ const leafDefenseConfigs = {
       });
     },
   },
+  priorPayingCustomers: {
+    title: "Prior Year Paying Customers",
+    shortTitle: "Prior Paying Customers",
+    format: "integer",
+    color: "#98a2b3",
+    treeAction: "newCustomers",
+    values: scenario => {
+      const outputs = calculateOutputs(scenario);
+      return outputs.totalCustomers.map((value, index) => index === 0 ? null : outputs.totalCustomers[index - 1]);
+    },
+    baseValues: () => {
+      const outputs = calculateOutputs({ drivers: clone(baseDrivers), newCustomerSource: "topDown", newCustomerDrilldown: createDefaultNewCustomerDrilldown() });
+      return outputs.totalCustomers.map((value, index) => index === 0 ? null : outputs.totalCustomers[index - 1]);
+    },
+  },
 };
 
 function activeDefenseConfig() {
@@ -5264,6 +6557,7 @@ function defenseEntry(scenario = activeScenario(), key = state.activeDefenseKey)
 function formatDefenseMetricValue(value, config = activeDefenseConfig()) {
   if (isAnonymizedView()) return anonymizedMetricValue();
   if (config.format === "percent") return `${trimNumber(Number(value) * 100, 1)}%`;
+  if (config.format === "currency0") return formatCurrency(Number(value), 0);
   if (config.format === "currency2") return formatCurrency(Number(value), 2);
   if (config.format === "integer") return Math.round(Number(value)).toLocaleString("en-US");
   if (config.format === "decimal") return trimNumber(Number(value), 2);
@@ -5273,6 +6567,7 @@ function formatDefenseMetricValue(value, config = activeDefenseConfig()) {
 function formatDefenseAxisValue(value, config = activeDefenseConfig()) {
   if (isAnonymizedView()) return anonymizedMetricValue();
   if (config.format === "percent") return `${trimNumber(Number(value) * 100, 0)}%`;
+  if (config.format === "currency0") return formatCompactCurrency(Number(value));
   if (config.format === "currency2") return formatCompactCurrency(Number(value));
   if (config.format === "integer") return formatCompactNumber(Number(value));
   if (config.format === "decimal") return trimNumber(Number(value), 2);
@@ -5915,13 +7210,16 @@ function metricTreeChartOption(series, { format = "number", stacked = false } = 
     : format === "percent" ? value => `${trimNumber(Number(value) * 100, 1)}%`
       : format === "decimal" ? value => trimNumber(Number(value), 2)
         : value => Math.round(Number(value)).toLocaleString("en-US");
+  const formatTooltipValue = value => value === null || value === undefined || !Number.isFinite(Number(value))
+    ? "-"
+    : tooltipFormatter(value);
   return {
     animation: false,
     tooltip: {
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${tooltipFormatter(item.value)}`),
+        ...params.map(item => `${item.marker} ${item.seriesName}: ${formatTooltipValue(item.value)}`),
       ].join("<br/>"),
     },
     legend: { top: 0, type: "scroll" },
@@ -5952,6 +7250,1901 @@ function revenuePerProfileValues(outputs) {
   });
 }
 
+function totalCostValues(scenario) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => Number(scenario.costs.labor[index] || 0) + Number(scenario.costs.nonLabor[index] || 0));
+}
+
+function revenueTotalTopDownValues(scenario = activeScenario()) {
+  normalizeRevenuePaths(scenario);
+  return scenario.revenuePaths.total.topDown;
+}
+
+function ltrRevenueTopDownValues(scenario = activeScenario(), outputs = calculateOutputs(scenario)) {
+  normalizeRevenuePaths(scenario);
+  const plan = scenario.revenuePaths.ltr;
+  return YEARS.map((_year, index) => {
+    const value = Number(plan.topDown[index]);
+    return Number.isFinite(value) ? Math.max(0, value) : outputs.revenue[index];
+  });
+}
+
+function ltrRevenueBottomUpValues(_scenario = activeScenario(), outputs = calculateOutputs(_scenario)) {
+  return outputs.revenue;
+}
+
+function revenueCategoryValues(scenario, key, outputs = calculateOutputs(scenario)) {
+  if (key === "ltr") return ltrRevenueTopDownValues(scenario, outputs);
+  if (key === "growth") return growthRevenueTopDownValues(scenario);
+  if (key === "str") return strRevenueTopDownValues(scenario);
+  if (key === "other") return otherRevenueTopDownValues(scenario);
+  return totalRevenueValues(outputs, scenario);
+}
+
+function revenueBottomUpValues(scenario = activeScenario(), outputs = calculateOutputs(scenario)) {
+  const ltr = revenueCategoryValues(scenario, "ltr", outputs);
+  const growth = growthRevenueTopDownValues(scenario);
+  const str = strRevenueTopDownValues(scenario);
+  const other = otherRevenueTopDownValues(scenario);
+  return YEARS.map((_year, index) => {
+    return Number(ltr[index] || 0)
+      + Number(growth[index] || 0)
+      + Number(str[index] || 0)
+      + Number(other[index] || 0);
+  });
+}
+
+function totalRevenueValues(outputs, scenario) {
+  return revenueBottomUpValues(scenario, outputs);
+}
+
+function profitValues(outputs, scenario) {
+  const costs = totalCostValues(scenario);
+  const revenue = totalRevenueValues(outputs, scenario);
+  return revenue.map((value, index) => Number(value || 0) - Number(costs[index] || 0));
+}
+
+function laborFteTotalValues(scenario) {
+  normalizeCostPlan(scenario);
+  return YEARS.map((_year, index) => {
+    return LABOR_DEPARTMENT_KEYS.reduce((sum, key) => {
+      return sum + Number(scenario.costs.laborFte?.[key]?.[index] || 0);
+    }, 0);
+  });
+}
+
+function laborCostPerFteAggregateValues(scenario) {
+  normalizeCostPlan(scenario);
+  const fteValues = laborFteTotalValues(scenario);
+  return YEARS.map((_year, index) => {
+    const fte = Number(fteValues[index] || 0);
+    return fte > 0 ? Number(scenario.costs.labor[index] || 0) / fte : 0;
+  });
+}
+
+function revenueGrowthPercentValues(revenueValues) {
+  return revenueValues.map((value, index) => {
+    if (index === 0) return null;
+    const prior = Number(revenueValues[index - 1] || 0);
+    if (prior <= 0) return null;
+    return ((Number(value || 0) / prior) - 1) * 100;
+  });
+}
+
+function profitMarginPercentValues(revenueValues, profitValueList) {
+  return revenueValues.map((value, index) => {
+    const revenue = Number(value || 0);
+    if (revenue <= 0) return null;
+    return (Number(profitValueList[index] || 0) / revenue) * 100;
+  });
+}
+
+function ruleOf40Values(revenueValues, profitValueList) {
+  const revenueGrowth = revenueGrowthPercentValues(revenueValues);
+  const profitMargin = profitMarginPercentValues(revenueValues, profitValueList);
+  return revenueGrowth.map((value, index) => {
+    const margin = profitMargin[index];
+    return Number.isFinite(value) && Number.isFinite(margin) ? value + margin : null;
+  });
+}
+
+function formatSaasPercent(value, decimals = 1) {
+  if (isAnonymizedView()) return anonymizedMetricValue();
+  return Number.isFinite(value) ? `${trimNumber(value, decimals)}%` : "-";
+}
+
+function fullyLoadedCacValues(totalCostValueList, newCustomerValueList) {
+  return YEARS.map((_year, index) => {
+    const newCustomers = Number(newCustomerValueList[index] || 0);
+    if (newCustomers <= 0) return null;
+    return Number(totalCostValueList[index] || 0) / newCustomers;
+  });
+}
+
+function revenuePerFteValues(revenueValues, fteValues) {
+  return YEARS.map((_year, index) => {
+    const fte = Number(fteValues[index] || 0);
+    if (fte <= 0) return null;
+    return Number(revenueValues[index] || 0) / fte;
+  });
+}
+
+function revenuePerProxyCustomerValues(revenueValues, customerValues) {
+  return YEARS.map((_year, index) => {
+    const revenue = revenueValues[index];
+    const customers = Number(customerValues[index] || 0);
+    if (revenue === null || revenue === undefined || customers <= 0) return null;
+    return Number(revenue || 0) / customers;
+  });
+}
+
+function growthRevenuePlan(scenario = activeScenario()) {
+  normalizeRevenuePaths(scenario);
+  return scenario.revenuePaths.growth;
+}
+
+function growthRevenueTopDownValues(scenario = activeScenario()) {
+  return growthRevenuePlan(scenario).topDown;
+}
+
+function growthRevenueProxyCustomers(scenario = activeScenario()) {
+  return driverValues(scenario, "newCustomers");
+}
+
+function growthRevenueRevPerNewCustomerValues(scenario = activeScenario()) {
+  return growthRevenuePlan(scenario).revPerNewPayingCustomer;
+}
+
+function growthRevenueBottomUpValues(scenario = activeScenario()) {
+  const customers = growthRevenueProxyCustomers(scenario);
+  const revPerCustomer = growthRevenueRevPerNewCustomerValues(scenario);
+  return YEARS.map((_year, index) => {
+    const customerValue = Number(customers[index] || 0);
+    const revValue = Number(revPerCustomer[index] || 0);
+    return customerValue > 0 ? customerValue * revValue : null;
+  });
+}
+
+function growthRevenueControlPoints(scenario = activeScenario()) {
+  return growthRevenuePlan(scenario).controlPoints;
+}
+
+function controlledGrowthRevenuePairs(key, values, scale = 1) {
+  const stored = growthRevenueControlPoints()[key];
+  if (Array.isArray(stored) && stored.length >= 2) {
+    return stored
+      .map(year => {
+        const index = YEARS.indexOf(Number(year));
+        if (index < 0) return null;
+        const value = values[index];
+        return value === null || value === undefined ? null : [Number(year), value / scale];
+      })
+      .filter(Boolean);
+  }
+  return YEARS
+    .map((year, index) => {
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / scale];
+    })
+    .filter(Boolean);
+}
+
+function rememberGrowthRevenueControlPoints(key, pairs) {
+  const years = (pairs || [])
+    .map(point => Number(point?.[0]))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (years.length >= 2) {
+    growthRevenueControlPoints()[key] = Array.from(new Set(years));
+  } else {
+    delete growthRevenueControlPoints()[key];
+  }
+}
+
+function growthRevenueTopMatchesBottomUp(scenario = activeScenario()) {
+  const topDown = growthRevenueTopDownValues(scenario);
+  const bottomUp = growthRevenueBottomUpValues(scenario);
+  return YEARS.every((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return true;
+    const topValue = Number(topDown[index]);
+    const bottomValue = Number(bottomUp[index]);
+    return Number.isFinite(topValue) && Number.isFinite(bottomValue) && Math.abs(topValue - bottomValue) < 1;
+  });
+}
+
+function growthRevenueTopDownPairs(scenario = activeScenario()) {
+  return controlledGrowthRevenuePairs("topDown", growthRevenueTopDownValues(scenario), 1000000);
+}
+
+function growthRevenueBottomUpPairs(scenario = activeScenario()) {
+  return controlledGrowthRevenuePairs("bottomUp", growthRevenueBottomUpValues(scenario), 1000000);
+}
+
+function growthRevenueRevPerNewCustomerPairs(scenario = activeScenario()) {
+  return controlledGrowthRevenuePairs("revPerNewPayingCustomer", growthRevenueRevPerNewCustomerValues(scenario), 1);
+}
+
+function growthRevenueTopDownChartLines() {
+  return [
+    {
+      name: "Bottom Up",
+      color: BOTTOM_UP_COLOR,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: growthRevenueBottomUpPairs(activeScenario()),
+    },
+    {
+      name: "Top Down",
+      color: "#98a2b3",
+      editable: false,
+      data: growthRevenueTopDownPairs(activeScenario()),
+    },
+  ];
+}
+
+function growthRevenueRevPerNewCustomerChartLines() {
+  return [{
+    name: "Rev / New Paying Customer",
+    color: BOTTOM_UP_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: growthRevenueRevPerNewCustomerPairs(activeScenario()),
+  }];
+}
+
+function styleGrowthReferenceSeries(chart) {
+  const option = chart.chart.getOption();
+  const series = (option.series || []).map(seriesItem => {
+    if (String(seriesItem.name || "") !== "Top Down") return seriesItem;
+    return {
+      ...seriesItem,
+      silent: true,
+      showSymbol: false,
+      symbolSize: 0,
+      z: 2,
+      itemStyle: { ...(seriesItem.itemStyle || {}), color: "#98a2b3" },
+      lineStyle: { ...(seriesItem.lineStyle || {}), color: "#98a2b3", width: 3, opacity: 1 },
+    };
+  });
+  chart.chart.setOption({ series }, false);
+}
+
+function renderGrowthRevenueProxyCustomersEchart() {
+  const chart = state.outputCharts.growthRevenueProxyCustomers;
+  if (!chart) return;
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const scenarioColor = metricTreeScenarioColor(scenario);
+  const comparisonColor = metricTreeScenarioColor(comparison);
+  const series = [
+    metricTreeSeries(displayScenarioName(scenario), growthRevenueProxyCustomers(scenario), scenarioColor),
+  ];
+  if (comparison) {
+    series.push(metricTreeSeries(displayScenarioName(comparison), growthRevenueProxyCustomers(comparison), comparisonColor));
+  }
+  chart.setOption(metricTreeChartOption(series), true);
+}
+
+function renderGrowthRevenueDrilldown() {
+  renderGrowthRevenueProxyCustomersEchart();
+  const matched = growthRevenueTopMatchesBottomUp();
+  const topToBottomButton = document.getElementById("set-growth-revenue-top-to-bottom");
+  const bottomToTopButton = document.getElementById("set-growth-revenue-bottom-to-top");
+  if (topToBottomButton) topToBottomButton.disabled = matched;
+  if (bottomToTopButton) bottomToTopButton.disabled = matched;
+}
+
+function syncGrowthRevenueCharts({ excludeChart = null } = {}) {
+  state.syncingGrowthCharts = true;
+  const topChart = state.growthCharts.growthRevenueTopDown;
+  if (topChart && topChart !== excludeChart) {
+    topChart.lines = safeNapkinLines(growthRevenueTopDownChartLines());
+    topChart._refreshChart();
+    styleGrowthReferenceSeries(topChart);
+  }
+  const revPerChart = state.growthCharts.growthRevenueRevPerNewCustomer;
+  if (revPerChart && revPerChart !== excludeChart) {
+    revPerChart.lines = safeNapkinLines(growthRevenueRevPerNewCustomerChartLines());
+    revPerChart._refreshChart();
+  }
+  state.syncingGrowthCharts = false;
+  renderGrowthRevenueDrilldown();
+}
+
+function setGrowthRevenueBottomToTop() {
+  if (growthRevenueTopMatchesBottomUp()) return;
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  const plan = growthRevenuePlan(scenario);
+  const bottomUp = growthRevenueBottomUpValues(scenario);
+  YEARS.forEach((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return;
+    plan.topDown[index] = bottomUp[index];
+  });
+  plan.controlPoints.topDown = YEARS.filter((year, index) => plan.topDown[index] !== null && plan.topDown[index] !== undefined);
+  saveScenarios();
+  syncGrowthRevenueCharts();
+  renderAll();
+}
+
+function setGrowthRevenueTopToBottom() {
+  if (growthRevenueTopMatchesBottomUp()) return;
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  const plan = growthRevenuePlan(scenario);
+  YEARS.forEach((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return;
+    const topValue = Number(plan.topDown[index]);
+    const customers = Number(growthRevenueProxyCustomers(scenario)[index] || 0);
+    if (Number.isFinite(topValue) && customers > 0) {
+      plan.revPerNewPayingCustomer[index] = topValue / customers;
+    }
+  });
+  plan.controlPoints.revPerNewPayingCustomer = YEARS.slice();
+  plan.controlPoints.bottomUp = YEARS.slice();
+  saveScenarios();
+  syncGrowthRevenueCharts();
+  renderAll();
+}
+
+function initGrowthRevenueCharts() {
+  const topChart = new NapkinChart(
+    "growth-revenue-topdown-chart",
+    safeNapkinLines(growthRevenueTopDownChartLines()),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 15, axisLabel: { formatter: value => formatCompactCurrency(Number(value) * 1000000) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = items
+            .filter(item => item && item.seriesType === "line")
+            .map(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
+            });
+          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  topChart.windowStartX = YEARS[0];
+  topChart.windowEndX = YEARS[YEARS.length - 1];
+  topChart.globalMaxX = YEARS[YEARS.length - 1];
+  styleGrowthReferenceSeries(topChart);
+  topChart._appEditSnapshot = null;
+  topChart._appEditCommitted = false;
+  topChart.chart.getZr().on("mousedown", () => {
+    if (state.syncingGrowthCharts) return;
+    topChart._appEditSnapshot = snapshotState();
+    topChart._appEditCommitted = false;
+  });
+  topChart.onDataChanged = () => {
+    if (state.syncingGrowthCharts) return;
+    if (topChart._appEditSnapshot && !topChart._appEditCommitted) {
+      pushUndoSnapshot(topChart._appEditSnapshot);
+      topChart._appEditCommitted = true;
+    }
+    const plan = growthRevenuePlan(activeScenario());
+    const customers = growthRevenueProxyCustomers(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (year < FIRST_FORECAST_YEAR) return;
+      const value = interpolateNapkinLineValue(topChart.lines[0].data, year);
+      const customerValue = Number(customers[index] || 0);
+      if (Number.isFinite(value) && customerValue > 0) {
+        plan.revPerNewPayingCustomer[index] = Math.max(0, (value * 1000000) / customerValue);
+      }
+    });
+    rememberGrowthRevenueControlPoints("bottomUp", topChart.lines[0].data);
+    rememberGrowthRevenueControlPoints("revPerNewPayingCustomer", topChart.lines[0].data);
+    saveScenarios();
+    syncGrowthRevenueCharts({ excludeChart: topChart });
+    renderAll({ syncNewCustomerEditors: false });
+  };
+  state.growthCharts.growthRevenueTopDown = topChart;
+
+  const revPerChart = new NapkinChart(
+    "growth-revenue-rev-per-new-customer-chart",
+    safeNapkinLines(growthRevenueRevPerNewCustomerChartLines()),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 25, axisLabel: { formatter: value => formatCurrency(Number(value), 0) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = items
+            .filter(item => item && item.seriesType === "line")
+            .map(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue), 2)}`;
+            });
+          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  revPerChart.windowStartX = YEARS[0];
+  revPerChart.windowEndX = YEARS[YEARS.length - 1];
+  revPerChart.globalMaxX = YEARS[YEARS.length - 1];
+  revPerChart._appEditSnapshot = null;
+  revPerChart._appEditCommitted = false;
+  revPerChart.chart.getZr().on("mousedown", () => {
+    if (state.syncingGrowthCharts) return;
+    revPerChart._appEditSnapshot = snapshotState();
+    revPerChart._appEditCommitted = false;
+  });
+  revPerChart.onDataChanged = () => {
+    if (state.syncingGrowthCharts) return;
+    if (revPerChart._appEditSnapshot && !revPerChart._appEditCommitted) {
+      pushUndoSnapshot(revPerChart._appEditSnapshot);
+      revPerChart._appEditCommitted = true;
+    }
+    const plan = growthRevenuePlan(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (year < FIRST_FORECAST_YEAR) return;
+      const value = interpolateNapkinLineValue(revPerChart.lines[0].data, year);
+      if (Number.isFinite(value)) plan.revPerNewPayingCustomer[index] = Math.max(0, value);
+    });
+    rememberGrowthRevenueControlPoints("revPerNewPayingCustomer", revPerChart.lines[0].data);
+    rememberGrowthRevenueControlPoints("bottomUp", revPerChart.lines[0].data);
+    saveScenarios();
+    syncGrowthRevenueCharts({ excludeChart: revPerChart });
+    renderAll({ syncNewCustomerEditors: false, syncRevenueDrilldown: false });
+  };
+  state.growthCharts.growthRevenueRevPerNewCustomer = revPerChart;
+}
+
+function strRevenuePlan(scenario = activeScenario()) {
+  normalizeRevenuePaths(scenario);
+  return scenario.revenuePaths.str;
+}
+
+function strRevenueTopDownValues(scenario = activeScenario()) {
+  return strRevenuePlan(scenario).topDown;
+}
+
+function strRevenuePropertiesValues(scenario = activeScenario()) {
+  return strRevenuePlan(scenario).numStrProperties;
+}
+
+function strRevenueRevPerPropertyValues(scenario = activeScenario()) {
+  return strRevenuePlan(scenario).revPerStrProperty;
+}
+
+function strRevenueBottomUpValues(scenario = activeScenario()) {
+  const properties = strRevenuePropertiesValues(scenario);
+  const revenuePerProperty = strRevenueRevPerPropertyValues(scenario);
+  return YEARS.map((_year, index) => {
+    const propertyValue = Number(properties[index] || 0);
+    const revValue = Number(revenuePerProperty[index] || 0);
+    return propertyValue > 0 ? propertyValue * revValue : 0;
+  });
+}
+
+function strRevenueControlPoints(scenario = activeScenario()) {
+  return strRevenuePlan(scenario).controlPoints;
+}
+
+function controlledStrRevenuePairs(key, values, scale = 1) {
+  const stored = strRevenueControlPoints()[key];
+  if (Array.isArray(stored) && stored.length >= 2) {
+    return stored
+      .map(year => {
+        const index = YEARS.indexOf(Number(year));
+        if (index < 0) return null;
+        const value = values[index];
+        return value === null || value === undefined ? null : [Number(year), value / scale];
+      })
+      .filter(Boolean);
+  }
+  return YEARS
+    .map((year, index) => {
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / scale];
+    })
+    .filter(Boolean);
+}
+
+function rememberStrRevenueControlPoints(key, pairs) {
+  const years = (pairs || [])
+    .map(point => Number(point?.[0]))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (years.length >= 2) {
+    strRevenueControlPoints()[key] = Array.from(new Set(years));
+  } else {
+    delete strRevenueControlPoints()[key];
+  }
+}
+
+function strRevenueTopMatchesBottomUp(scenario = activeScenario()) {
+  const topDown = strRevenueTopDownValues(scenario);
+  const bottomUp = strRevenueBottomUpValues(scenario);
+  return YEARS.every((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return true;
+    const topValue = Number(topDown[index]);
+    const bottomValue = Number(bottomUp[index]);
+    return Number.isFinite(topValue) && Number.isFinite(bottomValue) && Math.abs(topValue - bottomValue) < 1;
+  });
+}
+
+function revenueTopMatchesBottomUp(scenario = activeScenario()) {
+  const outputs = calculateOutputs(scenario);
+  const topDown = revenueTotalTopDownValues(scenario);
+  const bottomUp = revenueBottomUpValues(scenario, outputs);
+  return YEARS.every((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return true;
+    return Math.abs(Number(topDown[index] || 0) - Number(bottomUp[index] || 0)) < 1;
+  });
+}
+
+function strRevenueTopDownPairs(scenario = activeScenario()) {
+  return controlledStrRevenuePairs("topDown", strRevenueTopDownValues(scenario), 1000000);
+}
+
+function strRevenueBottomUpPairs(scenario = activeScenario()) {
+  return controlledStrRevenuePairs("bottomUp", strRevenueBottomUpValues(scenario), 1000000);
+}
+
+function strRevenuePropertiesPairs(scenario = activeScenario()) {
+  return controlledStrRevenuePairs("numStrProperties", strRevenuePropertiesValues(scenario), 1);
+}
+
+function strRevenueRevPerPropertyPairs(scenario = activeScenario()) {
+  return controlledStrRevenuePairs("revPerStrProperty", strRevenueRevPerPropertyValues(scenario), 1);
+}
+
+function strRevenueTopDownChartLines() {
+  return [
+    {
+      name: "Bottom Up",
+      color: BOTTOM_UP_COLOR,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: strRevenueBottomUpPairs(activeScenario()),
+    },
+    {
+      name: "Top Down",
+      color: "#98a2b3",
+      editable: false,
+      data: strRevenueTopDownPairs(activeScenario()),
+    },
+  ];
+}
+
+function strRevenuePropertiesChartLines() {
+  return [{
+    name: "Num STR Properties",
+    color: "#6fa76b",
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: strRevenuePropertiesPairs(activeScenario()),
+  }];
+}
+
+function strRevenueRevPerPropertyChartLines() {
+  return [{
+    name: "Rev / STR Property",
+    color: BOTTOM_UP_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: strRevenueRevPerPropertyPairs(activeScenario()),
+  }];
+}
+
+function renderStrRevenueDrilldown() {
+  const matched = strRevenueTopMatchesBottomUp();
+  const topToBottomButton = document.getElementById("set-str-revenue-top-to-bottom");
+  const bottomToTopButton = document.getElementById("set-str-revenue-bottom-to-top");
+  if (topToBottomButton) topToBottomButton.disabled = matched;
+  if (bottomToTopButton) bottomToTopButton.disabled = matched;
+}
+
+function syncStrRevenueCharts({ excludeChart = null } = {}) {
+  state.syncingStrCharts = true;
+  const topChart = state.strCharts.strRevenueTopDown;
+  if (topChart && topChart !== excludeChart) {
+    topChart.lines = safeNapkinLines(strRevenueTopDownChartLines());
+    topChart._refreshChart();
+    styleGrowthReferenceSeries(topChart);
+  }
+  const propertiesChart = state.strCharts.strRevenueProperties;
+  if (propertiesChart && propertiesChart !== excludeChart) {
+    propertiesChart.lines = safeNapkinLines(strRevenuePropertiesChartLines());
+    propertiesChart._refreshChart();
+  }
+  const revPerChart = state.strCharts.strRevenueRevPerProperty;
+  if (revPerChart && revPerChart !== excludeChart) {
+    revPerChart.lines = safeNapkinLines(strRevenueRevPerPropertyChartLines());
+    revPerChart._refreshChart();
+  }
+  state.syncingStrCharts = false;
+  renderStrRevenueDrilldown();
+}
+
+function setStrRevenueBottomToTop() {
+  if (strRevenueTopMatchesBottomUp()) return;
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  const plan = strRevenuePlan(scenario);
+  const bottomUp = strRevenueBottomUpValues(scenario);
+  YEARS.forEach((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return;
+    plan.topDown[index] = bottomUp[index];
+  });
+  plan.controlPoints.topDown = YEARS.filter((year, index) => plan.topDown[index] !== null && plan.topDown[index] !== undefined);
+  saveScenarios();
+  syncStrRevenueCharts();
+  renderAll();
+}
+
+function setStrRevenueTopToBottom() {
+  if (strRevenueTopMatchesBottomUp()) return;
+  pushUndoSnapshot();
+  const scenario = activeScenario();
+  const plan = strRevenuePlan(scenario);
+  YEARS.forEach((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return;
+    const topValue = Number(plan.topDown[index]);
+    const properties = Number(strRevenuePropertiesValues(scenario)[index] || 0);
+    if (Number.isFinite(topValue) && properties > 0) {
+      plan.revPerStrProperty[index] = topValue / properties;
+    }
+  });
+  plan.controlPoints.revPerStrProperty = YEARS.slice();
+  plan.controlPoints.bottomUp = YEARS.slice();
+  saveScenarios();
+  syncStrRevenueCharts();
+  renderAll();
+}
+
+function initStrRevenueCharts() {
+  const topChart = new NapkinChart(
+    "str-revenue-topdown-chart",
+    safeNapkinLines(strRevenueTopDownChartLines()),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 10, axisLabel: { formatter: value => formatCompactCurrency(Number(value) * 1000000) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = items
+            .filter(item => item && item.seriesType === "line")
+            .map(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
+            });
+          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  topChart.windowStartX = YEARS[0];
+  topChart.windowEndX = YEARS[YEARS.length - 1];
+  topChart.globalMaxX = YEARS[YEARS.length - 1];
+  styleGrowthReferenceSeries(topChart);
+  topChart._appEditSnapshot = null;
+  topChart._appEditCommitted = false;
+  topChart.chart.getZr().on("mousedown", () => {
+    if (state.syncingStrCharts) return;
+    topChart._appEditSnapshot = snapshotState();
+    topChart._appEditCommitted = false;
+  });
+  topChart.onDataChanged = () => {
+    if (state.syncingStrCharts) return;
+    if (topChart._appEditSnapshot && !topChart._appEditCommitted) {
+      pushUndoSnapshot(topChart._appEditSnapshot);
+      topChart._appEditCommitted = true;
+    }
+    const plan = strRevenuePlan(activeScenario());
+    const properties = strRevenuePropertiesValues(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (year < FIRST_FORECAST_YEAR) return;
+      const value = interpolateNapkinLineValue(topChart.lines[0].data, year);
+      const propertyValue = Number(properties[index] || 0);
+      if (Number.isFinite(value) && propertyValue > 0) {
+        plan.revPerStrProperty[index] = Math.max(0, (value * 1000000) / propertyValue);
+      }
+    });
+    rememberStrRevenueControlPoints("bottomUp", topChart.lines[0].data);
+    rememberStrRevenueControlPoints("revPerStrProperty", topChart.lines[0].data);
+    saveScenarios();
+    syncStrRevenueCharts({ excludeChart: topChart });
+    renderAll({ syncNewCustomerEditors: false });
+  };
+  state.strCharts.strRevenueTopDown = topChart;
+
+  const propertiesChart = new NapkinChart(
+    "str-revenue-properties-chart",
+    safeNapkinLines(strRevenuePropertiesChartLines()),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 250, axisLabel: { formatter: value => formatIntegerMetric(Number(value)) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = items
+            .filter(item => item && item.seriesType === "line")
+            .map(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(rawValue))}`;
+            });
+          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  propertiesChart.windowStartX = YEARS[0];
+  propertiesChart.windowEndX = YEARS[YEARS.length - 1];
+  propertiesChart.globalMaxX = YEARS[YEARS.length - 1];
+  propertiesChart._appEditSnapshot = null;
+  propertiesChart._appEditCommitted = false;
+  propertiesChart.chart.getZr().on("mousedown", () => {
+    if (state.syncingStrCharts) return;
+    propertiesChart._appEditSnapshot = snapshotState();
+    propertiesChart._appEditCommitted = false;
+  });
+  propertiesChart.onDataChanged = () => {
+    if (state.syncingStrCharts) return;
+    if (propertiesChart._appEditSnapshot && !propertiesChart._appEditCommitted) {
+      pushUndoSnapshot(propertiesChart._appEditSnapshot);
+      propertiesChart._appEditCommitted = true;
+    }
+    const plan = strRevenuePlan(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (year < FIRST_FORECAST_YEAR) return;
+      const value = interpolateNapkinLineValue(propertiesChart.lines[0].data, year);
+      if (Number.isFinite(value)) plan.numStrProperties[index] = Math.max(0, value);
+    });
+    rememberStrRevenueControlPoints("numStrProperties", propertiesChart.lines[0].data);
+    rememberStrRevenueControlPoints("bottomUp", propertiesChart.lines[0].data);
+    saveScenarios();
+    syncStrRevenueCharts({ excludeChart: propertiesChart });
+    renderAll({ syncNewCustomerEditors: false });
+  };
+  state.strCharts.strRevenueProperties = propertiesChart;
+
+  const revPerChart = new NapkinChart(
+    "str-revenue-rev-per-property-chart",
+    safeNapkinLines(strRevenueRevPerPropertyChartLines()),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 150000, axisLabel: { formatter: value => formatCompactCurrency(Number(value)) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = items
+            .filter(item => item && item.seriesType === "line")
+            .map(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue), 0)}`;
+            });
+          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  revPerChart.windowStartX = YEARS[0];
+  revPerChart.windowEndX = YEARS[YEARS.length - 1];
+  revPerChart.globalMaxX = YEARS[YEARS.length - 1];
+  revPerChart._appEditSnapshot = null;
+  revPerChart._appEditCommitted = false;
+  revPerChart.chart.getZr().on("mousedown", () => {
+    if (state.syncingStrCharts) return;
+    revPerChart._appEditSnapshot = snapshotState();
+    revPerChart._appEditCommitted = false;
+  });
+  revPerChart.onDataChanged = () => {
+    if (state.syncingStrCharts) return;
+    if (revPerChart._appEditSnapshot && !revPerChart._appEditCommitted) {
+      pushUndoSnapshot(revPerChart._appEditSnapshot);
+      revPerChart._appEditCommitted = true;
+    }
+    const plan = strRevenuePlan(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (year < FIRST_FORECAST_YEAR) return;
+      const value = interpolateNapkinLineValue(revPerChart.lines[0].data, year);
+      if (Number.isFinite(value)) plan.revPerStrProperty[index] = Math.max(0, value);
+    });
+    rememberStrRevenueControlPoints("revPerStrProperty", revPerChart.lines[0].data);
+    rememberStrRevenueControlPoints("bottomUp", revPerChart.lines[0].data);
+    saveScenarios();
+    syncStrRevenueCharts({ excludeChart: revPerChart });
+    renderAll({ syncNewCustomerEditors: false });
+  };
+  state.strCharts.strRevenueRevPerProperty = revPerChart;
+}
+
+function otherRevenuePlan(scenario = activeScenario()) {
+  normalizeRevenuePaths(scenario);
+  return scenario.revenuePaths.other;
+}
+
+function otherRevenueTopDownValues(scenario = activeScenario()) {
+  return otherRevenuePlan(scenario).topDown;
+}
+
+function otherRevenueControlPoints(scenario = activeScenario()) {
+  return otherRevenuePlan(scenario).controlPoints;
+}
+
+function controlledOtherRevenuePairs(key, values, scale = 1) {
+  const stored = otherRevenueControlPoints()[key];
+  if (Array.isArray(stored) && stored.length >= 2) {
+    return stored
+      .map(year => {
+        const index = YEARS.indexOf(Number(year));
+        if (index < 0) return null;
+        const value = values[index];
+        return value === null || value === undefined ? null : [Number(year), value / scale];
+      })
+      .filter(Boolean);
+  }
+  return YEARS
+    .map((year, index) => {
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / scale];
+    })
+    .filter(Boolean);
+}
+
+function rememberOtherRevenueControlPoints(key, pairs) {
+  const years = (pairs || [])
+    .map(point => Number(point?.[0]))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (years.length >= 2) {
+    otherRevenueControlPoints()[key] = Array.from(new Set(years));
+  } else {
+    delete otherRevenueControlPoints()[key];
+  }
+}
+
+function otherRevenuePairs(scenario = activeScenario()) {
+  return controlledOtherRevenuePairs("topDown", otherRevenueTopDownValues(scenario), 1000000);
+}
+
+function otherRevenueChartLines() {
+  return [{
+    name: "Other Revenue",
+    color: "#a96c50",
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: otherRevenuePairs(activeScenario()),
+  }];
+}
+
+function syncOtherRevenueCharts({ excludeChart = null } = {}) {
+  state.syncingOtherRevenueCharts = true;
+  const chart = state.otherRevenueCharts.otherRevenue;
+  if (chart && chart !== excludeChart) {
+    chart.lines = safeNapkinLines(otherRevenueChartLines());
+    chart._refreshChart();
+  }
+  state.syncingOtherRevenueCharts = false;
+}
+
+function initOtherRevenueCharts() {
+  const chart = new NapkinChart(
+    "other-revenue-chart",
+    safeNapkinLines(otherRevenueChartLines()),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: 3, axisLabel: { formatter: value => formatCompactCurrency(Number(value) * 1000000) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = items
+            .filter(item => item && item.seriesType === "line")
+            .map(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
+            });
+          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingOtherRevenueCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingOtherRevenueCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    const plan = otherRevenuePlan(activeScenario());
+    YEARS.forEach((year, index) => {
+      if (year < FIRST_FORECAST_YEAR) return;
+      const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+      if (Number.isFinite(value)) plan.topDown[index] = Math.max(0, value * 1000000);
+    });
+    rememberOtherRevenueControlPoints("topDown", chart.lines[0].data);
+    saveScenarios();
+    syncOtherRevenueCharts({ excludeChart: chart });
+    renderAll({ syncNewCustomerEditors: false });
+  };
+  state.otherRevenueCharts.otherRevenue = chart;
+}
+
+function profitPlan(scenario = activeScenario()) {
+  normalizeProfitPlan(scenario);
+  return scenario.profitPlan;
+}
+
+function derivedProfitRevenueValues(scenario = activeScenario()) {
+  return totalRevenueValues(calculateOutputs(scenario), scenario);
+}
+
+function profitRevenueValues(scenario = activeScenario()) {
+  const plan = profitPlan(scenario);
+  const derived = derivedProfitRevenueValues(scenario);
+  if (!plan.revenueEdited) return derived;
+  return YEARS.map((_year, index) => {
+    const value = Number(plan.revenue[index]);
+    return Number.isFinite(value) ? Math.max(0, value) : derived[index];
+  });
+}
+
+function profitCostValues(scenario = activeScenario()) {
+  return totalCostValues(scenario);
+}
+
+function profitBottomUpValues(scenario = activeScenario()) {
+  const revenue = profitRevenueValues(scenario);
+  const cost = profitCostValues(scenario);
+  return YEARS.map((_year, index) => Number(revenue[index] || 0) - Number(cost[index] || 0));
+}
+
+function profitTopDownValues(scenario = activeScenario()) {
+  const plan = profitPlan(scenario);
+  const bottomUp = profitBottomUpValues(scenario);
+  if (!plan.profitEdited) return bottomUp;
+  return YEARS.map((_year, index) => {
+    const value = Number(plan.profit[index]);
+    return Number.isFinite(value) ? value : bottomUp[index];
+  });
+}
+
+function profitPlanControlPoints(scenario = activeScenario()) {
+  return profitPlan(scenario).controlPoints;
+}
+
+function controlledProfitPairs(key, values, scale = 1) {
+  const stored = profitPlanControlPoints()[key];
+  if (Array.isArray(stored) && stored.length >= 2) {
+    return stored
+      .map(year => {
+        const index = YEARS.indexOf(Number(year));
+        if (index < 0) return null;
+        const value = values[index];
+        return value === null || value === undefined ? null : [Number(year), value / scale];
+      })
+      .filter(Boolean);
+  }
+  return YEARS
+    .map((year, index) => {
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / scale];
+    })
+    .filter(Boolean);
+}
+
+function rememberProfitControlPoints(key, pairs) {
+  const years = (pairs || [])
+    .map(point => Number(point?.[0]))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (years.length >= 2) {
+    profitPlanControlPoints()[key] = Array.from(new Set(years));
+  } else {
+    delete profitPlanControlPoints()[key];
+  }
+}
+
+function profitValuesMatch(scenario = activeScenario()) {
+  const top = profitTopDownValues(scenario);
+  const bottom = profitBottomUpValues(scenario);
+  return YEARS.every((year, index) => {
+    if (year < FIRST_COST_EDIT_YEAR) return true;
+    return Math.abs(Number(top[index] || 0) - Number(bottom[index] || 0)) < 1;
+  });
+}
+
+function profitChartPairs(key, values) {
+  return controlledProfitPairs(key, values, 1000000);
+}
+
+function profitChartLines() {
+  return [
+    {
+      name: "Profit",
+      color: TOP_DOWN_COLOR,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: profitChartPairs("profit", profitTopDownValues(activeScenario())),
+    },
+    {
+      name: "Bottom Up",
+      color: "#98a2b3",
+      editable: false,
+      data: profitChartPairs("bottomUp", profitBottomUpValues(activeScenario())),
+    },
+  ];
+}
+
+function profitRevenueChartLines() {
+  return [{
+    name: "Revenue",
+    color: BOTTOM_UP_COLOR,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: profitChartPairs("revenue", profitRevenueValues(activeScenario())),
+  }];
+}
+
+function profitCostChartLines() {
+  return [{
+    name: "Cost",
+    color: "#a96c50",
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: profitChartPairs("cost", profitCostValues(activeScenario())),
+  }];
+}
+
+function ensureProfitSnapshot(key, scenario = activeScenario()) {
+  const plan = profitPlan(scenario);
+  if (key === "profit" && !plan.profitEdited) {
+    plan.profit = clone(profitBottomUpValues(scenario));
+    plan.profitEdited = true;
+  }
+  if (key === "revenue" && !plan.revenueEdited) {
+    plan.revenue = clone(derivedProfitRevenueValues(scenario));
+    plan.revenueEdited = true;
+  }
+}
+
+function setProfitRevenueDollarValue(scenario, index, value) {
+  const actualValue = Math.max(0, Number(value) || 0);
+  const plan = profitPlan(scenario);
+  ensureProfitSnapshot("revenue", scenario);
+  plan.revenue[index] = actualValue;
+}
+
+function setProfitCostDollarValue(scenario, index, value) {
+  setScenarioCostValue(scenario, "total", YEARS[index], Math.max(0, Number(value) || 0) / 1000000);
+}
+
+function setProfitTopDollarValue(scenario, index, value) {
+  const plan = profitPlan(scenario);
+  ensureProfitSnapshot("profit", scenario);
+  plan.profit[index] = Number(value) || 0;
+}
+
+function applyProfitTopToBottomForYear(scenario, index, targetProfit) {
+  const plan = profitPlan(scenario);
+  const locks = plan.locks || {};
+  if (locks.revenue && locks.cost) return false;
+  const revenue = profitRevenueValues(scenario)[index];
+  const cost = profitCostValues(scenario)[index];
+  const currentProfit = Number(revenue || 0) - Number(cost || 0);
+  const target = Number(targetProfit) || 0;
+  if (locks.revenue) {
+    setProfitCostDollarValue(scenario, index, Math.max(0, Number(revenue || 0) - target));
+    return true;
+  }
+  if (locks.cost) {
+    setProfitRevenueDollarValue(scenario, index, Math.max(0, target + Number(cost || 0)));
+    return true;
+  }
+  const delta = target - currentProfit;
+  setProfitRevenueDollarValue(scenario, index, Math.max(0, Number(revenue || 0) + delta / 2));
+  setProfitCostDollarValue(scenario, index, Math.max(0, Number(cost || 0) - delta / 2));
+  return true;
+}
+
+function setProfitTopFromBottomForYear(scenario, index) {
+  const plan = profitPlan(scenario);
+  if (plan.locks?.profit) return false;
+  const bottomUp = profitBottomUpValues(scenario)[index];
+  setProfitTopDollarValue(scenario, index, bottomUp);
+  return true;
+}
+
+function applyProfitRevenueEditForYear(scenario, index, targetRevenue) {
+  const plan = profitPlan(scenario);
+  const locks = plan.locks || {};
+  if (locks.profit && locks.cost) return false;
+  setProfitRevenueDollarValue(scenario, index, targetRevenue);
+  if (locks.profit) {
+    const targetProfit = profitTopDownValues(scenario)[index];
+    setProfitCostDollarValue(scenario, index, Math.max(0, Number(targetRevenue || 0) - Number(targetProfit || 0)));
+  } else {
+    setProfitTopFromBottomForYear(scenario, index);
+  }
+  return true;
+}
+
+function applyProfitCostEditForYear(scenario, index, targetCost) {
+  const plan = profitPlan(scenario);
+  const locks = plan.locks || {};
+  if (locks.profit && locks.revenue) return false;
+  setProfitCostDollarValue(scenario, index, targetCost);
+  if (locks.profit) {
+    const targetProfit = profitTopDownValues(scenario)[index];
+    setProfitRevenueDollarValue(scenario, index, Number(targetProfit || 0) + Number(targetCost || 0));
+  } else {
+    setProfitTopFromBottomForYear(scenario, index);
+  }
+  return true;
+}
+
+function renderProfitDrilldown() {
+  const matched = profitValuesMatch();
+  const plan = profitPlan();
+  const topToBottomButton = document.getElementById("set-profit-top-to-bottom");
+  const bottomToTopButton = document.getElementById("set-profit-bottom-to-top");
+  if (topToBottomButton) topToBottomButton.disabled = matched || (plan.locks.revenue && plan.locks.cost);
+  if (bottomToTopButton) bottomToTopButton.disabled = matched || plan.locks.profit;
+  document.querySelectorAll("[data-profit-lock-key]").forEach(button => {
+    const key = button.dataset.profitLockKey;
+    const locked = Boolean(plan.locks?.[key]);
+    button.classList.toggle("locked", locked);
+    button.textContent = locked ? "Locked" : "Lock";
+    button.setAttribute("aria-pressed", locked ? "true" : "false");
+  });
+}
+
+function syncProfitCharts({ excludeChart = null } = {}) {
+  state.syncingProfitCharts = true;
+  const profitChart = state.profitCharts.profit;
+  if (profitChart && profitChart !== excludeChart) {
+    profitChart.lines = safeNapkinLines(profitChartLines());
+    profitChart._refreshChart();
+    styleGrowthReferenceSeries(profitChart);
+  }
+  const revenueChart = state.profitCharts.revenue;
+  if (revenueChart && revenueChart !== excludeChart) {
+    revenueChart.lines = safeNapkinLines(profitRevenueChartLines());
+    revenueChart._refreshChart();
+  }
+  const costChart = state.profitCharts.cost;
+  if (costChart && costChart !== excludeChart) {
+    costChart.lines = safeNapkinLines(profitCostChartLines());
+    costChart._refreshChart();
+  }
+  state.syncingProfitCharts = false;
+  renderProfitDrilldown();
+}
+
+function setProfitBottomToTop() {
+  const plan = profitPlan();
+  if (plan.locks.profit || profitValuesMatch()) return;
+  pushUndoSnapshot();
+  YEARS.forEach((year, index) => {
+    if (year < FIRST_COST_EDIT_YEAR) return;
+    setProfitTopFromBottomForYear(activeScenario(), index);
+  });
+  plan.controlPoints.profit = YEARS.slice();
+  saveScenarios();
+  syncProfitCharts();
+  renderAll();
+}
+
+function setProfitTopToBottom() {
+  const plan = profitPlan();
+  if ((plan.locks.revenue && plan.locks.cost) || profitValuesMatch()) return;
+  pushUndoSnapshot();
+  const top = profitTopDownValues(activeScenario());
+  YEARS.forEach((year, index) => {
+    if (year < FIRST_COST_EDIT_YEAR) return;
+    applyProfitTopToBottomForYear(activeScenario(), index, top[index]);
+  });
+  saveScenarios();
+  syncProfitCharts();
+  syncCostCharts();
+  renderAll();
+}
+
+function toggleProfitLock(key) {
+  if (!["profit", "revenue", "cost"].includes(key)) return;
+  pushUndoSnapshot();
+  const plan = profitPlan();
+  const nextLocked = !plan.locks[key];
+  plan.locks[key] = nextLocked;
+  if (nextLocked && key === "revenue") {
+    ensureProfitSnapshot("revenue");
+    plan.locks.cost = false;
+  } else if (nextLocked && key === "cost") {
+    plan.locks.revenue = false;
+  } else if (nextLocked && key === "profit") {
+    ensureProfitSnapshot("profit");
+  }
+  saveScenarios();
+  renderProfitDrilldown();
+}
+
+function profitTooltipFormatter(params, formatter) {
+  const formatValue = typeof formatter === "function"
+    ? formatter
+    : value => formatCurrency(Number(value) * 1000000, 0);
+  const items = Array.isArray(params) ? params : [params];
+  const rows = items
+    .filter(item => item && item.seriesType === "line")
+    .map(item => {
+      const data = Array.isArray(item.data) ? item.data : item.value;
+      const rawValue = Array.isArray(data) ? data[1] : item.value;
+      return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatValue(Number(rawValue))}`;
+    });
+  return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+}
+
+function makeProfitNapkinChart(id, lines, yAxis, onValuesChanged) {
+  const chart = new NapkinChart(
+    id,
+    safeNapkinLines(lines),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis,
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: { trigger: "axis", formatter: profitTooltipFormatter },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingProfitCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingProfitCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    onValuesChanged(chart);
+    saveScenarios();
+    syncProfitCharts({ excludeChart: chart });
+    syncCostCharts();
+    renderAll({ syncNewCustomerEditors: false });
+  };
+  return chart;
+}
+
+function initProfitCharts() {
+  const yAxisCurrency = (min, max) => ({
+    type: "value",
+    min,
+    max,
+    axisLabel: { formatter: value => formatCompactCurrency(Number(value) * 1000000) },
+  });
+  const profitChart = makeProfitNapkinChart(
+    "profit-top-chart",
+    profitChartLines(),
+    yAxisCurrency(-100, 200),
+    chart => {
+      const scenario = activeScenario();
+      YEARS.forEach((year, index) => {
+        if (year < FIRST_COST_EDIT_YEAR) return;
+        const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+        if (!Number.isFinite(value)) return;
+        setProfitTopDollarValue(scenario, index, value * 1000000);
+        applyProfitTopToBottomForYear(scenario, index, value * 1000000);
+      });
+      rememberProfitControlPoints("profit", chart.lines[0].data);
+    }
+  );
+  styleGrowthReferenceSeries(profitChart);
+  state.profitCharts.profit = profitChart;
+
+  state.profitCharts.revenue = makeProfitNapkinChart(
+    "profit-revenue-chart",
+    profitRevenueChartLines(),
+    yAxisCurrency(0, 220),
+    chart => {
+      const scenario = activeScenario();
+      YEARS.forEach((year, index) => {
+        if (year < FIRST_COST_EDIT_YEAR) return;
+        const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+        if (Number.isFinite(value)) applyProfitRevenueEditForYear(scenario, index, value * 1000000);
+      });
+      rememberProfitControlPoints("revenue", chart.lines[0].data);
+    }
+  );
+
+  state.profitCharts.cost = makeProfitNapkinChart(
+    "profit-cost-chart",
+    profitCostChartLines(),
+    yAxisCurrency(0, 120),
+    chart => {
+      const scenario = activeScenario();
+      YEARS.forEach((year, index) => {
+        if (year < FIRST_COST_EDIT_YEAR) return;
+        const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+        if (Number.isFinite(value)) applyProfitCostEditForYear(scenario, index, value * 1000000);
+      });
+      rememberProfitControlPoints("cost", chart.lines[0].data);
+    }
+  );
+}
+
+function renderSaasMetrics(outputs) {
+  const scenario = activeScenario();
+  const profit = profitValues(outputs, scenario);
+  const totalCosts = totalCostValues(scenario);
+  const newCustomerValues = effectiveNewCustomers(scenario);
+  const laborFteTotals = laborFteTotalValues(scenario);
+  const revenueGrowth = revenueGrowthPercentValues(outputs.revenue);
+  const profitMargin = profitMarginPercentValues(outputs.revenue, profit);
+  const ruleOf40 = ruleOf40Values(outputs.revenue, profit);
+  const fullyLoadedCac = fullyLoadedCacValues(totalCosts, newCustomerValues);
+  const revenuePerFte = revenuePerFteValues(outputs.revenue, laborFteTotals);
+  const last = YEARS.length - 1;
+
+  setText("saas-rule-of-40-2029", formatSaasPercent(ruleOf40[last], 1));
+  setText("saas-revenue-growth-2029", formatSaasPercent(revenueGrowth[last], 1));
+  setText("saas-profit-margin-2029", formatSaasPercent(profitMargin[last], 1));
+  setText("saas-cac-2029", formatOptionalCurrency(fullyLoadedCac[last], 0));
+  setText("saas-cac-new-customers-2029", formatIntegerMetric(newCustomerValues[last]));
+  setText("saas-cac-total-cost-2029", formatCurrency(totalCosts[last], 0));
+  setText("saas-revenue-per-fte-2029", formatOptionalCurrency(revenuePerFte[last], 0));
+  setText("saas-revenue-per-fte-revenue-2029", formatCurrency(outputs.revenue[last], 0));
+  setText("saas-revenue-per-fte-fte-2029", formatDecimalMetric(laborFteTotals[last], 1));
+
+  state.outputCharts.saasRuleOf40?.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => {
+        const lines = [tooltipHeader(params[0]?.axisValue)];
+        params.forEach(item => {
+          const value = item.value === null || item.value === undefined ? null : Number(item.value);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatSaasPercent(value, 1)}`);
+        });
+        return lines.join("<br/>");
+      },
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: value => formatSaasPercent(Number(value), 0) } },
+    series: [
+      {
+        name: "Rule of 40",
+        type: "line",
+        data: ruleOf40,
+        symbolSize: 6,
+        lineStyle: { color: "#1d4ed8", width: 3 },
+        itemStyle: { color: "#1d4ed8" },
+      },
+      {
+        name: "Revenue Growth",
+        type: "line",
+        data: revenueGrowth,
+        symbolSize: 5,
+        lineStyle: { color: "#4f7f52", width: 2 },
+        itemStyle: { color: "#4f7f52" },
+      },
+      {
+        name: "Profit Margin",
+        type: "line",
+        data: profitMargin,
+        symbolSize: 5,
+        lineStyle: { color: "#8b5cf6", width: 2 },
+        itemStyle: { color: "#8b5cf6" },
+      },
+      {
+        name: "40 Target",
+        type: "line",
+        data: YEARS.map(() => 40),
+        symbol: "none",
+        silent: true,
+        lineStyle: { color: "#111827", width: 1.5, type: "dashed" },
+        itemStyle: { color: "#111827" },
+      },
+    ],
+  }, true);
+
+  state.outputCharts.saasCac?.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => {
+        const lines = [tooltipHeader(params[0]?.axisValue)];
+        params.forEach(item => {
+          const value = item.value === null || item.value === undefined ? null : Number(item.value);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatOptionalCurrency(value, 0)}`);
+        });
+        return lines.join("<br/>");
+      },
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: value => formatCompactCurrency(Number(value)) } },
+    series: [
+      {
+        name: "Fully Loaded CAC",
+        type: "line",
+        data: fullyLoadedCac,
+        symbolSize: 6,
+        lineStyle: { color: "#0f766e", width: 3 },
+        itemStyle: { color: "#0f766e" },
+      },
+    ],
+  }, true);
+
+  state.outputCharts.saasRevenuePerFte?.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => {
+        const lines = [tooltipHeader(params[0]?.axisValue)];
+        params.forEach(item => {
+          const value = item.value === null || item.value === undefined ? null : Number(item.value);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatOptionalCurrency(value, 0)}`);
+        });
+        return lines.join("<br/>");
+      },
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: value => formatCompactCurrency(Number(value)) } },
+    series: [
+      {
+        name: "Revenue / FTE",
+        type: "line",
+        data: revenuePerFte,
+        symbolSize: 6,
+        lineStyle: { color: "#7c3aed", width: 3 },
+        itemStyle: { color: "#7c3aed" },
+      },
+    ],
+  }, true);
+}
+
+const revenueDrilldownCategoryMeta = {
+  ltr: { label: "LTR", chartKey: "ltr", color: "#4f7fb8", yMax: 170 },
+  growth: { label: "Growth", chartKey: "growth", color: "#6fa76b", yMax: 25 },
+  str: { label: "STR", chartKey: "str", color: "#7b6fb8", yMax: 15 },
+  other: { label: "Other", chartKey: "other", color: "#a96c50", yMax: 5 },
+};
+
+function revenueDrilldownControlPoints(key) {
+  normalizeRevenuePaths(activeScenario());
+  if (key === "total") return activeScenario().revenuePaths.total.controlPoints;
+  if (key === "ltr") return activeScenario().revenuePaths.ltr.controlPoints;
+  if (key === "growth") return growthRevenueControlPoints();
+  if (key === "str") return strRevenueControlPoints();
+  if (key === "other") return otherRevenueControlPoints();
+  return {};
+}
+
+function controlledRevenueDrilldownPairs(key, controlKey, values, scale = 1000000) {
+  const historicalPairs = YEARS
+    .map((year, index) => {
+      if (year >= FIRST_FORECAST_YEAR) return null;
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / scale];
+    })
+    .filter(Boolean);
+  const stored = revenueDrilldownControlPoints(key)[controlKey];
+  if (Array.isArray(stored) && stored.length >= 2) {
+    const storedPairs = stored
+      .map(year => {
+        const index = YEARS.indexOf(Number(year));
+        if (index < 0) return null;
+        const value = values[index];
+        return value === null || value === undefined ? null : [Number(year), value / scale];
+      })
+      .filter(Boolean);
+    return [...historicalPairs, ...storedPairs]
+      .reduce((pairs, pair) => {
+        const existingIndex = pairs.findIndex(existingPair => existingPair[0] === pair[0]);
+        if (existingIndex >= 0) {
+          pairs[existingIndex] = pair;
+        } else {
+          pairs.push(pair);
+        }
+        return pairs;
+      }, [])
+      .sort((left, right) => left[0] - right[0]);
+  }
+  return YEARS
+    .map((year, index) => {
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / scale];
+    })
+    .filter(Boolean);
+}
+
+function rememberRevenueDrilldownControlPoints(key, controlKey, pairs) {
+  const years = (pairs || [])
+    .map(point => Number(point?.[0]))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const target = revenueDrilldownControlPoints(key);
+  if (years.length >= 2) {
+    target[controlKey] = Array.from(new Set(years));
+  } else {
+    delete target[controlKey];
+  }
+}
+
+function revenueTotalTopDownPairs() {
+  return controlledRevenueDrilldownPairs("total", "topDown", revenueTotalTopDownValues(activeScenario()));
+}
+
+function revenueBottomUpPairs() {
+  return controlledRevenueDrilldownPairs("total", "bottomUp", revenueBottomUpValues(activeScenario()));
+}
+
+function totalRevenueTopMatchesBottomUp(scenario = activeScenario(), outputs = calculateOutputs(scenario)) {
+  const topDown = revenueTotalTopDownValues(scenario);
+  const bottomUp = revenueBottomUpValues(scenario, outputs);
+  return YEARS.every((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return true;
+    return Math.abs(Number(topDown[index] || 0) - Number(bottomUp[index] || 0)) < 1;
+  });
+}
+
+function renderTotalRevenueDrilldownChart(outputs = calculateOutputs(activeScenario())) {
+  const chart = state.outputCharts.revenueDrilldownTotal;
+  if (!chart) return;
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const comparisonOutputs = comparison ? calculateOutputs(comparison) : null;
+  const scenarioName = displayScenarioName(scenario);
+  const comparisonName = comparison ? displayScenarioName(comparison) : "";
+  const topDown = revenueTotalTopDownValues(scenario);
+  const bottomUp = revenueBottomUpValues(scenario, outputs);
+  const series = [
+    { name: `${scenarioName} Top-Down`, type: "line", data: topDown, symbolSize: 6, lineStyle: { color: TOP_DOWN_COLOR, width: 3 }, itemStyle: { color: TOP_DOWN_COLOR } },
+    { name: `${scenarioName} Bottom-Up`, type: "line", data: bottomUp, symbolSize: 6, lineStyle: { color: BOTTOM_UP_COLOR, width: 3 }, itemStyle: { color: BOTTOM_UP_COLOR } },
+  ];
+  if (comparison && comparisonOutputs) {
+    series.push({
+      name: `${comparisonName} Top-Down`,
+      type: "line",
+      data: revenueTotalTopDownValues(comparison),
+      symbolSize: 5,
+      lineStyle: { color: "#98a2b3", width: 2 },
+      itemStyle: { color: "#98a2b3" },
+    });
+    series.push({
+      name: `${comparisonName} Bottom-Up`,
+      type: "line",
+      data: revenueBottomUpValues(comparison, comparisonOutputs),
+      symbolSize: 5,
+      lineStyle: { color: "#98a2b3", width: 2, type: "dashed" },
+      itemStyle: { color: "#98a2b3" },
+    });
+  }
+  chart.setOption({
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => [
+        tooltipHeader(params[0]?.axisValue),
+        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 0)}`),
+      ].join("<br/>"),
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
+    series,
+  }, true);
+
+  const setButton = document.getElementById("set-total-revenue-bottom-to-top");
+  if (setButton) setButton.disabled = totalRevenueTopMatchesBottomUp(scenario, outputs);
+}
+
+function setTotalRevenueBottomToTop() {
+  const scenario = activeScenario();
+  const outputs = calculateOutputs(scenario);
+  if (totalRevenueTopMatchesBottomUp(scenario, outputs)) return;
+  pushUndoSnapshot();
+  const bottomUp = revenueBottomUpValues(scenario, outputs);
+  YEARS.forEach((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return;
+    setRevenueTotalTopDownValue(scenario, index, bottomUp[index]);
+  });
+  scenario.revenuePaths.total.controlPoints.topDown = YEARS.filter(year => year >= FIRST_FORECAST_YEAR);
+  saveScenarios();
+  syncProfitCharts();
+  renderAll();
+}
+
+function ltrRevenueBottomUpPairs() {
+  const values = ltrRevenueBottomUpValues(activeScenario());
+  return YEARS
+    .map((year, index) => {
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / 1000000];
+    })
+    .filter(Boolean);
+}
+
+function revenueCategoryPairs(key) {
+  return controlledRevenueDrilldownPairs(key, "topDown", revenueCategoryValues(activeScenario(), key));
+}
+
+function revenueDrilldownTopLines() {
+  return [
+    {
+      name: "Revenue",
+      color: TOP_DOWN_COLOR,
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: revenueTotalTopDownPairs(),
+    },
+    {
+      name: "Bottom Up",
+      color: "#98a2b3",
+      editable: false,
+      data: revenueBottomUpPairs(),
+    },
+  ];
+}
+
+function revenueCategoryChartLines(key) {
+  const meta = revenueDrilldownCategoryMeta[key];
+  const lines = [{
+    name: meta.label,
+    color: meta.color,
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: revenueCategoryPairs(key),
+  }];
+  if (key === "ltr") {
+    lines.push({
+      name: "Bottom Up",
+      color: "#98a2b3",
+      editable: false,
+      data: ltrRevenueBottomUpPairs(),
+    });
+  }
+  return lines;
+}
+
+function setRevenueTotalTopDownValue(scenario, index, value) {
+  normalizeRevenuePaths(scenario);
+  scenario.revenuePaths.total.topDown[index] = Math.max(0, Number(value) || 0);
+}
+
+function setRevenueCategoryValue(scenario, key, index, value) {
+  normalizeRevenuePaths(scenario);
+  const numericValue = Math.max(0, Number(value) || 0);
+  if (key === "ltr") {
+    scenario.revenuePaths.ltr.topDown[index] = numericValue;
+    scenario.revenuePaths.ltr.edited = true;
+  } else if (key === "growth") {
+    growthRevenuePlan(scenario).topDown[index] = numericValue;
+  } else if (key === "str") {
+    strRevenuePlan(scenario).topDown[index] = numericValue;
+  } else if (key === "other") {
+    otherRevenuePlan(scenario).topDown[index] = numericValue;
+  }
+}
+
+function renderRevenueDrilldown() {
+  renderTotalRevenueDrilldownChart();
+  const ltrChart = state.revenueDrilldownCharts.ltr;
+  if (ltrChart) styleRevenueBottomUpReferenceSeries(ltrChart);
+}
+
+function styleRevenueBottomUpReferenceSeries(chart) {
+  const option = chart.chart.getOption();
+  const series = (option.series || []).map(seriesItem => {
+    if (String(seriesItem.name || "") !== "Bottom Up") return { ...seriesItem, z: 4 };
+    return {
+      ...seriesItem,
+      silent: true,
+      showSymbol: false,
+      symbolSize: 0,
+      z: 2,
+      itemStyle: { ...(seriesItem.itemStyle || {}), color: "#98a2b3" },
+      lineStyle: { ...(seriesItem.lineStyle || {}), color: "#98a2b3", width: 3, opacity: 1 },
+    };
+  });
+  chart.chart.setOption({ series }, false);
+}
+
+function syncRevenueDrilldownCharts({ excludeChart = null } = {}) {
+  state.syncingRevenueDrilldownCharts = true;
+  renderTotalRevenueDrilldownChart();
+  Object.keys(revenueDrilldownCategoryMeta).forEach(key => {
+    const chart = state.revenueDrilldownCharts[key];
+    if (chart && chart !== excludeChart) {
+      chart.lines = safeNapkinLines(revenueCategoryChartLines(key));
+      chart._refreshChart();
+      if (key === "ltr") styleRevenueBottomUpReferenceSeries(chart);
+    }
+  });
+  state.syncingRevenueDrilldownCharts = false;
+}
+
+function revenueDrilldownTooltipFormatter(params) {
+  const items = Array.isArray(params) ? params : [params];
+  const rows = items
+    .filter(item => item && item.seriesType === "line")
+    .map(item => {
+      const data = Array.isArray(item.data) ? item.data : item.value;
+      const rawValue = Array.isArray(data) ? data[1] : item.value;
+      return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
+    });
+  return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+}
+
+function makeRevenueDrilldownNapkinChart(id, lines, yMax, onValuesChanged) {
+  const chart = new NapkinChart(
+    id,
+    safeNapkinLines(lines),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
+      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatCompactCurrency(Number(value) * 1000000) } },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: { trigger: "axis", formatter: revenueDrilldownTooltipFormatter },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._appEditSnapshot = null;
+  chart._appEditCommitted = false;
+  chart.chart.getZr().on("mousedown", () => {
+    if (state.syncingRevenueDrilldownCharts) return;
+    chart._appEditSnapshot = snapshotState();
+    chart._appEditCommitted = false;
+  });
+  chart.onDataChanged = () => {
+    if (state.syncingRevenueDrilldownCharts) return;
+    if (chart._appEditSnapshot && !chart._appEditCommitted) {
+      pushUndoSnapshot(chart._appEditSnapshot);
+      chart._appEditCommitted = true;
+    }
+    onValuesChanged(chart);
+    saveScenarios();
+    syncRevenueDrilldownCharts({ excludeChart: chart });
+    syncGrowthRevenueCharts();
+    syncStrRevenueCharts();
+    syncOtherRevenueCharts();
+    syncProfitCharts();
+    renderAll({ syncNewCustomerEditors: false });
+  };
+  return chart;
+}
+
+function initRevenueDrilldownCharts() {
+  Object.keys(revenueDrilldownCategoryMeta).forEach(key => {
+    const meta = revenueDrilldownCategoryMeta[key];
+    state.revenueDrilldownCharts[key] = makeRevenueDrilldownNapkinChart(
+      `revenue-drilldown-${key}-chart`,
+      revenueCategoryChartLines(key),
+      meta.yMax,
+      chart => {
+        const scenario = activeScenario();
+        YEARS.forEach((year, index) => {
+          if (year < FIRST_FORECAST_YEAR) return;
+          const value = interpolateNapkinLineValue(chart.lines[0].data, year);
+          if (Number.isFinite(value)) setRevenueCategoryValue(scenario, key, index, value * 1000000);
+        });
+        rememberRevenueDrilldownControlPoints(key, "topDown", chart.lines[0].data);
+        rememberRevenueDrilldownControlPoints("total", "bottomUp", revenueBottomUpPairs());
+      }
+    );
+  });
+}
+
 function renderMetricTree(outputs) {
   const scenario = activeScenario();
   const comparison = compareScenario();
@@ -5976,13 +9169,109 @@ function renderMetricTree(outputs) {
   const comparisonProfilesPerCustomer = comparisonOutputs ? profilesPerCustomerValues(comparisonOutputs) : null;
   const revenuePerProfile = revenuePerProfileValues(outputs);
   const comparisonRevenuePerProfile = comparisonOutputs ? revenuePerProfileValues(comparisonOutputs) : null;
+  const costs = totalCostValues(scenario);
+  const comparisonCosts = comparison ? totalCostValues(comparison) : null;
+  const totalRevenue = totalRevenueValues(outputs, scenario);
+  const comparisonTotalRevenue = comparison && comparisonOutputs ? totalRevenueValues(comparisonOutputs, comparison) : null;
+  const profits = profitValues(outputs, scenario);
+  const comparisonProfits = comparison && comparisonOutputs ? profitValues(comparisonOutputs, comparison) : null;
+  const laborFteTotals = laborFteTotalValues(scenario);
+  const comparisonLaborFteTotals = comparison ? laborFteTotalValues(comparison) : null;
+  const laborCostPerFte = laborCostPerFteAggregateValues(scenario);
+  const comparisonLaborCostPerFte = comparison ? laborCostPerFteAggregateValues(comparison) : null;
+  const strRevenueValues = strRevenueTopDownValues(scenario);
+  const comparisonStrRevenueValues = comparison ? strRevenueTopDownValues(comparison) : null;
+  const strPropertiesValues = strRevenuePropertiesValues(scenario);
+  const comparisonStrPropertiesValues = comparison ? strRevenuePropertiesValues(comparison) : null;
+  const strRevPerPropertyValues = strRevenueRevPerPropertyValues(scenario);
+  const comparisonStrRevPerPropertyValues = comparison ? strRevenueRevPerPropertyValues(comparison) : null;
+  const otherRevenueValues = otherRevenueTopDownValues(scenario);
+  const comparisonOtherRevenueValues = comparison ? otherRevenueTopDownValues(comparison) : null;
+  const growthRevenueValues = growthRevenueTopDownValues(scenario);
+  const comparisonGrowthRevenueValues = comparison ? growthRevenueTopDownValues(comparison) : null;
+  const growthProxyCustomers = growthRevenueProxyCustomers(scenario);
+  const comparisonGrowthProxyCustomers = comparison ? driverValues(comparison, "newCustomers") : null;
+  const growthRevenuePerProxyCustomer = growthRevenueRevPerNewCustomerValues(scenario);
+  const comparisonGrowthRevenuePerProxyCustomer = comparisonGrowthProxyCustomers
+    ? growthRevenueRevPerNewCustomerValues(comparison)
+    : null;
   const scenarioName = displayScenarioName(scenario);
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
 
+  setMetricTreeChart("treeProfit", [
+    metricTreeSeries(scenarioName, profits, scenarioColor),
+    ...(comparisonProfits ? [metricTreeSeries(comparisonName, comparisonProfits, comparisonColor)] : []),
+  ], { format: "currency" });
+
   setMetricTreeChart("treeRevenue", [
-    metricTreeSeries(displayLabel(`${scenarioName} HHP`), outputs.revenue, scenarioColor),
+    metricTreeSeries(scenarioName, totalRevenue, scenarioColor),
     metricTreeSeries("Plan", outputs.planRevenue, "#111827"),
-    ...(comparisonOutputs ? [metricTreeSeries(displayLabel(`${comparisonName} HHP`), comparisonOutputs.revenue, comparisonColor)] : []),
+    ...(comparisonTotalRevenue ? [metricTreeSeries(comparisonName, comparisonTotalRevenue, comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeLtrRevenue", [
+    metricTreeSeries(displayLabel(`${scenarioName} LTR`), revenueCategoryValues(scenario, "ltr", outputs), scenarioColor),
+    ...(comparisonOutputs ? [metricTreeSeries(displayLabel(`${comparisonName} LTR`), revenueCategoryValues(comparison, "ltr", comparisonOutputs), comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeStrRevenue", [
+    metricTreeSeries(scenarioName, strRevenueValues, scenarioColor),
+    ...(comparisonStrRevenueValues ? [metricTreeSeries(comparisonName, comparisonStrRevenueValues, comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeStrProperties", [
+    metricTreeSeries(scenarioName, strPropertiesValues, scenarioColor),
+    ...(comparisonStrPropertiesValues ? [metricTreeSeries(comparisonName, comparisonStrPropertiesValues, comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeStrRevPerProperty", [
+    metricTreeSeries(scenarioName, strRevPerPropertyValues, scenarioColor),
+    ...(comparisonStrRevPerPropertyValues ? [metricTreeSeries(comparisonName, comparisonStrRevPerPropertyValues, comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeGrowthRevenue", [
+    metricTreeSeries(scenarioName, growthRevenueValues, scenarioColor),
+    ...(comparisonGrowthRevenueValues ? [metricTreeSeries(comparisonName, comparisonGrowthRevenueValues, comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeGrowthNewPayingCustomers", [
+    metricTreeSeries(scenarioName, growthProxyCustomers, scenarioColor),
+    ...(comparisonGrowthProxyCustomers ? [metricTreeSeries(comparisonName, comparisonGrowthProxyCustomers, comparisonColor)] : []),
+  ]);
+
+  setMetricTreeChart("treeGrowthRevPerNewPayingCustomer", [
+    metricTreeSeries(scenarioName, growthRevenuePerProxyCustomer, scenarioColor),
+    ...(comparisonGrowthRevenuePerProxyCustomer ? [metricTreeSeries(comparisonName, comparisonGrowthRevenuePerProxyCustomer, comparisonColor)] : []),
+  ], { format: "currency2" });
+
+  setMetricTreeChart("treeOtherRevenue", [
+    metricTreeSeries(scenarioName, otherRevenueValues, scenarioColor),
+    ...(comparisonOtherRevenueValues ? [metricTreeSeries(comparisonName, comparisonOtherRevenueValues, comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeCost", [
+    metricTreeSeries(scenarioName, costs, scenarioColor),
+    ...(comparisonCosts ? [metricTreeSeries(comparisonName, comparisonCosts, comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeLaborCost", [
+    metricTreeSeries(scenarioName, costValues(scenario, "labor"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, costValues(comparison, "labor"), comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeNonLaborCost", [
+    metricTreeSeries(scenarioName, costValues(scenario, "nonLabor"), scenarioColor),
+    ...(comparison ? [metricTreeSeries(comparisonName, costValues(comparison, "nonLabor"), comparisonColor)] : []),
+  ], { format: "currency" });
+
+  setMetricTreeChart("treeLaborFte", [
+    metricTreeSeries(scenarioName, laborFteTotals, scenarioColor),
+    ...(comparisonLaborFteTotals ? [metricTreeSeries(comparisonName, comparisonLaborFteTotals, comparisonColor)] : []),
+  ], { format: "decimal" });
+
+  setMetricTreeChart("treeLaborCostPerFte", [
+    metricTreeSeries(scenarioName, laborCostPerFte, scenarioColor),
+    ...(comparisonLaborCostPerFte ? [metricTreeSeries(comparisonName, comparisonLaborCostPerFte, comparisonColor)] : []),
   ], { format: "currency" });
 
   setMetricTreeChart("treePayingCustomers", [
@@ -6283,21 +9572,34 @@ function bindCanvasTrackpadZoom() {
 }
 
 function revenuePathChartOption(outputs) {
+  const scenario = activeScenario();
   const comparison = compareScenario();
   const comparisonOutputs = comparison ? calculateOutputs(comparison) : null;
   const scenarioName = displayScenarioName(activeScenario());
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
+  const ltrTopDown = ltrRevenueTopDownValues(scenario, outputs);
+  const ltrBottomUp = ltrRevenueBottomUpValues(scenario, outputs);
   const revenueSeries = [
-    { name: `${scenarioName} Revenue`, type: "line", data: outputs.revenue, symbolSize: 6, lineStyle: { color: "#1d4ed8", width: 3 }, itemStyle: { color: "#1d4ed8" } },
-    { name: "Plan Revenue", type: "line", data: outputs.planRevenue, symbolSize: 6, lineStyle: { color: "#111827", width: 2 }, itemStyle: { color: "#111827" } },
+    { name: `${scenarioName} LTR Top Down`, type: "line", data: ltrTopDown, symbolSize: 6, lineStyle: { color: TOP_DOWN_COLOR, width: 3 }, itemStyle: { color: TOP_DOWN_COLOR } },
+    { name: `${scenarioName} Bottom Up`, type: "line", data: ltrBottomUp, symbolSize: 6, lineStyle: { color: BOTTOM_UP_COLOR, width: 3 }, itemStyle: { color: BOTTOM_UP_COLOR } },
   ];
   if (comparisonOutputs) {
+    const comparisonTopDown = ltrRevenueTopDownValues(comparison, comparisonOutputs);
+    const comparisonBottomUp = ltrRevenueBottomUpValues(comparison, comparisonOutputs);
     revenueSeries.push({
-      name: `${comparisonName} Revenue`,
+      name: `${comparisonName} LTR Top Down`,
       type: "line",
-      data: comparisonOutputs.revenue,
+      data: comparisonTopDown,
       symbolSize: 5,
       lineStyle: { color: "#98a2b3", width: 2 },
+      itemStyle: { color: "#98a2b3" },
+    });
+    revenueSeries.push({
+      name: `${comparisonName} Bottom Up`,
+      type: "line",
+      data: comparisonBottomUp,
+      symbolSize: 5,
+      lineStyle: { color: "#98a2b3", width: 2, type: "dashed" },
       itemStyle: { color: "#98a2b3" },
     });
   }
@@ -6513,14 +9815,12 @@ function renderNewCustomerUnitDrilldownToggle() {
 
 function resizeNewCustomerUnitDrilldownCharts() {
   state.outputCharts.newCustomerUnitBridge?.resize();
-  state.outputCharts.newCustomerUnitDelta?.resize();
   state.cohortCharts.unitNewUnits?.resize();
   state.cohortCharts.unitCustomersPerUnit?.resize();
 }
 
 function resizeNewCustomerNewUnitsDrilldownCharts() {
   state.outputCharts.newCustomerNewUnitsBridge?.resize();
-  state.outputCharts.newCustomerNewUnitsDelta?.resize();
   state.cohortCharts.newUnitsProperties?.resize();
   state.cohortCharts.newUnitsUnitsPerProperty?.resize();
 }
@@ -7412,52 +10712,6 @@ function renderNewCustomerDrilldownCharts() {
   const comparisonTotals = comparison ? bottomUpNewCustomers(comparison) : null;
   const activeTotals = visibleBottomUpNewCustomers();
   const activeTopDown = activeScenario().drivers.newCustomers;
-  const activeDeltaToTopDown = activeTotals.map((value, index) => {
-    const delta = value - activeTopDown[index];
-    return Math.abs(delta) < 0.000001 ? 0 : delta;
-  });
-  const comparisonDeltaToTopDown = comparison && comparisonTotals
-    ? comparisonTotals.map((value, index) => value - comparison.drivers.newCustomers[index])
-    : null;
-  state.outputCharts.newCustomerDrilldown.setOption({
-    animation: false,
-    tooltip: {
-      trigger: "axis",
-      formatter: params => {
-        const year = Number(params[0]?.axisValue);
-        const index = YEARS.indexOf(year);
-        const topDownMarker = `<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background:${TOP_DOWN_COLOR};"></span>`;
-        const bottomUpMarker = `<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background:${BOTTOM_UP_COLOR};"></span>`;
-        return [
-          tooltipHeader(year),
-          `${topDownMarker} Top-Down: ${formatIntegerMetric(activeTopDown[index] || 0)}`,
-          `${bottomUpMarker} Bottom-Up: ${formatIntegerMetric(activeTotals[index] || 0)}`,
-          ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
-        ].join("<br/>");
-      },
-    },
-    legend: { top: 0 },
-    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
-    xAxis: { type: "category", data: YEARS.map(String) },
-    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
-    series: [
-      {
-        name: `${scenarioName} Delta`,
-        type: "bar",
-        data: activeDeltaToTopDown,
-        itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
-      },
-      ...(comparisonDeltaToTopDown ? [{
-        name: `${comparisonName} Delta`,
-        type: "line",
-        data: comparisonDeltaToTopDown,
-        symbolSize: 5,
-        lineStyle: { color: "#98a2b3", width: 2 },
-        itemStyle: { color: "#98a2b3" },
-      }] : []),
-    ],
-  }, true);
-
   const totalSeries = [
     { name: `${scenarioName} Top-Down`, type: "line", data: activeTopDown, symbolSize: 5, lineStyle: { color: TOP_DOWN_COLOR, width: 2 }, itemStyle: { color: TOP_DOWN_COLOR } },
     { name: `${scenarioName} Bottom-Up`, type: "line", data: activeTotals, symbolSize: 5, z: 3, lineStyle: { color: BOTTOM_UP_COLOR, width: 2 }, itemStyle: { color: BOTTOM_UP_COLOR } },
@@ -7489,11 +10743,7 @@ function renderNewCustomerUnitDrilldown() {
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
   const topDown = YEARS.map(year => newPropertyCohortValue(scenario.newCustomerDrilldown.counts, year));
   const bottomUp = YEARS.map(year => visibleNewCustomerUnitBottomUpValue(year));
-  const delta = bottomUp.map((value, index) => Math.abs(value - topDown[index]) < 0.000001 ? 0 : value - topDown[index]);
   const comparisonBottomUp = comparison ? YEARS.map(year => newCustomerUnitBottomUpValue(comparison, year)) : null;
-  const comparisonDelta = comparison
-    ? comparisonBottomUp.map((value, index) => value - newPropertyCohortValue(comparison.newCustomerDrilldown.counts, YEARS[index]))
-    : null;
 
   state.outputCharts.newCustomerUnitBridge?.setOption({
     animation: false,
@@ -7522,37 +10772,6 @@ function renderNewCustomerUnitDrilldown() {
     ],
   }, true);
 
-  state.outputCharts.newCustomerUnitDelta?.setOption({
-    animation: false,
-    tooltip: {
-      trigger: "axis",
-      formatter: params => [
-        tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
-      ].join("<br/>"),
-    },
-    legend: { top: 0 },
-    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
-    xAxis: { type: "category", data: YEARS.map(String) },
-    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
-    series: [
-      {
-        name: displayLabel("Unit Build Delta"),
-        type: "bar",
-        data: delta,
-        itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
-      },
-      ...(comparisonDelta ? [{
-        name: `${comparisonName} Delta`,
-        type: "line",
-        data: comparisonDelta,
-        symbolSize: 5,
-        lineStyle: { color: "#98a2b3", width: 2 },
-        itemStyle: { color: "#98a2b3" },
-      }] : []),
-    ],
-  }, true);
-
   renderNewCustomerNewUnitsDrilldown();
 }
 
@@ -7562,12 +10781,7 @@ function renderNewCustomerNewUnitsDrilldown() {
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
   const topDown = YEARS.map(year => newCustomerUnitNewUnitsValue(scenario, year));
   const bottomUp = YEARS.map(year => visibleNewCustomerNewUnitsBottomUpValue(year));
-  const delta = bottomUp.map((value, index) => Math.abs(value - topDown[index]) < 0.000001 ? 0 : value - topDown[index]);
-  const comparisonTopDown = comparison ? YEARS.map(year => newCustomerUnitNewUnitsValue(comparison, year)) : null;
   const comparisonBottomUp = comparison ? YEARS.map(year => newCustomerNewUnitsBottomUpValue(comparison, year)) : null;
-  const comparisonDelta = comparison && comparisonBottomUp
-    ? comparisonBottomUp.map((value, index) => value - comparisonTopDown[index])
-    : null;
 
   state.outputCharts.newCustomerNewUnitsBridge?.setOption({
     animation: false,
@@ -7589,37 +10803,6 @@ function renderNewCustomerNewUnitsDrilldown() {
         name: displayLabel(`${comparisonName} Property Build`),
         type: "line",
         data: comparisonBottomUp,
-        symbolSize: 5,
-        lineStyle: { color: "#98a2b3", width: 2 },
-        itemStyle: { color: "#98a2b3" },
-      }] : []),
-    ],
-  }, true);
-
-  state.outputCharts.newCustomerNewUnitsDelta?.setOption({
-    animation: false,
-    tooltip: {
-      trigger: "axis",
-      formatter: params => [
-        tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(item.value))}`),
-      ].join("<br/>"),
-    },
-    legend: { top: 0 },
-    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
-    xAxis: { type: "category", data: YEARS.map(String) },
-    yAxis: { type: "value", axisLabel: { formatter: formatCompactNumber } },
-    series: [
-      {
-        name: displayLabel("Property Build Delta"),
-        type: "bar",
-        data: delta,
-        itemStyle: { color: value => value.value < 0 ? "#b42318" : "#4f7f52" },
-      },
-      ...(comparisonDelta ? [{
-        name: `${comparisonName} Delta`,
-        type: "line",
-        data: comparisonDelta,
         symbolSize: 5,
         lineStyle: { color: "#98a2b3", width: 2 },
         itemStyle: { color: "#98a2b3" },
@@ -8815,6 +11998,170 @@ function formatVersionLabel(version, reverseIndex = 0) {
   return `${timestamp} - ${version.label}`;
 }
 
+function formatScenarioSavedAt(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function scenarioFromVersion(scenario, version) {
+  const restored = clone(scenario);
+  restored.drivers = clone(version.drivers || scenario.drivers);
+  restored.costs = version.costs ? clone(version.costs) : clone(scenario.costs || baseCosts);
+  restored.costControlPoints = version.costControlPoints ? clone(version.costControlPoints) : {};
+  restored.costPctTotalLines = version.costPctTotalLines ? clone(version.costPctTotalLines) : {};
+  restored.costLocks = version.costLocks ? clone(version.costLocks) : {};
+  restored.newCustomerSource = version.newCustomerSource || scenario.newCustomerSource || "topDown";
+  restored.newCustomerDrilldown = version.newCustomerDrilldown
+    ? clone(version.newCustomerDrilldown)
+    : clone(scenario.newCustomerDrilldown || createDefaultNewCustomerDrilldown());
+  restored.revUnitPlan = version.revUnitPlan ? clone(version.revUnitPlan) : clone(scenario.revUnitPlan || createDefaultRevUnitPlan());
+  restored.revenuePaths = version.revenuePaths
+    ? clone(version.revenuePaths)
+    : clone(scenario.revenuePaths || { total: createDefaultTotalRevenuePlan(), ltr: createDefaultLtrRevenuePlan(), growth: createDefaultGrowthRevenuePlan(), str: createDefaultStrRevenuePlan(), other: createDefaultOtherRevenuePlan() });
+  restored.profitPlan = version.profitPlan ? clone(version.profitPlan) : clone(scenario.profitPlan || createDefaultProfitPlan());
+  restored.defenses = version.defenses ? clone(version.defenses) : clone(scenario.defenses || createDefaultDefenses());
+  normalizeScenario(restored);
+  return restored;
+}
+
+function scenarioCumulativeProfit(scenario) {
+  const outputs = calculateOutputs(scenario);
+  return profitValues(outputs, scenario)
+    .reduce((sum, value, index) => YEARS[index] >= FIRST_COST_EDIT_YEAR ? sum + Number(value || 0) : sum, 0);
+}
+
+function newCustomersTopMatchesBottomUp(scenario) {
+  const topDown = driverValues(scenario, "newCustomers");
+  const bottomUp = bottomUpNewCustomers(scenario);
+  return YEARS.every((year, index) => {
+    if (year < FIRST_FORECAST_YEAR) return true;
+    return Math.abs(Number(topDown[index] || 0) - Number(bottomUp[index] || 0)) < 1;
+  });
+}
+
+function scenarioReconciliationChecks(scenario) {
+  normalizeScenario(scenario);
+  return [
+    { label: "Profit", matched: profitValuesMatch(scenario) },
+    { label: "Revenue", matched: revenueTopMatchesBottomUp(scenario) },
+    { label: "Growth", matched: growthRevenueTopMatchesBottomUp(scenario) },
+    { label: "STR", matched: strRevenueTopMatchesBottomUp(scenario) },
+    { label: "New Customers", matched: newCustomersTopMatchesBottomUp(scenario) },
+    { label: "Labor", matched: laborTopDownMatchesBottomUp(scenario) },
+    { label: "Non-Labor", matched: nonLaborTopDownMatchesBottomUp(scenario) },
+    { label: "Labor FTE", matched: laborFteTopMatchesBottomUp(scenario) },
+    ...NON_LABOR_CATEGORY_KEYS.map(key => ({
+      label: nonLaborCategoryMeta[key]?.label || key,
+      matched: nonLaborCategoryTopMatchesBottomUp(scenario, key),
+    })),
+  ];
+}
+
+function scenarioMatchSummary(checks) {
+  const unmatched = checks.filter(check => !check.matched);
+  return {
+    matched: unmatched.length === 0,
+    label: unmatched.length ? `${unmatched.length} open` : "Matched",
+    detail: unmatched.length ? unmatched.map(check => check.label).join(", ") : "All checked top-down and bottom-up definitions match.",
+  };
+}
+
+function renderScenarioMatchStatus(checks) {
+  const summary = scenarioMatchSummary(checks);
+  return `
+    <span class="scenario-status-pill ${summary.matched ? "matched" : "open"}">${summary.label}</span>
+    <small>${escapeHtml(summary.detail)}</small>
+  `;
+}
+
+function renderScenarioVersionRows(scenario) {
+  const versions = (scenario.versions || [])
+    .slice()
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  if (!versions.length) {
+    return `<div class="scenario-version-empty">No saved versions yet.</div>`;
+  }
+  return `
+    <table class="scenario-version-table">
+      <thead>
+        <tr>
+          <th>Version</th>
+          <th>Saved</th>
+          <th>2025-2029 Cumulative Profit</th>
+          <th>Top Down / Bottom Up</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${versions.map((version, index) => {
+          const versionScenario = scenarioFromVersion(scenario, version);
+          const checks = scenarioReconciliationChecks(versionScenario);
+          return `
+            <tr>
+              <td>${escapeHtml(isAnonymizedView() ? `Version ${index + 1}` : version.label || "Version")}</td>
+              <td>${escapeHtml(formatScenarioSavedAt(version.createdAt))}</td>
+              <td class="number-cell">${formatCurrency(scenarioCumulativeProfit(versionScenario), 0)}</td>
+              <td>${renderScenarioMatchStatus(checks)}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderScenariosModule() {
+  const container = document.getElementById("scenarios-module");
+  if (!container) return;
+  const scenarios = Object.values(state.scenarios);
+  container.innerHTML = `
+    <div class="scenario-table-wrap">
+      <table class="scenario-table">
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>2025-2029 Cumulative Profit</th>
+            <th>Top Down / Bottom Up</th>
+            <th>Latest Saved</th>
+            <th>Versions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${scenarios.map(scenario => {
+            normalizeScenario(scenario);
+            const checks = scenarioReconciliationChecks(scenario);
+            const cumulativeProfit = scenarioCumulativeProfit(scenario);
+            const matchStatus = renderScenarioMatchStatus(checks);
+            const versions = scenario.versions || [];
+            const latestVersion = versions
+              .slice()
+              .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+            return `
+              <tr class="scenario-parent-row">
+                <td colspan="5">
+                  <details class="scenario-details">
+                    <summary>
+                      <span>${escapeHtml(displayScenarioName(scenario))}</span>
+                      <span class="number-cell">${formatCurrency(cumulativeProfit, 0)}</span>
+                      <span>${matchStatus}</span>
+                      <span>${escapeHtml(formatScenarioSavedAt(latestVersion?.createdAt))}</span>
+                      <span>${versions.length.toLocaleString("en-US")}</span>
+                    </summary>
+                    <div class="scenario-version-panel">
+                      ${renderScenarioVersionRows(scenario)}
+                    </div>
+                  </details>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function isMetricTextNodeValue(text) {
   const trimmed = text.trim();
   if (!trimmed) return false;
@@ -8858,13 +12205,20 @@ function applyAnonymizedView() {
   });
 }
 
-function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = null } = {}) {
+function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = null, syncRevenueDrilldown = true } = {}) {
   const outputs = calculateOutputs(activeScenario());
+  if (syncRevenueDrilldown) syncRevenueDrilldownCharts();
   renderKpis(outputs);
   renderGuidedPlan(outputs);
   renderOutputCharts(outputs);
   renderRetentionDefense();
   renderInitiativesModule();
+  renderProfitDrilldown();
+  renderRevenueDrilldown(outputs);
+  renderStrRevenueDrilldown();
+  renderGrowthRevenueDrilldown();
+  renderSaasMetrics(outputs);
+  renderScenariosModule();
   renderMetricTree(outputs);
   renderCanvasFocus();
   renderTable(outputs);
@@ -8874,6 +12228,8 @@ function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = nu
   renderCostLockButtons();
   renderCostDrilldownView();
   renderLaborDepartmentMixEchart();
+  renderNonLaborCategoryMixEchart();
+  renderNonLaborCategoryDepartmentMixEchart();
   applyAnonymizedView();
 }
 
@@ -8938,6 +12294,8 @@ function createScenarioCopy(name) {
     newCustomerSource: activeScenario().newCustomerSource,
     newCustomerDrilldown: clone(activeScenario().newCustomerDrilldown),
     revUnitPlan: clone(activeScenario().revUnitPlan),
+    revenuePaths: clone(activeScenario().revenuePaths || { growth: createDefaultGrowthRevenuePlan(), str: createDefaultStrRevenuePlan(), other: createDefaultOtherRevenuePlan() }),
+    profitPlan: clone(activeScenario().profitPlan || createDefaultProfitPlan()),
     defenses: clone(activeScenario().defenses || createDefaultDefenses()),
   };
   addScenarioVersion(state.scenarios[id], "Save As");
@@ -8949,6 +12307,11 @@ function createScenarioCopy(name) {
   syncDriverCharts();
   syncCostCharts();
   syncRevUnitCharts();
+  syncRevenueDrilldownCharts();
+  syncProfitCharts();
+  syncOtherRevenueCharts();
+  syncStrRevenueCharts();
+  syncGrowthRevenueCharts();
   renderAll();
 }
 
@@ -8968,6 +12331,7 @@ function saveScenarioVersion(label) {
   state.selectedVersionId = version.id;
   saveScenarios();
   renderScenarioSelect();
+  renderScenariosModule();
 }
 
 function restoreVersion() {
@@ -8995,6 +12359,12 @@ function restoreVersion() {
   scenario.revUnitPlan = version.revUnitPlan
     ? clone(version.revUnitPlan)
     : createDefaultRevUnitPlan();
+  scenario.revenuePaths = version.revenuePaths
+    ? clone(version.revenuePaths)
+    : { total: createDefaultTotalRevenuePlan(), ltr: createDefaultLtrRevenuePlan(), growth: createDefaultGrowthRevenuePlan(), str: createDefaultStrRevenuePlan(), other: createDefaultOtherRevenuePlan() };
+  scenario.profitPlan = version.profitPlan
+    ? clone(version.profitPlan)
+    : createDefaultProfitPlan();
   scenario.defenses = version.defenses
     ? clone(version.defenses)
     : createDefaultDefenses();
@@ -9003,6 +12373,11 @@ function restoreVersion() {
   syncDriverCharts();
   syncCostCharts();
   syncRevUnitCharts();
+  syncRevenueDrilldownCharts();
+  syncProfitCharts();
+  syncOtherRevenueCharts();
+  syncStrRevenueCharts();
+  syncGrowthRevenueCharts();
   renderAll();
 }
 
@@ -9019,12 +12394,19 @@ function resetScenario() {
     activeScenario().newCustomerSource = "topDown";
     activeScenario().newCustomerDrilldown = createDefaultNewCustomerDrilldown();
     activeScenario().revUnitPlan = createDefaultRevUnitPlan();
+    activeScenario().revenuePaths = { total: createDefaultTotalRevenuePlan(), ltr: createDefaultLtrRevenuePlan(), growth: createDefaultGrowthRevenuePlan(), str: createDefaultStrRevenuePlan(), other: createDefaultOtherRevenuePlan() };
+    activeScenario().profitPlan = createDefaultProfitPlan();
     activeScenario().defenses = createDefaultDefenses();
   }
   saveScenarios();
   syncDriverCharts();
   syncCostCharts();
   syncRevUnitCharts();
+  syncRevenueDrilldownCharts();
+  syncProfitCharts();
+  syncOtherRevenueCharts();
+  syncStrRevenueCharts();
+  syncGrowthRevenueCharts();
   renderAll();
 }
 
@@ -9064,8 +12446,110 @@ function openMetricTreeTarget(action, focusChart) {
     focusElementById("rev-unit-revenue-comparison-chart");
     return;
   }
+  if (action === "definitions") {
+    setView("definitions");
+    focusElementById("definitions-view");
+    return;
+  }
+  if (action === "profit") {
+    setView("profit");
+    syncProfitCharts();
+    focusElementById("profit-view");
+    return;
+  }
+  if (action === "revenueDrilldown") {
+    setView("revenueDrilldown");
+    syncRevenueDrilldownCharts();
+    focusElementById("revenue-drilldown-view");
+    return;
+  }
+  if (action === "growthRevenue") {
+    setView("growthRevenue");
+    syncGrowthRevenueCharts();
+    focusElementById("growth-revenue-view");
+    return;
+  }
+  if (action === "strRevenue") {
+    setView("strRevenue");
+    syncStrRevenueCharts();
+    focusElementById("str-revenue-view");
+    return;
+  }
+  if (action === "otherRevenue") {
+    setView("otherRevenue");
+    syncOtherRevenueCharts();
+    focusElementById("other-revenue-view");
+    return;
+  }
+  if (action === "costs") {
+    state.costDrilldown = "";
+    setView("costs");
+    renderCostDrilldownView();
+    syncCostCharts();
+    focusElementById("cost-total-chart");
+    return;
+  }
+  if (action === "laborCost") {
+    state.costDrilldown = "labor";
+    setView("costs");
+    renderCostDrilldownView();
+    syncCostCharts();
+    focusElementById("cost-labor-drilldown");
+    return;
+  }
+  if (action === "nonLaborCost") {
+    state.costDrilldown = "nonLabor";
+    setView("costs");
+    renderCostDrilldownView();
+    syncCostCharts();
+    focusElementById("cost-non-labor-drilldown");
+    return;
+  }
+  if (action === "laborFte") {
+    state.costDrilldown = "laborFte";
+    setView("costs");
+    renderCostDrilldownView();
+    syncCostCharts();
+    focusElementById("cost-labor-fte-drilldown");
+    return;
+  }
   setView("chart");
   focusElementById(focusChart || "revenue-chart");
+}
+
+function openNapkinViewEntry() {
+  setView("profit");
+  syncProfitCharts();
+  focusElementById("profit-view");
+}
+
+function resizeChartInstance(chart) {
+  chart?.resize?.();
+}
+
+function resizeChartCollection(collection) {
+  Object.values(collection).forEach(resizeChartInstance);
+}
+
+function resizeAllRenderedCharts() {
+  resizeChartCollection(state.charts);
+  resizeChartCollection(state.costCharts);
+  resizeChartCollection(state.cohortCharts);
+  resizeChartCollection(state.outputCharts);
+  resizeChartCollection(state.revUnitCharts);
+  resizeChartCollection(state.defenseCharts);
+  resizeChartCollection(state.growthCharts);
+  resizeChartCollection(state.strCharts);
+  resizeChartCollection(state.otherRevenueCharts);
+  resizeChartCollection(state.revenueDrilldownCharts);
+  resizeChartCollection(state.profitCharts);
+}
+
+function scheduleViewResize(view) {
+  setTimeout(() => {
+    resizeAllRenderedCharts();
+    requestAnimationFrame(resizeAllRenderedCharts);
+  }, 0);
 }
 
 function bindControls() {
@@ -9075,6 +12559,11 @@ function bindControls() {
     syncDriverCharts();
     syncCostCharts();
     syncRevUnitCharts();
+    syncRevenueDrilldownCharts();
+    syncProfitCharts();
+    syncOtherRevenueCharts();
+    syncStrRevenueCharts();
+    syncGrowthRevenueCharts();
     renderAll();
     renderScenarioSelect();
     applyAnonymizedView();
@@ -9087,6 +12576,11 @@ function bindControls() {
     syncDriverCharts();
     syncCostCharts();
     syncRevUnitCharts();
+    syncRevenueDrilldownCharts();
+    syncProfitCharts();
+    syncOtherRevenueCharts();
+    syncStrRevenueCharts();
+    syncGrowthRevenueCharts();
     renderAll();
   });
   document.getElementById("compare-scenario-select").addEventListener("change", event => {
@@ -9094,6 +12588,11 @@ function bindControls() {
     syncDriverCharts();
     syncCostCharts();
     syncRevUnitCharts();
+    syncRevenueDrilldownCharts();
+    syncProfitCharts();
+    syncOtherRevenueCharts();
+    syncStrRevenueCharts();
+    syncGrowthRevenueCharts();
     renderAll();
   });
   document.querySelectorAll("[data-cost-lock-key]").forEach(button => {
@@ -9119,6 +12618,12 @@ function bindControls() {
     syncCostCharts();
     resizeCostCharts();
   });
+  document.getElementById("toggle-cost-non-labor-category-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "nonLaborCategory";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
   document.getElementById("back-cost-labor-drilldown")?.addEventListener("click", () => {
     state.costDrilldown = "";
     renderCostDrilldownView();
@@ -9137,12 +12642,20 @@ function bindControls() {
     syncCostCharts();
     resizeCostCharts();
   });
+  document.getElementById("back-cost-non-labor-category-drilldown")?.addEventListener("click", () => {
+    state.costDrilldown = "nonLabor";
+    renderCostDrilldownView();
+    syncCostCharts();
+    resizeCostCharts();
+  });
   document.getElementById("set-cost-labor-top-to-bottom")?.addEventListener("click", setLaborTopToBottom);
   document.getElementById("set-cost-labor-bottom-to-top")?.addEventListener("click", setLaborBottomToTop);
   document.getElementById("set-cost-labor-fte-top-to-bottom")?.addEventListener("click", setLaborFteTopToBottom);
   document.getElementById("set-cost-labor-fte-bottom-to-top")?.addEventListener("click", setLaborFteBottomToTop);
   document.getElementById("set-cost-non-labor-top-to-bottom")?.addEventListener("click", setNonLaborTopToBottom);
   document.getElementById("set-cost-non-labor-bottom-to-top")?.addEventListener("click", setNonLaborBottomToTop);
+  document.getElementById("set-cost-non-labor-category-top-to-bottom")?.addEventListener("click", setNonLaborCategoryTopToBottom);
+  document.getElementById("set-cost-non-labor-category-bottom-to-top")?.addEventListener("click", setNonLaborCategoryBottomToTop);
   document.getElementById("toggle-labor-allocation-top-lock")?.addEventListener("click", () => {
     state.laborAllocationTopLocked = !state.laborAllocationTopLocked;
     renderCostDrilldownView();
@@ -9200,6 +12713,36 @@ function bindControls() {
       .filter(key => NON_LABOR_CATEGORY_KEYS.includes(key));
     state.selectedNonLaborAllocationKeys = checked;
     renderNonLaborAllocationControls();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("non-labor-category-picker")?.addEventListener("change", event => {
+    const input = event.target.closest("input[type='radio']");
+    if (!input) return;
+    const nextKey = input.value;
+    if (!NON_LABOR_CATEGORY_KEYS.includes(nextKey)) return;
+    state.selectedNonLaborCategoryKey = nextKey;
+    state.selectedNonLaborCategoryDepartmentKeys = [];
+    renderNonLaborCategoryControls();
+    syncCostCharts();
+    resizeCostCharts();
+  });
+  document.getElementById("toggle-non-labor-category-top-lock")?.addEventListener("click", () => {
+    state.nonLaborCategoryTopLocked = !state.nonLaborCategoryTopLocked;
+    renderCostDrilldownView();
+  });
+  document.getElementById("toggle-non-labor-category-others-lock")?.addEventListener("click", () => {
+    state.nonLaborCategoryOthersLocked = !state.nonLaborCategoryOthersLocked;
+    renderCostDrilldownView();
+  });
+  document.getElementById("non-labor-category-department-line-list")?.addEventListener("change", event => {
+    const input = event.target.closest("input[type='checkbox']");
+    if (!input) return;
+    const checked = Array.from(document.querySelectorAll("#non-labor-category-department-line-list input[type='checkbox']:checked"))
+      .map(item => item.value)
+      .filter(key => LABOR_DEPARTMENT_KEYS.includes(key));
+    state.selectedNonLaborCategoryDepartmentKeys = checked;
+    renderNonLaborCategoryControls();
     syncCostCharts();
     resizeCostCharts();
   });
@@ -9329,6 +12872,7 @@ function bindControls() {
   document.getElementById("set-new-customers-total-top-down").addEventListener("click", setTotalNewCustomersTopDownToBottomUp);
   document.getElementById("set-new-customer-unit-top-down").addEventListener("click", setNewPropertyTopDownToUnitBuild);
   document.getElementById("set-new-customer-new-units-top-down").addEventListener("click", setNewUnitsTopDownToPropertyBuild);
+  document.getElementById("set-ltr-bottom-to-top")?.addEventListener("click", setLtrBottomToTop);
   document.getElementById("unlock-all-cohorts").addEventListener("click", () => setCohortLockSelection(() => false));
   document.getElementById("lock-all-cohorts").addEventListener("click", () => setCohortLockSelection(() => true));
   document.getElementById("undo-change").addEventListener("click", undoChange);
@@ -9412,13 +12956,35 @@ function bindControls() {
   });
 
   document.getElementById("tab-tree").addEventListener("click", () => setView("tree"));
+  document.getElementById("tab-definitions").addEventListener("click", () => setView("definitions"));
+  document.getElementById("tab-saas-metrics").addEventListener("click", () => setView("saasMetrics"));
+  document.getElementById("tab-scenarios").addEventListener("click", () => setView("scenarios"));
   document.getElementById("tab-initiatives").addEventListener("click", () => setView("initiatives"));
   document.getElementById("tab-guided").addEventListener("click", () => setView("guided"));
   document.getElementById("tab-costs").addEventListener("click", () => setView("costs"));
-  document.getElementById("tab-chart").addEventListener("click", () => setView("chart"));
+  document.getElementById("tab-chart").addEventListener("click", openNapkinViewEntry);
   document.getElementById("tab-table").addEventListener("click", () => setView("table"));
   document.getElementById("tab-rev-per-unit").addEventListener("click", () => setView("revPerUnit"));
   document.getElementById("tab-raw-data").addEventListener("click", () => setView("rawData"));
+  document.getElementById("back-revenue-drilldown")?.addEventListener("click", () => setView("profit"));
+  document.getElementById("set-total-revenue-bottom-to-top")?.addEventListener("click", setTotalRevenueBottomToTop);
+  document.getElementById("back-ltr-revenue-drilldown")?.addEventListener("click", () => {
+    setView("revenueDrilldown");
+    syncRevenueDrilldownCharts();
+  });
+  document.getElementById("back-profit-drilldown")?.addEventListener("click", () => setView("tree"));
+  document.getElementById("set-profit-top-to-bottom")?.addEventListener("click", setProfitTopToBottom);
+  document.getElementById("set-profit-bottom-to-top")?.addEventListener("click", setProfitBottomToTop);
+  document.querySelectorAll("[data-profit-lock-key]").forEach(button => {
+    button.addEventListener("click", event => toggleProfitLock(event.currentTarget.dataset.profitLockKey));
+  });
+  document.getElementById("back-other-revenue-drilldown")?.addEventListener("click", () => setView("tree"));
+  document.getElementById("back-str-revenue-drilldown")?.addEventListener("click", () => setView("tree"));
+  document.getElementById("set-str-revenue-top-to-bottom")?.addEventListener("click", setStrRevenueTopToBottom);
+  document.getElementById("set-str-revenue-bottom-to-top")?.addEventListener("click", setStrRevenueBottomToTop);
+  document.getElementById("back-growth-revenue-drilldown")?.addEventListener("click", () => setView("tree"));
+  document.getElementById("set-growth-revenue-top-to-bottom")?.addEventListener("click", setGrowthRevenueTopToBottom);
+  document.getElementById("set-growth-revenue-bottom-to-top")?.addEventListener("click", setGrowthRevenueBottomToTop);
   document.getElementById("canvas-zoom-out").addEventListener("click", () => {
     setCanvasZoom(state.canvasZoom - CANVAS_ZOOM_STEP);
   });
@@ -9482,15 +13048,27 @@ function bindControls() {
 
 function setView(view) {
   state.currentView = view;
+  const napkinViews = ["chart", "profit", "revenueDrilldown", "growthRevenue", "strRevenue", "otherRevenue"];
   document.getElementById("tab-tree").classList.toggle("active", view === "tree");
+  document.getElementById("tab-definitions").classList.toggle("active", view === "definitions");
+  document.getElementById("tab-saas-metrics").classList.toggle("active", view === "saasMetrics");
+  document.getElementById("tab-scenarios").classList.toggle("active", view === "scenarios");
   document.getElementById("tab-initiatives").classList.toggle("active", view === "initiatives");
   document.getElementById("tab-guided").classList.toggle("active", view === "guided");
   document.getElementById("tab-costs").classList.toggle("active", view === "costs");
-  document.getElementById("tab-chart").classList.toggle("active", view === "chart");
+  document.getElementById("tab-chart").classList.toggle("active", napkinViews.includes(view));
   document.getElementById("tab-table").classList.toggle("active", view === "table");
   document.getElementById("tab-rev-per-unit").classList.toggle("active", view === "revPerUnit");
   document.getElementById("tab-raw-data").classList.toggle("active", view === "rawData");
   document.getElementById("tree-view").classList.toggle("active", view === "tree");
+  document.getElementById("definitions-view").classList.toggle("active", view === "definitions");
+  document.getElementById("revenue-drilldown-view").classList.toggle("active", view === "revenueDrilldown");
+  document.getElementById("profit-view").classList.toggle("active", view === "profit");
+  document.getElementById("other-revenue-view").classList.toggle("active", view === "otherRevenue");
+  document.getElementById("str-revenue-view").classList.toggle("active", view === "strRevenue");
+  document.getElementById("growth-revenue-view").classList.toggle("active", view === "growthRevenue");
+  document.getElementById("saas-metrics-view").classList.toggle("active", view === "saasMetrics");
+  document.getElementById("scenarios-view").classList.toggle("active", view === "scenarios");
   document.getElementById("initiatives-view").classList.toggle("active", view === "initiatives");
   document.getElementById("guided-view").classList.toggle("active", view === "guided");
   document.getElementById("costs-view").classList.toggle("active", view === "costs");
@@ -9504,14 +13082,7 @@ function setView(view) {
   if (view === "tree") {
     enterMetricTreeCanvas();
   }
-  setTimeout(() => {
-    Object.values(state.charts).forEach(chart => chart.resize());
-    Object.values(state.costCharts).forEach(chart => chart.resize());
-    Object.values(state.cohortCharts).forEach(chart => chart.resize());
-    Object.values(state.outputCharts).forEach(chart => chart.resize());
-    Object.values(state.revUnitCharts).forEach(chart => chart.resize());
-    Object.values(state.defenseCharts).forEach(chart => chart.resize());
-  }, 0);
+  scheduleViewResize(view);
 }
 
 function init() {
@@ -9530,6 +13101,13 @@ function init() {
   initLaborFteCostPerFteChart();
   initNonLaborDrilldownTopDownChart();
   initNonLaborAllocationControlChart();
+  initNonLaborCategorySelectedSpendChart();
+  initNonLaborCategoryDepartmentControlChart();
+  initRevenueDrilldownCharts();
+  initProfitCharts();
+  initOtherRevenueCharts();
+  initStrRevenueCharts();
+  initGrowthRevenueCharts();
   initNewCustomerCohortEditors();
   initRevUnitCharts();
   initRetentionDefenseCharts();

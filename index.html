@@ -55,6 +55,9 @@
       <nav class="view-tabs" aria-label="Model views">
         <button id="tab-chart" class="active" type="button">Napkin View</button>
         <button id="tab-tree" type="button">Everything</button>
+        <button id="tab-definitions" type="button">Definitions</button>
+        <button id="tab-saas-metrics" type="button">SaaS Metrics</button>
+        <button id="tab-scenarios" type="button">Scenarios</button>
         <button id="tab-initiatives" type="button">Initiatives</button>
         <button id="tab-guided" type="button">Guided Plan</button>
         <button id="tab-costs" type="button">Costs</button>
@@ -67,7 +70,7 @@
         <div class="tree-toolbar">
           <div>
             <h2>Model Canvas</h2>
-            <p>Start with the revenue node. We can add connected dependencies once the framing feels right.</p>
+            <p>Trace profit through revenue, cost, and the driver branches underneath each side.</p>
           </div>
           <div class="canvas-zoom-controls" aria-label="Canvas zoom controls">
             <button id="canvas-zoom-out" type="button" aria-label="Zoom out">-</button>
@@ -93,15 +96,179 @@
               <path d="M 245 1795 C 245 1745, 310 1725, 410 1665"></path>
               <path d="M 615 1795 C 615 1745, 510 1725, 430 1665"></path>
             </svg>
+            <section class="canvas-node canvas-node-profit" data-node-id="profit" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Operating Model</span>
+                  <h2>Profit</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="profit" type="button">Open</button>
+              </div>
+              <div id="tree-profit-chart" class="tree-chart tree-chart-large"></div>
+            </section>
             <section class="canvas-node canvas-node-revenue" data-node-id="revenue" tabindex="0">
               <div class="tree-card-header">
                 <div>
                   <span>Total Model</span>
                   <h2>Revenue</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="chart" data-focus-chart="revenue-chart" type="button">Open</button>
+                <button class="tree-jump" data-tree-action="revenueDrilldown" type="button">Open</button>
               </div>
               <div id="tree-revenue-chart" class="tree-chart tree-chart-large"></div>
+            </section>
+            <section class="canvas-node canvas-node-ltr-revenue" data-node-id="ltrRevenue" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue Path</span>
+                  <h2>LTR</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="revenue-chart" type="button">Open</button>
+              </div>
+              <div id="tree-ltr-revenue-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-str-revenue" data-node-id="strRevenue" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue Path</span>
+                  <h2>STR</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="strRevenue" type="button">Open</button>
+              </div>
+              <div id="tree-str-revenue-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-str-properties" data-node-id="strProperties" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>STR Driver</span>
+                  <h2>Num STR Properties</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="strRevenue" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="strProperties" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-str-properties-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-str-rev-per-property" data-node-id="strRevPerProperty" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>STR Driver</span>
+                  <h2>Rev / STR Property</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="strRevenue" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="strRevPerProperty" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-str-rev-per-property-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-growth-revenue" data-node-id="growthRevenue" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue Path</span>
+                  <h2>Growth</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="growthRevenue" type="button">Open</button>
+              </div>
+              <div id="tree-growth-revenue-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-growth-new-paying-customers" data-node-id="growthNewPayingCustomers" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Proxy Driver</span>
+                  <h2>New Paying Customers</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="growthNewPayingCustomers" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-growth-new-paying-customers-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-growth-rev-per-new-paying-customer" data-node-id="growthRevPerNewPayingCustomer" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Proxy Driver</span>
+                  <h2>Rev / New Paying Customer</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="growthRevenue" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="growthRevPerNewPayingCustomer" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-growth-rev-per-new-paying-customer-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-other-revenue" data-node-id="otherRevenue" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Revenue Path</span>
+                  <h2>Other</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="otherRevenue" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="otherRevenue" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-other-revenue-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-cost" data-node-id="cost" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Operating Model</span>
+                  <h2>Cost</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="costs" type="button">Open</button>
+              </div>
+              <div id="tree-cost-chart" class="tree-chart tree-chart-large"></div>
+            </section>
+            <section class="canvas-node canvas-node-labor-cost" data-node-id="laborCost" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Cost Build</span>
+                  <h2>Labor</h2>
+                </div>
+                <button class="tree-jump" data-tree-action="laborCost" type="button">Open</button>
+              </div>
+              <div id="tree-labor-cost-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-non-labor-cost" data-node-id="nonLaborCost" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Cost Build</span>
+                  <h2>Non-Labor</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="nonLaborCost" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="nonLaborCost" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-non-labor-cost-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-labor-fte" data-node-id="laborFte" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Labor Build</span>
+                  <h2>FTE / Equivalent</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="laborFte" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="laborFte" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-labor-fte-chart" class="tree-chart tree-chart-small"></div>
+            </section>
+            <section class="canvas-node canvas-node-labor-cost-per-fte" data-node-id="laborCostPerFte" tabindex="0">
+              <div class="tree-card-header">
+                <div>
+                  <span>Labor Build</span>
+                  <h2>Cost / FTE Equivalent</h2>
+                </div>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="laborFte" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="laborCostPerFte" type="button">Defend</button>
+                </div>
+              </div>
+              <div id="tree-labor-cost-per-fte-chart" class="tree-chart tree-chart-small"></div>
             </section>
             <section class="canvas-node canvas-node-paying-customers" data-node-id="payingCustomers" tabindex="0">
               <div class="tree-card-header">
@@ -211,7 +378,10 @@
                   <span>Returning Customer Build</span>
                   <h2>Prior Year Paying Customers</h2>
                 </div>
-                <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+                <div class="tree-card-actions">
+                  <button class="tree-jump" data-tree-action="newCustomers" type="button">Open</button>
+                  <button class="tree-defense-button" data-defense-key="priorPayingCustomers" type="button">Defend</button>
+                </div>
               </div>
               <div id="tree-prior-paying-customers-chart" class="tree-chart tree-chart-small"></div>
             </section>
@@ -315,6 +485,549 @@
         </div>
       </section>
 
+      <section id="definitions-view" class="view">
+        <div class="definitions-header">
+          <div>
+            <h2>Definitions</h2>
+            <p>Define the model hierarchy before deciding how each line should be calculated.</p>
+          </div>
+        </div>
+        <div class="definitions-grid">
+          <section class="definition-tile">
+            <div class="definition-tile-heading">
+              <div>
+                <h2>Revenue Hierarchy</h2>
+                <p>Neutral revenue lines that roll up to total revenue.</p>
+              </div>
+            </div>
+            <div class="definition-table-wrap">
+              <table class="definition-table">
+                <thead>
+                  <tr>
+                    <th>Level 1</th>
+                    <th>Level 2</th>
+                    <th>Level 3</th>
+                    <th>Modeling Definition</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>LTR</td>
+                    <td>LTR Household Pet Profiles</td>
+                    <td>-</td>
+                    <td>Current core model: new and returning customers x profiles per customer x revenue per profile.</td>
+                  </tr>
+                  <tr>
+                    <td>LTR</td>
+                    <td>LTR Recurring Revenue</td>
+                    <td>-</td>
+                    <td>Potential recurring model for the long-term rental business, likely based on partner units, adoption, and recurring price.</td>
+                  </tr>
+                  <tr>
+                    <td>STR</td>
+                    <td>Short-Term Rental</td>
+                    <td>STR Pet Passports</td>
+                    <td>Transaction-style STR revenue, likely modeled from STR partner/customer volume and passport revenue per transaction.</td>
+                  </tr>
+                  <tr>
+                    <td>STR</td>
+                    <td>Short-Term Rental</td>
+                    <td>STR Recurring Revenue</td>
+                    <td>Recurring STR revenue, likely modeled from STR partner units, recurring adoption, and recurring price.</td>
+                  </tr>
+                  <tr>
+                    <td>Growth</td>
+                    <td>Ancillary</td>
+                    <td>Insurance</td>
+                    <td>Ancillary revenue attached to an eligible base such as new customers, profiles, or units x attach rate x revenue per attached customer.</td>
+                  </tr>
+                  <tr>
+                    <td>Growth</td>
+                    <td>Ancillary</td>
+                    <td>Wellness</td>
+                    <td>Ancillary revenue attached to an eligible base x attach rate x revenue per attached customer or transaction.</td>
+                  </tr>
+                  <tr>
+                    <td>Other</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>Other revenue outside the LTR, STR, and Growth categories.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section class="definition-tile">
+            <div class="definition-tile-heading">
+              <div>
+                <h2>Cost Hierarchy</h2>
+                <p>Operating cost lines that roll up to total cost.</p>
+              </div>
+            </div>
+            <div class="definition-table-wrap">
+              <table class="definition-table">
+                <thead>
+                  <tr>
+                    <th>Level 1</th>
+                    <th>Level 2</th>
+                    <th>Level 3</th>
+                    <th>Modeling Definition</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Admin</td>
+                    <td>-</td>
+                    <td>Administrative labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Product</td>
+                    <td>-</td>
+                    <td>Product labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Engineering</td>
+                    <td>-</td>
+                    <td>Engineering labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Growth</td>
+                    <td>-</td>
+                    <td>Growth labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Sales</td>
+                    <td>-</td>
+                    <td>Sales labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Marketing</td>
+                    <td>-</td>
+                    <td>Marketing labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Client Success</td>
+                    <td>-</td>
+                    <td>Client success labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Customer Experience</td>
+                    <td>-</td>
+                    <td>Customer experience labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>Assistance Animal</td>
+                    <td>-</td>
+                    <td>Assistance animal labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Labor</td>
+                    <td>FidoTabby</td>
+                    <td>-</td>
+                    <td>FidoTabby labor cost.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Staffing Costs</td>
+                    <td>-</td>
+                    <td>Non-labor staffing costs.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Marketing Costs</td>
+                    <td>-</td>
+                    <td>Marketing costs outside labor.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Outside Marketing</td>
+                    <td>-</td>
+                    <td>Outside marketing spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Conferences</td>
+                    <td>-</td>
+                    <td>Conference spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Consultants</td>
+                    <td>-</td>
+                    <td>Consultant spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Legal &amp; Professional Services</td>
+                    <td>-</td>
+                    <td>Legal and professional services spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Insurance</td>
+                    <td>-</td>
+                    <td>Insurance spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Software Development</td>
+                    <td>-</td>
+                    <td>Software development spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Software Subscriptions</td>
+                    <td>-</td>
+                    <td>Software subscription spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Rent</td>
+                    <td>-</td>
+                    <td>Rent spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>Travel, Meals &amp; Entertainment</td>
+                    <td>-</td>
+                    <td>Travel, meals, and entertainment spend.</td>
+                  </tr>
+                  <tr>
+                    <td>Non-Labor</td>
+                    <td>All Other</td>
+                    <td>-</td>
+                    <td>All other non-labor spend.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="revenue-drilldown-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>Revenue Drilldown</h2>
+            <p>Split total revenue into the level one revenue categories.</p>
+          </div>
+          <button id="back-revenue-drilldown" class="back-button" type="button">Back</button>
+        </div>
+        <section class="cost-drilldown-top-panel">
+          <div class="chart-heading">
+            <h2>Total Revenue</h2>
+            <div class="chart-heading-actions">
+              <button id="set-total-revenue-bottom-to-top" class="set-button" type="button">Set</button>
+            </div>
+          </div>
+          <div id="revenue-drilldown-total-chart" class="chart chart-output"></div>
+        </section>
+        <div class="cost-drilldown-grid">
+          <section>
+            <div class="chart-heading">
+              <h2>LTR</h2>
+              <div class="chart-heading-actions">
+                <div class="axis-button-row" data-napkin-y-axis-controls="revenueDrilldownLtr" aria-label="LTR revenue Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+                <button class="tree-jump" data-tree-action="chart" data-focus-chart="revenue-chart" type="button">Open</button>
+              </div>
+            </div>
+            <div id="revenue-drilldown-ltr-chart" class="chart chart-output"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Growth</h2>
+              <div class="chart-heading-actions">
+                <div class="axis-button-row" data-napkin-y-axis-controls="revenueDrilldownGrowth" aria-label="Growth revenue Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+                <button class="tree-jump" data-tree-action="growthRevenue" type="button">Open</button>
+                <button class="drilldown-button" data-defense-key="growthRevPerNewPayingCustomer" type="button">Defend</button>
+              </div>
+            </div>
+            <div id="revenue-drilldown-growth-chart" class="chart chart-output"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>STR</h2>
+              <div class="chart-heading-actions">
+                <div class="axis-button-row" data-napkin-y-axis-controls="revenueDrilldownStr" aria-label="STR revenue Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+                <button class="tree-jump" data-tree-action="strRevenue" type="button">Open</button>
+                <button class="drilldown-button" data-defense-key="strRevPerProperty" type="button">Defend</button>
+              </div>
+            </div>
+            <div id="revenue-drilldown-str-chart" class="chart chart-output"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Other</h2>
+              <div class="chart-heading-actions">
+                <div class="axis-button-row" data-napkin-y-axis-controls="revenueDrilldownOther" aria-label="Other revenue Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+                <button class="tree-jump" data-tree-action="otherRevenue" type="button">Open</button>
+                <button class="drilldown-button" data-defense-key="otherRevenue" type="button">Defend</button>
+              </div>
+            </div>
+            <div id="revenue-drilldown-other-chart" class="chart chart-output"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="profit-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>Profit Drilldown</h2>
+            <p>Reconcile profit as total revenue less total cost.</p>
+          </div>
+          <button id="back-profit-drilldown" class="back-button" type="button">Back</button>
+        </div>
+        <section class="cost-drilldown-top-panel">
+          <div class="chart-heading">
+            <h2>Profit</h2>
+            <div class="chart-heading-actions">
+              <div class="axis-button-row" data-napkin-y-axis-controls="profitTop" aria-label="Profit Y axis controls">
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+              </div>
+              <button id="set-profit-top-to-bottom" class="set-button" type="button">Set Top -&gt; Bottom</button>
+              <button id="set-profit-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+              <button class="cost-lock-button" data-profit-lock-key="profit" type="button">Lock</button>
+            </div>
+          </div>
+          <div id="profit-top-chart" class="chart chart-output"></div>
+        </section>
+        <div class="cost-drilldown-grid">
+          <section>
+            <div class="chart-heading">
+              <h2>Revenue</h2>
+              <div class="chart-heading-actions">
+                <div class="axis-button-row" data-napkin-y-axis-controls="profitRevenue" aria-label="Profit revenue Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+                <button class="drilldown-button tree-jump" data-tree-action="revenueDrilldown" type="button">Drilldown</button>
+                <button class="cost-lock-button" data-profit-lock-key="revenue" type="button">Lock</button>
+              </div>
+            </div>
+            <div id="profit-revenue-chart" class="chart chart-output"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Cost</h2>
+              <div class="chart-heading-actions">
+                <div class="axis-button-row" data-napkin-y-axis-controls="profitCost" aria-label="Profit cost Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+                <button class="drilldown-button tree-jump" data-tree-action="costs" type="button">Drilldown</button>
+                <button class="cost-lock-button" data-profit-lock-key="cost" type="button">Lock</button>
+              </div>
+            </div>
+            <div id="profit-cost-chart" class="chart chart-output"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="other-revenue-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>Other Revenue</h2>
+            <p>Model Other revenue directly as a single editable path. BAU remains flat after 2025.</p>
+          </div>
+          <button id="back-other-revenue-drilldown" class="back-button" type="button">Back</button>
+        </div>
+        <section class="cost-drilldown-top-panel">
+          <div class="chart-heading">
+            <h2>Other Revenue</h2>
+            <button class="drilldown-button" data-defense-key="otherRevenue" type="button">Defend</button>
+          </div>
+          <div id="other-revenue-chart" class="chart chart-output"></div>
+        </section>
+      </section>
+
+      <section id="str-revenue-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>STR Revenue Drilldown</h2>
+            <p>Build a new STR revenue path from STR properties and revenue per STR property.</p>
+          </div>
+          <button id="back-str-revenue-drilldown" class="back-button" type="button">Back</button>
+        </div>
+        <section class="cost-drilldown-top-panel">
+          <div class="chart-heading">
+            <h2>STR Revenue</h2>
+            <div class="chart-heading-actions">
+              <button id="set-str-revenue-top-to-bottom" class="set-button" type="button">Set Top -&gt; Bottom</button>
+              <button id="set-str-revenue-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+            </div>
+          </div>
+          <div id="str-revenue-topdown-chart" class="chart chart-output"></div>
+        </section>
+        <div class="cost-drilldown-grid">
+          <section>
+            <div class="chart-heading">
+              <h2>Num STR Properties</h2>
+              <button class="drilldown-button" data-defense-key="strProperties" type="button">Defend</button>
+            </div>
+            <div id="str-revenue-properties-chart" class="chart chart-output"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Rev / STR Property</h2>
+              <button class="drilldown-button" data-defense-key="strRevPerProperty" type="button">Defend</button>
+            </div>
+            <div id="str-revenue-rev-per-property-chart" class="chart chart-output"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="growth-revenue-view" class="view">
+        <div class="drilldown-header">
+          <div>
+            <h2>Growth Revenue Drilldown</h2>
+            <p>Reconcile top-down Growth revenue against a proxy build from new paying customers and revenue per new paying customer.</p>
+          </div>
+          <button id="back-growth-revenue-drilldown" class="back-button" type="button">Back</button>
+        </div>
+        <section class="cost-drilldown-top-panel">
+          <div class="chart-heading">
+            <h2>Growth Revenue</h2>
+            <div class="chart-heading-actions">
+              <button id="set-growth-revenue-top-to-bottom" class="set-button" type="button">Fit to Top Down</button>
+              <button id="set-growth-revenue-bottom-to-top" class="set-button" type="button">Set to Bottom Up</button>
+            </div>
+          </div>
+          <div id="growth-revenue-topdown-chart" class="chart chart-output"></div>
+        </section>
+        <div class="cost-drilldown-grid">
+          <section>
+            <div class="chart-heading">
+              <h2>New Paying Customers</h2>
+              <button class="drilldown-button" data-defense-key="growthNewPayingCustomers" type="button">Defend</button>
+            </div>
+            <div id="growth-revenue-proxy-customers-chart" class="chart chart-output"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Rev / New Paying Customer</h2>
+              <button class="drilldown-button" data-defense-key="growthRevPerNewPayingCustomer" type="button">Defend</button>
+            </div>
+            <div id="growth-revenue-rev-per-new-customer-chart" class="chart chart-output"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="saas-metrics-view" class="view">
+        <div class="saas-metrics-header">
+          <div>
+            <h2>SaaS Metrics</h2>
+            <p>Analyze standard SaaS operating metrics derived from the active scenario.</p>
+          </div>
+        </div>
+        <div class="saas-metrics-grid">
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Rule of 40</h2>
+                <p>Revenue growth plus profit margin.</p>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 Rule of 40</span>
+                <strong id="saas-rule-of-40-2029">0%</strong>
+              </div>
+              <div>
+                <span>Revenue Growth</span>
+                <strong id="saas-revenue-growth-2029">0%</strong>
+              </div>
+              <div>
+                <span>Profit Margin</span>
+                <strong id="saas-profit-margin-2029">0%</strong>
+              </div>
+            </div>
+            <div id="saas-rule-of-40-chart" class="chart chart-output"></div>
+          </section>
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Fully Loaded CAC</h2>
+                <p>Total cost divided by new customers.</p>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 CAC</span>
+                <strong id="saas-cac-2029">$0</strong>
+              </div>
+              <div>
+                <span>New Customers</span>
+                <strong id="saas-cac-new-customers-2029">0</strong>
+              </div>
+              <div>
+                <span>Total Cost</span>
+                <strong id="saas-cac-total-cost-2029">$0</strong>
+              </div>
+            </div>
+            <div id="saas-cac-chart" class="chart chart-output"></div>
+          </section>
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Revenue / FTE</h2>
+                <p>Revenue divided by FTE / equivalent.</p>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 Revenue / FTE</span>
+                <strong id="saas-revenue-per-fte-2029">$0</strong>
+              </div>
+              <div>
+                <span>Revenue</span>
+                <strong id="saas-revenue-per-fte-revenue-2029">$0</strong>
+              </div>
+              <div>
+                <span>FTE / Equivalent</span>
+                <strong id="saas-revenue-per-fte-fte-2029">0</strong>
+              </div>
+            </div>
+            <div id="saas-revenue-per-fte-chart" class="chart chart-output"></div>
+          </section>
+        </div>
+      </section>
+
       <section id="raw-data-view" class="view">
         <div class="raw-data-toolbar">
           <div>
@@ -323,6 +1036,16 @@
           </div>
         </div>
         <div id="raw-data-module"></div>
+      </section>
+
+      <section id="scenarios-view" class="view">
+        <div class="scenario-module-header">
+          <div>
+            <h2>Scenarios</h2>
+            <p>Compare scenario-level profit and top-down vs bottom-up reconciliation status.</p>
+          </div>
+        </div>
+        <div id="scenarios-module"></div>
       </section>
 
       <section id="initiatives-view" class="view">
@@ -506,6 +1229,7 @@
                 <div class="chart-heading-actions">
                   <button class="cost-lock-button" data-cost-lock-key="nonLabor" type="button">Lock</button>
                   <button id="toggle-cost-non-labor-drilldown" class="drilldown-button" type="button">Drilldown</button>
+                  <button class="drilldown-button" data-defense-key="nonLaborCost" type="button">Defend</button>
                   <div class="axis-button-row" data-napkin-y-axis-controls="nonLabor" aria-label="Non-labor cost Y axis controls">
                     <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
                       <span class="axis-triangle axis-triangle-up"></span>
@@ -647,6 +1371,7 @@
                 <h2>FTE / Equivalent</h2>
                 <div class="chart-heading-actions">
                   <button class="cost-lock-button" data-labor-fte-lock="fte" data-locked-label="FTE" type="button">Lock</button>
+                  <button class="drilldown-button" data-defense-key="laborFte" type="button">Defend</button>
                   <div class="editor-tabs compact-tabs" data-cost-chart-mode="laborFteCount" aria-label="Labor FTE chart mode">
                     <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
                     <button data-cost-chart-mode-value="pct" type="button">Pct Total</button>
@@ -675,6 +1400,7 @@
                 <h2>Cost / FTE Equivalent</h2>
                 <div class="chart-heading-actions">
                   <button class="cost-lock-button" data-labor-fte-lock="costPerFte" data-locked-label="Cost/FTE" type="button">Lock</button>
+                  <button class="drilldown-button" data-defense-key="laborCostPerFte" type="button">Defend</button>
                   <div class="editor-tabs compact-tabs" data-cost-line-mode="laborFteCostPerFte" aria-label="Labor cost per FTE line mode">
                     <button class="active" data-cost-line-mode-value="grouped" type="button">Grouped</button>
                     <button data-cost-line-mode-value="separated" type="button">Separated</button>
@@ -705,6 +1431,7 @@
               <div class="chart-heading-actions">
                 <button id="set-cost-non-labor-top-to-bottom" class="set-button" type="button">Set Top -&gt; Bottom</button>
                 <button id="set-cost-non-labor-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+                <button class="drilldown-button" data-defense-key="nonLaborCost" type="button">Defend</button>
                 <div class="editor-tabs compact-tabs" data-cost-chart-mode="nonLaborDrilldownTopDown" aria-label="Non-labor top-down chart mode">
                   <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
                   <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
@@ -724,6 +1451,7 @@
               <div class="chart-heading">
                 <h2>Category Allocation</h2>
                 <div class="chart-heading-actions">
+                  <button id="toggle-cost-non-labor-category-drilldown" class="drilldown-button" type="button">Drilldown</button>
                   <div class="editor-tabs compact-tabs" data-cost-chart-mode="nonLaborCategoryMix" aria-label="Non-labor category allocation chart mode">
                     <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
                     <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
@@ -759,28 +1487,97 @@
             </section>
           </div>
         </section>
+        <section id="cost-non-labor-category-drilldown" class="cost-drilldown" hidden>
+          <div class="drilldown-header">
+            <div>
+              <h2>Non-Labor Category Drilldown</h2>
+              <p>Break one category into the departments responsible for that spend.</p>
+            </div>
+            <button id="back-cost-non-labor-category-drilldown" class="back-button" type="button">Back</button>
+          </div>
+          <section class="cost-drilldown-top-panel">
+            <div class="chart-heading">
+              <h2 id="non-labor-category-selected-title">Selected Category Spend</h2>
+              <div class="chart-heading-actions">
+                <button id="set-cost-non-labor-category-top-to-bottom" class="set-button" type="button">Set Top -&gt; Bottom</button>
+                <button id="set-cost-non-labor-category-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+                <button id="toggle-non-labor-category-top-lock" class="cost-lock-button" type="button">Lock Top</button>
+                <span id="non-labor-category-selection-label" class="selection-label">Conferences</span>
+                <div class="editor-tabs compact-tabs" data-cost-chart-mode="nonLaborCategorySelectedSpend" aria-label="Selected non-labor category chart mode">
+                  <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                  <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                </div>
+                <div class="axis-button-row" data-napkin-y-axis-controls="nonLaborCategorySelectedSpend" aria-label="Selected non-labor category Y axis controls">
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                  <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                </div>
+              </div>
+            </div>
+            <div id="non-labor-category-picker" class="labor-allocation-line-list"></div>
+            <div id="cost-non-labor-category-selected-chart" class="chart chart-output"></div>
+          </section>
+          <div class="cost-drilldown-grid">
+            <section>
+              <div class="chart-heading">
+                <h2>Department Allocation</h2>
+              </div>
+              <div id="cost-non-labor-category-department-mix-chart" class="chart chart-output cost-department-allocation-chart"></div>
+            </section>
+            <section class="cost-allocation-panel">
+              <div class="chart-heading">
+                <h2>Department Controls</h2>
+                <div class="chart-heading-actions">
+                  <button id="toggle-non-labor-category-others-lock" class="cost-lock-button" type="button">Lock Others</button>
+                  <div class="editor-tabs compact-tabs" data-cost-chart-mode="nonLaborCategoryDepartmentControl" aria-label="Non-labor category department control chart mode">
+                    <button class="active" data-cost-chart-mode-value="value" type="button">Value</button>
+                    <button data-cost-chart-mode-value="yoy" type="button">YoY %</button>
+                  </div>
+                  <div class="editor-tabs compact-tabs" data-cost-line-mode="nonLaborCategoryDepartmentControl" aria-label="Non-labor category department line mode">
+                    <button class="active" data-cost-line-mode-value="grouped" type="button">Grouped</button>
+                    <button data-cost-line-mode-value="separated" type="button">Separated</button>
+                  </div>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="nonLaborCategoryDepartmentControl" aria-label="Non-labor category department Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+                  </div>
+                </div>
+              </div>
+              <div id="non-labor-category-department-line-list" class="labor-allocation-line-list"></div>
+              <div id="cost-non-labor-category-department-empty" class="allocation-control-empty">
+                <strong>Select one or more departments</strong>
+                <span>Choose department chips above to create an editable department allocation line.</span>
+              </div>
+              <div id="cost-non-labor-category-department-control-chart" class="chart chart-output"></div>
+            </section>
+          </div>
+        </section>
       </section>
 
       <section id="chart-view" class="view active">
-        <div class="output-row">
+        <div class="drilldown-header">
           <div>
-            <h2>Revenue Path</h2>
-            <div id="revenue-chart" class="chart chart-output"></div>
+            <h2>LTR Revenue Drilldown</h2>
+            <p>Model the household pet profile revenue path and its underlying drivers.</p>
           </div>
+          <button id="back-ltr-revenue-drilldown" class="back-button" type="button">Back</button>
+        </div>
+        <div class="output-row output-row-single">
           <div>
-            <h2>Plan Gap</h2>
-            <div id="gap-chart" class="chart chart-output"></div>
+            <div class="chart-heading">
+              <h2>LTR Top Down vs Bottom Up</h2>
+              <div class="chart-heading-actions">
+                <button id="set-ltr-bottom-to-top" class="set-button" type="button">Set Bottom -&gt; Top</button>
+              </div>
+            </div>
+            <div id="revenue-chart" class="chart chart-output"></div>
           </div>
         </div>
 
         <div class="driver-grid">
-          <section>
-            <div class="chart-heading">
-              <h2>Retention</h2>
-              <button class="drilldown-button" data-defense-key="retentionRate" type="button">Defend</button>
-            </div>
-            <div id="chart-retention" class="chart"></div>
-          </section>
           <section>
             <div class="chart-heading">
               <h2>New Customers</h2>
@@ -806,13 +1603,6 @@
           </section>
           <section>
             <div class="chart-heading">
-              <h2>Profiles / Returning Customer</h2>
-              <button class="drilldown-button" data-defense-key="profilesReturningCustomer" type="button">Defend</button>
-            </div>
-            <div id="chart-profiles-returning" class="chart"></div>
-          </section>
-          <section>
-            <div class="chart-heading">
               <h2>Profiles / New Customer</h2>
               <button class="drilldown-button" data-defense-key="profilesNewCustomer" type="button">Defend</button>
             </div>
@@ -820,17 +1610,31 @@
           </section>
           <section>
             <div class="chart-heading">
-              <h2>Rev / Returning Profile</h2>
-              <button class="drilldown-button" data-defense-key="revenueReturningProfile" type="button">Defend</button>
-            </div>
-            <div id="chart-rev-returning" class="chart"></div>
-          </section>
-          <section>
-            <div class="chart-heading">
               <h2>Rev / New Profile</h2>
               <button class="drilldown-button" data-defense-key="revenueNewProfile" type="button">Defend</button>
             </div>
             <div id="chart-rev-new" class="chart"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Retention</h2>
+              <button class="drilldown-button" data-defense-key="retentionRate" type="button">Defend</button>
+            </div>
+            <div id="chart-retention" class="chart"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Profiles / Returning Customer</h2>
+              <button class="drilldown-button" data-defense-key="profilesReturningCustomer" type="button">Defend</button>
+            </div>
+            <div id="chart-profiles-returning" class="chart"></div>
+          </section>
+          <section>
+            <div class="chart-heading">
+              <h2>Rev / Returning Profile</h2>
+              <button class="drilldown-button" data-defense-key="revenueReturningProfile" type="button">Defend</button>
+            </div>
+            <div id="chart-rev-returning" class="chart"></div>
           </section>
         </div>
       </section>
@@ -902,17 +1706,13 @@
             <p>Build the new customer line from property cohort contributions.</p>
           </div>
         </div>
-        <div class="output-row new-customer-main-panel">
+        <div class="output-row output-row-single new-customer-main-panel">
           <div>
             <div class="chart-heading">
               <h2>Total New Customers</h2>
               <button id="set-new-customers-total-top-down" class="set-button" type="button">Set</button>
             </div>
             <div id="new-customers-total-chart" class="chart chart-output"></div>
-          </div>
-          <div>
-            <h2>Bottom-Up Delta to Top-Down</h2>
-            <div id="new-customers-drilldown-chart" class="chart chart-output"></div>
           </div>
         </div>
         <div class="cohort-editor new-customer-main-panel">
@@ -971,17 +1771,13 @@
             <h2>New Properties Unit Drilldown</h2>
             <button id="back-new-customers-unit-drilldown" class="back-button" type="button">Back</button>
           </div>
-          <div class="output-row unit-drilldown-main-panel">
+          <div class="output-row output-row-single unit-drilldown-main-panel">
             <div>
               <div class="chart-heading">
                 <h2>New Properties Top-Down vs Unit Build</h2>
                 <button id="set-new-customer-unit-top-down" class="set-button" type="button">Set</button>
               </div>
               <div id="new-customers-unit-bridge-chart" class="chart chart-output"></div>
-            </div>
-            <div>
-              <h2>Unit Build Delta to Top-Down</h2>
-              <div id="new-customers-unit-delta-chart" class="chart chart-output"></div>
             </div>
           </div>
           <div class="output-row editor-chart-row unit-drilldown-main-panel">
@@ -1011,17 +1807,13 @@
               <h2>New Units Drilldown</h2>
               <button id="back-new-customers-new-units-drilldown" class="back-button" type="button">Back</button>
             </div>
-            <div class="output-row">
+            <div class="output-row output-row-single">
               <div>
                 <div class="chart-heading">
                   <h2>New Units Top-Down vs Property Build</h2>
                   <button id="set-new-customer-new-units-top-down" class="set-button" type="button">Set</button>
                 </div>
                 <div id="new-customers-new-units-bridge-chart" class="chart chart-output"></div>
-              </div>
-              <div>
-                <h2>Property Build Delta to Top-Down</h2>
-                <div id="new-customers-new-units-delta-chart" class="chart chart-output"></div>
               </div>
             </div>
             <div class="output-row editor-chart-row">
@@ -1509,6 +2301,6 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="./napkinChart.js"></script>
     <script src="./raw-data.js"></script>
-    <script src="./hhp-simple.js?v=labor-fte-separated-lines"></script>
+    <script src="./hhp-simple.js?v=growth-button-labels"></script>
   </body>
 </html>
