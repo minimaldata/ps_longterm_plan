@@ -2281,6 +2281,7 @@ function renderCostDrilldownView() {
   renderLaborFteControls();
   renderNonLaborAllocationControls();
   renderNonLaborCategoryControls();
+  refreshHeaderKpis();
 }
 
 function resizeCostCharts() {
@@ -9625,14 +9626,51 @@ function revenuePathChartOption(outputs) {
 }
 
 function renderKpis(outputs) {
-  const last = YEARS.length - 1;
-  const firstForecast = YEARS.indexOf(2025);
-  const cagr = Math.pow(outputs.revenue[last] / outputs.revenue[firstForecast], 1 / (YEARS[last] - YEARS[firstForecast])) - 1;
-  document.getElementById("kpi-revenue-2029").textContent = formatCurrency(outputs.revenue[last], 0);
-  document.getElementById("kpi-gap-2029").textContent = formatCurrency(outputs.delta[last], 0);
-  document.getElementById("kpi-gap-2029").classList.toggle("negative", outputs.delta[last] < 0);
-  document.getElementById("kpi-cagr").textContent = isAnonymizedView() ? anonymizedMetricValue() : `${(cagr * 100).toFixed(1)}%`;
-  document.getElementById("kpi-paid-profiles").textContent = formatIntegerMetric(outputs.paidProfiles[last]);
+  const scenario = activeScenario();
+  const cumulativeProfit = scenarioCumulativeProfitForYears(scenario);
+  const comparison = compareScenario();
+  const comparisonProfit = comparison ? scenarioCumulativeProfitForYears(comparison) : null;
+  const latestVersion = latestScenarioVersion(scenario);
+  const latestVersionScenario = latestVersion ? scenarioFromVersion(scenario, latestVersion) : null;
+  const topLineMetric = topLineMetricForCurrentView(scenario);
+  const versionTopLineMetric = latestVersionScenario ? topLineMetricForCurrentView(latestVersionScenario) : null;
+  const compareDelta = comparison ? cumulativeProfit - comparisonProfit : null;
+  const currentMetricDelta = topLineMetricPeriodDelta(topLineMetric.values);
+  const versionMetricDelta = versionTopLineMetric ? topLineMetricPeriodDelta(versionTopLineMetric.values) : null;
+  const versionDelta = versionTopLineMetric ? currentMetricDelta - versionMetricDelta : null;
+  const compareElement = document.getElementById("kpi-compare-profit-delta");
+  const versionElement = document.getElementById("kpi-version-profit-delta");
+
+  setText("kpi-cumulative-profit", formatCurrency(cumulativeProfit, 0));
+  setText("kpi-compare-profit-delta", comparison ? formatCurrency(compareDelta, 0) : "-");
+  setText("kpi-version-delta-label", `2021-2029 ${topLineMetric.label} Delta to Previous Version`);
+  setText("kpi-version-profit-delta", versionTopLineMetric ? formatTopLineMetricDelta(versionDelta, topLineMetric.format) : "-");
+  compareElement?.classList.toggle("negative", Number(compareDelta) < 0);
+  versionElement?.classList.toggle("negative", Number(versionDelta) < 0);
+  renderKpiReconciliationPills(scenario);
+}
+
+function refreshHeaderKpis() {
+  renderKpis(calculateOutputs(activeScenario()));
+}
+
+function renderKpiReconciliationPills(scenario) {
+  const container = document.getElementById("kpi-reconciliation-pills");
+  if (!container) return;
+  const unmatched = scenarioReconciliationChecks(scenario).filter(check => !check.matched);
+  if (!unmatched.length) {
+    container.innerHTML = `<span class="summary-status-pill matched">Matched</span>`;
+    return;
+  }
+  container.innerHTML = unmatched.map(check => `
+    <button
+      class="summary-status-pill open"
+      type="button"
+      data-reconciliation-action="${escapeHtml(check.action || "")}"
+      data-focus-chart="${escapeHtml(check.focusChart || "")}"
+      data-category-key="${escapeHtml(check.categoryKey || "")}"
+    >${escapeHtml(check.label)}</button>
+  `).join("");
 }
 
 function setText(id, value) {
@@ -9811,6 +9849,7 @@ function renderNewCustomerUnitDrilldownToggle() {
   newUnitsPanel.hidden = !state.newCustomerNewUnitsDrilldownOpen;
   view.classList.toggle("new-customers-unit-mode", state.newCustomerUnitDrilldownOpen);
   view.classList.toggle("new-customers-new-units-mode", state.newCustomerNewUnitsDrilldownOpen);
+  refreshHeaderKpis();
 }
 
 function resizeNewCustomerUnitDrilldownCharts() {
@@ -12032,6 +12071,90 @@ function scenarioCumulativeProfit(scenario) {
     .reduce((sum, value, index) => YEARS[index] >= FIRST_COST_EDIT_YEAR ? sum + Number(value || 0) : sum, 0);
 }
 
+function scenarioCumulativeProfitForYears(scenario, startYear = YEARS[0], endYear = YEARS[YEARS.length - 1]) {
+  const outputs = calculateOutputs(scenario);
+  return profitValues(outputs, scenario)
+    .reduce((sum, value, index) => {
+      const year = YEARS[index];
+      return year >= startYear && year <= endYear ? sum + Number(value || 0) : sum;
+    }, 0);
+}
+
+function latestScenarioVersion(scenario) {
+  return (scenario.versions || [])
+    .slice()
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] || null;
+}
+
+function topLineMetricPeriodDelta(values, startYear = YEARS[0], endYear = YEARS[YEARS.length - 1]) {
+  const startIndex = YEARS.indexOf(startYear);
+  const endIndex = YEARS.indexOf(endYear);
+  if (startIndex < 0 || endIndex < 0) return 0;
+  return Number(values[endIndex] || 0) - Number(values[startIndex] || 0);
+}
+
+function formatTopLineMetricDelta(value, format) {
+  if (format === "currency") return formatCurrency(value, 0);
+  if (format === "integer") return formatIntegerMetric(value);
+  if (format === "decimal") return formatDecimalMetric(value, 2);
+  if (format === "percent") return formatPercentMetric(value, 1);
+  return formatIntegerMetric(value);
+}
+
+function topLineMetricForCurrentView(scenario = activeScenario()) {
+  const view = state.currentView;
+  if (view === "profit") {
+    return { label: "Profit", values: profitTopDownValues(scenario), format: "currency" };
+  }
+  if (view === "revenueDrilldown") {
+    return { label: "Total Revenue", values: revenueTotalTopDownValues(scenario), format: "currency" };
+  }
+  if (view === "chart") {
+    return { label: "LTR Revenue", values: ltrRevenueTopDownValues(scenario, calculateOutputs(scenario)), format: "currency" };
+  }
+  if (view === "growthRevenue") {
+    return { label: "Growth Revenue", values: growthRevenueTopDownValues(scenario), format: "currency" };
+  }
+  if (view === "strRevenue") {
+    return { label: "STR Revenue", values: strRevenueTopDownValues(scenario), format: "currency" };
+  }
+  if (view === "otherRevenue") {
+    return { label: "Other Revenue", values: otherRevenueTopDownValues(scenario), format: "currency" };
+  }
+  if (view === "newCustomers") {
+    if (state.newCustomerNewUnitsDrilldownOpen) {
+      return {
+        label: "New Units",
+        values: YEARS.map(year => newCustomerUnitNewUnitsValue(scenario, year)),
+        format: "integer",
+      };
+    }
+    if (state.newCustomerUnitDrilldownOpen) {
+      return {
+        label: "New Property Customers",
+        values: YEARS.map(year => newPropertyCohortValue(scenario.newCustomerDrilldown.counts, year)),
+        format: "integer",
+      };
+    }
+    return { label: "New Customers", values: driverValues(scenario, "newCustomers"), format: "integer" };
+  }
+  if (view === "costs") {
+    if (state.costDrilldown === "labor") return { label: "Labor Cost", values: costValues(scenario, "labor"), format: "currency" };
+    if (state.costDrilldown === "nonLabor") return { label: "Non-Labor Cost", values: costValues(scenario, "nonLabor"), format: "currency" };
+    if (state.costDrilldown === "laborFte") return { label: "Labor Cost", values: costValues(scenario, "labor"), format: "currency" };
+    if (state.costDrilldown === "nonLaborCategory") {
+      const categoryKey = selectedNonLaborCategoryKey();
+      return {
+        label: nonLaborCategoryMeta[categoryKey]?.label || "Non-Labor Category",
+        values: nonLaborCategoryValues(scenario, categoryKey),
+        format: "currency",
+      };
+    }
+    return { label: "Total Cost", values: costValues(scenario, "total"), format: "currency" };
+  }
+  return { label: "Profit", values: profitTopDownValues(scenario), format: "currency" };
+}
+
 function newCustomersTopMatchesBottomUp(scenario) {
   const topDown = driverValues(scenario, "newCustomers");
   const bottomUp = bottomUpNewCustomers(scenario);
@@ -12044,17 +12167,20 @@ function newCustomersTopMatchesBottomUp(scenario) {
 function scenarioReconciliationChecks(scenario) {
   normalizeScenario(scenario);
   return [
-    { label: "Profit", matched: profitValuesMatch(scenario) },
-    { label: "Revenue", matched: revenueTopMatchesBottomUp(scenario) },
-    { label: "Growth", matched: growthRevenueTopMatchesBottomUp(scenario) },
-    { label: "STR", matched: strRevenueTopMatchesBottomUp(scenario) },
-    { label: "New Customers", matched: newCustomersTopMatchesBottomUp(scenario) },
-    { label: "Labor", matched: laborTopDownMatchesBottomUp(scenario) },
-    { label: "Non-Labor", matched: nonLaborTopDownMatchesBottomUp(scenario) },
-    { label: "Labor FTE", matched: laborFteTopMatchesBottomUp(scenario) },
+    { label: "Profit", matched: profitValuesMatch(scenario), action: "profit" },
+    { label: "Revenue", matched: revenueTopMatchesBottomUp(scenario), action: "revenueDrilldown" },
+    { label: "LTR", matched: ltrTopMatchesBottomUp(scenario), action: "chart", focusChart: "revenue-chart" },
+    { label: "Growth", matched: growthRevenueTopMatchesBottomUp(scenario), action: "growthRevenue" },
+    { label: "STR", matched: strRevenueTopMatchesBottomUp(scenario), action: "strRevenue" },
+    { label: "New Customers", matched: newCustomersTopMatchesBottomUp(scenario), action: "newCustomers" },
+    { label: "Labor", matched: laborTopDownMatchesBottomUp(scenario), action: "laborCost" },
+    { label: "Non-Labor", matched: nonLaborTopDownMatchesBottomUp(scenario), action: "nonLaborCost" },
+    { label: "Labor FTE", matched: laborFteTopMatchesBottomUp(scenario), action: "laborFte" },
     ...NON_LABOR_CATEGORY_KEYS.map(key => ({
       label: nonLaborCategoryMeta[key]?.label || key,
       matched: nonLaborCategoryTopMatchesBottomUp(scenario, key),
+      action: "nonLaborCategoryCost",
+      categoryKey: key,
     })),
   ];
 }
@@ -12503,6 +12629,17 @@ function openMetricTreeTarget(action, focusChart) {
     renderCostDrilldownView();
     syncCostCharts();
     focusElementById("cost-non-labor-drilldown");
+    return;
+  }
+  if (action === "nonLaborCategoryCost") {
+    if (focusChart && NON_LABOR_CATEGORY_KEYS.includes(focusChart)) {
+      state.selectedNonLaborCategoryKey = focusChart;
+    }
+    state.costDrilldown = "nonLaborCategory";
+    setView("costs");
+    renderCostDrilldownView();
+    syncCostCharts();
+    focusElementById("cost-non-labor-category-drilldown");
     return;
   }
   if (action === "laborFte") {
@@ -13013,6 +13150,12 @@ function bindControls() {
       openMetricTreeTarget(event.currentTarget.dataset.treeAction, event.currentTarget.dataset.focusChart);
     });
   });
+  document.getElementById("kpi-reconciliation-pills")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-reconciliation-action]");
+    if (!button) return;
+    const focusTarget = button.dataset.categoryKey || button.dataset.focusChart;
+    openMetricTreeTarget(button.dataset.reconciliationAction, focusTarget);
+  });
   document.getElementById("initiative-team-filter")?.addEventListener("change", renderInitiativesModule);
   document.getElementById("initiative-assumption-filter")?.addEventListener("change", renderInitiativesModule);
   document.getElementById("initiatives-view")?.addEventListener("click", event => {
@@ -13082,6 +13225,7 @@ function setView(view) {
   if (view === "tree") {
     enterMetricTreeCanvas();
   }
+  refreshHeaderKpis();
   scheduleViewResize(view);
 }
 

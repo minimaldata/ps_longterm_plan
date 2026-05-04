@@ -33,22 +33,22 @@
     </header>
 
     <main>
-      <section class="summary-band" aria-label="Revenue summary">
+      <section class="summary-band" aria-label="Scenario summary">
         <div>
-          <span>2029 HHP Revenue</span>
-          <strong id="kpi-revenue-2029">$0</strong>
+          <span>2021-2029 Cumulative Profit</span>
+          <strong id="kpi-cumulative-profit">$0</strong>
         </div>
         <div>
-          <span>2029 Plan Gap</span>
-          <strong id="kpi-gap-2029">$0</strong>
+          <span>2021-2029 Profit Delta to Compare</span>
+          <strong id="kpi-compare-profit-delta">-</strong>
         </div>
         <div>
-          <span>2025-2029 CAGR</span>
-          <strong id="kpi-cagr">0.0%</strong>
+          <span>Top Down / Bottom Up Issues</span>
+          <div id="kpi-reconciliation-pills" class="summary-pill-list"></div>
         </div>
         <div>
-          <span>2029 Paid Profiles</span>
-          <strong id="kpi-paid-profiles">0</strong>
+          <span id="kpi-version-delta-label">2021-2029 Profit Delta to Previous Version</span>
+          <strong id="kpi-version-profit-delta">-</strong>
         </div>
       </section>
 
@@ -2301,6 +2301,6 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="./napkinChart.js"></script>
     <script src="./raw-data.js"></script>
-    <script src="./hhp-simple.js?v=growth-button-labels"></script>
+    <script src="./hhp-simple.js?v=dynamic-topline-version-delta"></script>
   </body>
 </html>

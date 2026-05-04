@@ -130,6 +130,47 @@ select {
   line-height: 1.1;
 }
 
+.summary-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  max-height: 58px;
+  overflow: auto;
+}
+
+.summary-status-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+button.summary-status-pill {
+  cursor: pointer;
+}
+
+.summary-status-pill.matched {
+  background: #dcefe1;
+  color: #17663a;
+}
+
+.summary-status-pill.open {
+  background: #fff0cf;
+  border-color: #f6d78c;
+  color: #9a5b00;
+}
+
+button.summary-status-pill.open:hover {
+  background: #ffe3a3;
+  border-color: #e3b95d;
+}
+
 .view-tabs {
   display: flex;
   align-items: center;
