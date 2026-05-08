@@ -1,7 +1,14 @@
 const YEARS = [2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029];
 const FIRST_FORECAST_YEAR = 2026;
-const FIRST_COST_EDIT_YEAR = 2025;
 const STORAGE_KEY = "ps-hhp-simple-scenarios-v1";
+const REFERENCE_STORAGE_KEY = "ps-hhp-simple-reference-scenarios-v1";
+const STORAGE_EXPORT_VERSION = 1;
+const DEFAULT_BASE_SCENARIO_NAME = "Scenario 1";
+const LEGACY_BASE_SCENARIO_NAME = "Finance Base Case";
+const REFERENCE_SCENARIO_KEYS = [
+  { key: "bau", label: "BAU" },
+  { key: "target", label: "Target" },
+];
 const TOP_DOWN_COLOR = "#6fa76b";
 const BOTTOM_UP_COLOR = "#4f7fb8";
 const INITIATIVE_TEAMS = [
@@ -326,6 +333,32 @@ const nonLaborCategoryMeta = {
   travelMealsEntertainment: { label: "Travel, Meals & Entertainment", yMax: 2, color: "#5d748c" },
   allOther: { label: "All Other", yMax: 1, color: "#98a2b3" },
 };
+const defaultCostProxyKeys = [
+  "labor:sales",
+  "labor:marketing",
+  "nonLabor:marketingCosts",
+  "nonLabor:outsideMarketing",
+  "nonLabor:conferences",
+  "nonLabor:travelMealsEntertainment",
+];
+const costProxyPoolOptions = [
+  { key: "total:labor", label: "Labor Total", type: "total", valueKey: "labor", color: costMeta.labor.color },
+  { key: "total:nonLabor", label: "Non-Labor Total", type: "total", valueKey: "nonLabor", color: costMeta.nonLabor.color },
+  ...LABOR_DEPARTMENT_KEYS.map(key => ({
+    key: `labor:${key}`,
+    label: `${laborDepartmentMeta[key].label} Labor`,
+    type: "labor",
+    valueKey: key,
+    color: laborDepartmentMeta[key].color,
+  })),
+  ...NON_LABOR_CATEGORY_KEYS.map(key => ({
+    key: `nonLabor:${key}`,
+    label: nonLaborCategoryMeta[key].label,
+    type: "nonLabor",
+    valueKey: key,
+    color: nonLaborCategoryMeta[key].color,
+  })),
+];
 
 const historicalReturningCustomers = [48172, 118071, 220125, 344335];
 const baseNewCustomerCohortCounts = {
@@ -366,6 +399,7 @@ const outputRows = [
 
 const state = {
   scenarios: loadScenarios(),
+  referenceScenarios: loadReferenceScenarios(),
   activeScenarioId: "base",
   compareScenarioId: "",
   compareScenarioSnapshot: null,
@@ -378,6 +412,7 @@ const state = {
   otherRevenueCharts: {},
   revenueDrilldownCharts: {},
   profitCharts: {},
+  costProxyCharts: {},
   outputCharts: {},
   currentView: "chart",
   syncingCharts: false,
@@ -423,6 +458,9 @@ const state = {
   selectedNonLaborCategoryDepartmentKeys: [],
   nonLaborCategoryTopLocked: false,
   nonLaborCategoryOthersLocked: false,
+  selectedCostProxyKeys: clone(defaultCostProxyKeys),
+  costProxyTargetPoints: null,
+  syncingCostProxyCharts: false,
   costChartModes: {
     laborDrilldownTopDown: "value",
     laborDepartmentMix: "value",
@@ -690,6 +728,12 @@ function createBaseNonLaborCategoryDepartments(nonLaborCategories = baseCosts.no
     });
   });
   return categoryDepartments;
+}
+
+function syncNonLaborTotalsFromCategories(scenario) {
+  scenario.costs.nonLabor = YEARS.map((_year, index) => {
+    return nonLaborCategoryTotalForYear(scenario.costs.nonLaborCategories, index);
+  });
 }
 
 function syncLaborTotalsFromDepartments(scenario) {
@@ -1009,7 +1053,7 @@ function normalizeProfitPlan(scenario) {
   });
 }
 
-function makeBaseScenario(name = "Finance Base Case") {
+function makeBaseScenario(name = DEFAULT_BASE_SCENARIO_NAME) {
   const scenario = {
     id: "base",
     name,
@@ -1035,13 +1079,61 @@ function makeBaseScenario(name = "Finance Base Case") {
   return scenario;
 }
 
+function createDefaultReferenceScenarios() {
+  return REFERENCE_SCENARIO_KEYS.reduce((references, item) => {
+    references[item.key] = { key: item.key, label: item.label, versions: [] };
+    return references;
+  }, {});
+}
+
+function normalizeReferenceScenarios(references) {
+  const normalized = createDefaultReferenceScenarios();
+  REFERENCE_SCENARIO_KEYS.forEach(item => {
+    const existing = references?.[item.key];
+    if (!existing || typeof existing !== "object") return;
+    normalized[item.key] = {
+      key: item.key,
+      label: item.label,
+      versions: Array.isArray(existing.versions)
+        ? existing.versions.filter(version => version?.snapshot)
+        : [],
+    };
+  });
+  return normalized;
+}
+
+function loadReferenceScenarios() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(REFERENCE_STORAGE_KEY));
+    return normalizeReferenceScenarios(parsed);
+  } catch (error) {
+    console.warn("Could not load reference scenarios", error);
+  }
+  return createDefaultReferenceScenarios();
+}
+
+function saveReferenceScenarios() {
+  localStorage.setItem(REFERENCE_STORAGE_KEY, JSON.stringify(state.referenceScenarios));
+}
+
+function normalizeScenarioCollection(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const scenarios = clone(input);
+  if (!scenarios.base || !scenarios.base.drivers) return null;
+  Object.values(scenarios).forEach(normalizeScenario);
+  if (scenarios.base?.name === LEGACY_BASE_SCENARIO_NAME) {
+    scenarios.base.name = DEFAULT_BASE_SCENARIO_NAME;
+  }
+  return scenarios;
+}
+
 function loadScenarios() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (parsed && parsed.base && parsed.base.drivers) {
-      Object.values(parsed).forEach(normalizeScenario);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-      return parsed;
+    const scenarios = normalizeScenarioCollection(parsed);
+    if (scenarios) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+      return scenarios;
     }
   } catch (error) {
     console.warn("Could not load saved scenarios", error);
@@ -1140,6 +1232,676 @@ function addScenarioVersion(scenario, label = "Update") {
 
 function saveScenarios() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.scenarios));
+}
+
+function scenarioStorageBundle() {
+  return {
+    app: "ps_longterm_plan",
+    schemaVersion: STORAGE_EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    activeScenarioId: state.activeScenarioId,
+    scenarios: clone(state.scenarios),
+    referenceScenarios: clone(state.referenceScenarios),
+  };
+}
+
+function exportScenariosJson() {
+  const bundle = scenarioStorageBundle();
+  const json = JSON.stringify(bundle, null, 2);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const buffer = document.getElementById("scenario-json-export-buffer") || document.createElement("textarea");
+  buffer.id = "scenario-json-export-buffer";
+  buffer.value = json;
+  buffer.textContent = json;
+  buffer.setAttribute("data-export-json", json);
+  buffer.hidden = true;
+  if (!buffer.parentElement) document.body.appendChild(buffer);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `ps-longterm-plan-scenarios-${timestamp}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function parseScenarioImportBundle(parsed) {
+  const scenariosInput = parsed?.scenarios || parsed;
+  const scenarios = normalizeScenarioCollection(scenariosInput);
+  if (!scenarios) return null;
+  return {
+    activeScenarioId: parsed?.activeScenarioId && scenarios[parsed.activeScenarioId]
+      ? parsed.activeScenarioId
+      : scenarios.base
+        ? "base"
+        : Object.keys(scenarios)[0],
+    scenarios,
+    referenceScenarios: normalizeReferenceScenarios(parsed?.referenceScenarios),
+  };
+}
+
+async function importScenariosJsonFile(file) {
+  if (!file) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch (error) {
+    window.alert("That file is not valid JSON.");
+    return;
+  }
+  const bundle = parseScenarioImportBundle(parsed);
+  if (!bundle) {
+    window.alert("That JSON file does not look like a PS long-term plan scenario export.");
+    return;
+  }
+  const shouldImport = window.confirm("Importing this file will replace the scenarios and BAU/Target references currently saved in this browser. Continue?");
+  if (!shouldImport) return;
+  state.scenarios = bundle.scenarios;
+  state.referenceScenarios = bundle.referenceScenarios;
+  state.activeScenarioId = bundle.activeScenarioId;
+  state.compareScenarioId = "";
+  state.compareScenarioSnapshot = null;
+  state.selectedVersionId = "";
+  saveScenarios();
+  saveReferenceScenarios();
+  updateHistoryControls();
+  renderScenarioSelect();
+  syncDriverCharts();
+  syncCostCharts();
+  syncRevUnitCharts();
+  syncRevenueDrilldownCharts();
+  syncProfitCharts();
+  syncOtherRevenueCharts();
+  syncStrRevenueCharts();
+  syncGrowthRevenueCharts();
+  renderAll();
+}
+
+function excelEligibleScenarios() {
+  return Object.values(state.scenarios).filter(scenario => {
+    normalizeScenario(scenario);
+    return scenarioReconciliationChecks(scenario).every(check => check.matched);
+  });
+}
+
+function renderExcelScenarioSelect() {
+  const select = document.getElementById("excel-scenario-select");
+  const button = document.getElementById("export-scenario-excel");
+  if (!select || !button) return;
+  const eligibleScenarios = excelEligibleScenarios();
+  if (!eligibleScenarios.length) {
+    select.innerHTML = `<option value="">No matched scenarios</option>`;
+    select.disabled = true;
+    button.disabled = true;
+    return;
+  }
+  const currentValue = select.value;
+  select.innerHTML = eligibleScenarios
+    .map(scenario => `<option value="${escapeHtml(scenario.id)}">${escapeHtml(displayScenarioName(scenario))}</option>`)
+    .join("");
+  select.value = eligibleScenarios.some(scenario => scenario.id === currentValue)
+    ? currentValue
+    : eligibleScenarios.some(scenario => scenario.id === state.activeScenarioId)
+      ? state.activeScenarioId
+      : eligibleScenarios[0].id;
+  select.disabled = false;
+  button.disabled = false;
+}
+
+function exportSelectedScenarioExcel() {
+  const select = document.getElementById("excel-scenario-select");
+  const scenario = select?.value ? state.scenarios[select.value] : null;
+  if (!scenario) {
+    window.alert("Select a scenario whose top-down and bottom-up definitions match before exporting.");
+    return;
+  }
+  if (!scenarioReconciliationChecks(scenario).every(check => check.matched)) {
+    window.alert("This scenario cannot be exported until all top-down and bottom-up definitions match.");
+    renderExcelScenarioSelect();
+    return;
+  }
+  exportScenarioWorkbook(scenario);
+}
+
+function excelCol(index) {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
+}
+
+function excelCell(columnIndex, rowIndex) {
+  return `${excelCol(columnIndex)}${rowIndex}`;
+}
+
+function excelSheetRef(sheetName, columnIndex, rowIndex) {
+  return `'${String(sheetName).replace(/'/g, "''")}'!${excelCell(columnIndex, rowIndex)}`;
+}
+
+function textCell(value) {
+  return { type: "string", value: value === null || value === undefined ? "" : String(value) };
+}
+
+function numberCell(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? { type: "number", value: numericValue } : null;
+}
+
+function formulaCell(formula, value) {
+  const numericValue = Number(value);
+  return {
+    type: "formula",
+    formula,
+    value: Number.isFinite(numericValue) ? numericValue : null,
+  };
+}
+
+function labelValueRow(label, value) {
+  return [textCell(label), textCell(value)];
+}
+
+function exportYearHeader(label = "Metric") {
+  return [textCell(label), ...YEARS.map(year => numberCell(year))];
+}
+
+function exportYearRow(label, values) {
+  return [textCell(label), ...YEARS.map((_year, index) => numberCell(values[index]))];
+}
+
+function exportFormulaYearRow(label, formulas, values) {
+  return [textCell(label), ...YEARS.map((_year, index) => formulaCell(formulas[index], values[index]))];
+}
+
+function sheetYearCell(index, rowIndex) {
+  return excelCell(index + 1, rowIndex);
+}
+
+function sheetYearRef(sheetName, index, rowIndex) {
+  return excelSheetRef(sheetName, index + 1, rowIndex);
+}
+
+function scenarioExportMetrics(scenario) {
+  normalizeScenario(scenario);
+  const outputs = calculateOutputs(scenario);
+  const revenue = totalRevenueValues(outputs, scenario);
+  const ltrTopDown = ltrRevenueTopDownValues(scenario, outputs);
+  const ltrBottomUp = ltrRevenueBottomUpValues(scenario, outputs);
+  const growthTopDown = growthRevenueTopDownValues(scenario);
+  const growthBottomUp = growthRevenueBottomUpValues(scenario);
+  const strTopDown = strRevenueTopDownValues(scenario);
+  const strBottomUp = strRevenueBottomUpValues(scenario);
+  const otherTopDown = otherRevenueTopDownValues(scenario);
+  const labor = costValues(scenario, "labor");
+  const nonLabor = costValues(scenario, "nonLabor");
+  const totalCost = totalCostValues(scenario);
+  const profit = profitValues(outputs, scenario);
+  const newCustomers = driverValues(scenario, "newCustomers");
+  const laborFte = laborFteTotalValues(scenario);
+  return {
+    outputs,
+    revenue,
+    ltrTopDown,
+    ltrBottomUp,
+    growthTopDown,
+    growthBottomUp,
+    strTopDown,
+    strBottomUp,
+    otherTopDown,
+    labor,
+    nonLabor,
+    totalCost,
+    profit,
+    newCustomers,
+    laborFte,
+    revenueGrowth: revenueGrowthPercentValues(revenue),
+    profitMargin: profitMarginPercentValues(revenue, profit),
+    ruleOf40: ruleOf40Values(revenue, profit),
+    cac: fullyLoadedCacValues(totalCost, newCustomers),
+    revenuePerFte: revenuePerFteValues(revenue, laborFte),
+  };
+}
+
+function buildSummarySheet(scenario, metrics) {
+  const rows = [
+    [textCell("Scenario Export")],
+    labelValueRow("Scenario", scenario.name || "Scenario"),
+    labelValueRow("Exported At", new Date().toISOString()),
+    labelValueRow("Top Down / Bottom Up", "Matched"),
+    [],
+    exportYearHeader("Metric"),
+  ];
+  rows.push(exportFormulaYearRow("Revenue", YEARS.map((_year, index) => sheetYearRef("Revenue Build", index, 8)), metrics.revenue));
+  rows.push(exportFormulaYearRow("Cost", YEARS.map((_year, index) => sheetYearRef("Costs", index, 4)), metrics.totalCost));
+  rows.push(exportFormulaYearRow("Profit", YEARS.map((_year, index) => `${sheetYearCell(index, 7)}-${sheetYearCell(index, 8)}`), metrics.profit));
+  rows.push(exportFormulaYearRow("Rule of 40", YEARS.map((_year, index) => sheetYearRef("SaaS Metrics", index, 4)), metrics.ruleOf40));
+  rows.push(exportFormulaYearRow("Fully Loaded CAC", YEARS.map((_year, index) => sheetYearRef("SaaS Metrics", index, 7)), metrics.cac));
+  rows.push(exportFormulaYearRow("Revenue / FTE", YEARS.map((_year, index) => sheetYearRef("SaaS Metrics", index, 8)), metrics.revenuePerFte));
+  return { name: "Summary", rows };
+}
+
+function buildRevenueBuildSheet(scenario, metrics) {
+  const rows = [
+    [textCell("Revenue Build")],
+    [],
+    exportYearHeader("Revenue Line"),
+    exportYearRow("LTR", metrics.ltrTopDown),
+    exportYearRow("Growth", metrics.growthTopDown),
+    exportYearRow("STR", metrics.strTopDown),
+    exportYearRow("Other", metrics.otherTopDown),
+    exportFormulaYearRow("Total Revenue Bottom-Up", YEARS.map((_year, index) => `SUM(${sheetYearCell(index, 4)}:${sheetYearCell(index, 7)})`), metrics.revenue),
+    exportYearRow("Total Revenue Top-Down", revenueTotalTopDownValues(scenario)),
+    exportFormulaYearRow("Delta", YEARS.map((_year, index) => `${sheetYearCell(index, 9)}-${sheetYearCell(index, 8)}`), YEARS.map((_year, index) => Number(revenueTotalTopDownValues(scenario)[index] || 0) - Number(metrics.revenue[index] || 0))),
+  ];
+  return { name: "Revenue Build", rows };
+}
+
+function buildLtrRevenueSheet(scenario, metrics) {
+  const outputs = metrics.outputs;
+  const rows = [
+    [textCell("LTR Revenue")],
+    [],
+    exportYearHeader("Metric"),
+    exportYearRow("New Customers", metrics.newCustomers),
+    exportYearRow("Returning Paying Customers", outputs.returningCustomers),
+    exportFormulaYearRow("Total Paying Customers", YEARS.map((_year, index) => `${sheetYearCell(index, 4)}+${sheetYearCell(index, 5)}`), outputs.totalCustomers),
+    exportYearRow("Profiles / New Customer", driverValues(scenario, "profilesNew")),
+    exportYearRow("Rev / New Profile", driverValues(scenario, "revNewProfile")),
+    exportFormulaYearRow("Revenue New Customers", YEARS.map((_year, index) => `${sheetYearCell(index, 4)}*${sheetYearCell(index, 7)}*${sheetYearCell(index, 8)}`), outputs.revenueNew),
+    exportYearRow("Retention", driverValues(scenario, "retention")),
+    exportYearRow("Profiles / Returning Customer", driverValues(scenario, "profilesReturning")),
+    exportYearRow("Rev / Returning Profile", driverValues(scenario, "revReturningProfile")),
+    exportFormulaYearRow("Revenue Existing Customers", YEARS.map((_year, index) => `${sheetYearCell(index, 5)}*${sheetYearCell(index, 11)}*${sheetYearCell(index, 12)}`), outputs.revenueExisting),
+    exportFormulaYearRow("LTR Bottom-Up", YEARS.map((_year, index) => `${sheetYearCell(index, 9)}+${sheetYearCell(index, 13)}`), metrics.ltrBottomUp),
+    exportYearRow("LTR Top-Down", metrics.ltrTopDown),
+    exportFormulaYearRow("Delta", YEARS.map((_year, index) => `${sheetYearCell(index, 15)}-${sheetYearCell(index, 14)}`), YEARS.map((_year, index) => Number(metrics.ltrTopDown[index] || 0) - Number(metrics.ltrBottomUp[index] || 0))),
+  ];
+  return { name: "LTR Revenue", rows };
+}
+
+function buildNewCustomerCohortSheet(scenario) {
+  const counts = scenario.newCustomerDrilldown?.counts || {};
+  const rows = [
+    [textCell("New Customer Cohorts")],
+    [],
+    exportYearHeader("Cohort Year"),
+  ];
+  NEW_CUSTOMER_COHORT_YEARS.forEach(cohortYear => {
+    rows.push([
+      textCell(cohortLabel(cohortYear)),
+      ...YEARS.map(year => newCustomerCohortApplies(cohortYear, year)
+        ? numberCell(newCustomerCohortValue(counts, year, cohortYear))
+        : textCell("-")),
+    ]);
+  });
+  const totalRow = rows.length + 1;
+  rows.push(exportFormulaYearRow("Total New Customers", YEARS.map((_year, index) => {
+    const col = excelCol(index + 1);
+    return `SUM(${col}4:${col}${totalRow - 1})`;
+  }), bottomUpNewCustomers(scenario)));
+  rows.push([]);
+  rows.push([textCell("Cohort YoY % Diff")]);
+  rows.push(exportYearHeader("Cohort Year"));
+  const yoyFirstDataRow = rows.length + 1;
+  NEW_CUSTOMER_COHORT_YEARS.forEach((cohortYear, cohortIndex) => {
+    rows.push([
+      textCell(cohortLabel(cohortYear)),
+      ...YEARS.map((year, index) => {
+        if (index === 0 || !newCustomerCohortApplies(cohortYear, year) || !newCustomerCohortApplies(cohortYear, year - 1)) {
+          return textCell("-");
+        }
+        const countRow = 4 + cohortIndex;
+        const formula = `IFERROR(${sheetYearCell(index, countRow)}/${sheetYearCell(index - 1, countRow)}-1,"")`;
+        return formulaCell(formula, newCustomerCohortYoy(counts, year, cohortYear));
+      }),
+    ]);
+  });
+  rows.push([]);
+  rows.push([textCell("YoY table starts at row"), numberCell(yoyFirstDataRow)]);
+  return { name: "New Customer Cohorts", rows };
+}
+
+function buildGrowthRevenueSheet(scenario, metrics) {
+  const rows = [
+    [textCell("Growth Revenue")],
+    [],
+    exportYearHeader("Metric"),
+    exportYearRow("New Paying Customers Proxy", growthRevenueProxyCustomers(scenario)),
+    exportYearRow("Rev / New Paying Customer", growthRevenueRevPerNewCustomerValues(scenario)),
+    exportFormulaYearRow("Bottom-Up Growth Revenue", YEARS.map((_year, index) => `${sheetYearCell(index, 4)}*${sheetYearCell(index, 5)}`), metrics.growthBottomUp),
+    exportYearRow("Top-Down Growth Revenue", metrics.growthTopDown),
+    exportFormulaYearRow("Delta", YEARS.map((_year, index) => `${sheetYearCell(index, 7)}-${sheetYearCell(index, 6)}`), YEARS.map((_year, index) => Number(metrics.growthTopDown[index] || 0) - Number(metrics.growthBottomUp[index] || 0))),
+  ];
+  return { name: "Growth Revenue", rows };
+}
+
+function buildStrOtherRevenueSheet(scenario, metrics) {
+  const rows = [
+    [textCell("STR + Other Revenue")],
+    [],
+    exportYearHeader("Metric"),
+    exportYearRow("STR Properties", strRevenuePropertiesValues(scenario)),
+    exportYearRow("Rev / STR Property", strRevenueRevPerPropertyValues(scenario)),
+    exportFormulaYearRow("STR Bottom-Up", YEARS.map((_year, index) => `${sheetYearCell(index, 4)}*${sheetYearCell(index, 5)}`), metrics.strBottomUp),
+    exportYearRow("STR Top-Down", metrics.strTopDown),
+    exportFormulaYearRow("STR Delta", YEARS.map((_year, index) => `${sheetYearCell(index, 7)}-${sheetYearCell(index, 6)}`), YEARS.map((_year, index) => Number(metrics.strTopDown[index] || 0) - Number(metrics.strBottomUp[index] || 0))),
+    [],
+    exportYearRow("Other Revenue", metrics.otherTopDown),
+  ];
+  return { name: "STR + Other Revenue", rows };
+}
+
+function buildCostsSheet(scenario, metrics) {
+  const rows = [
+    [textCell("Costs")],
+    [],
+    exportYearHeader("Metric"),
+    exportFormulaYearRow("Total Cost", YEARS.map((_year, index) => `${sheetYearCell(index, 5)}+${sheetYearCell(index, 6)}`), metrics.totalCost),
+    exportYearRow("Labor", metrics.labor),
+    exportYearRow("Non-Labor", metrics.nonLabor),
+    [],
+    exportYearHeader("Labor Department"),
+  ];
+  LABOR_DEPARTMENT_KEYS.forEach(key => rows.push(exportYearRow(laborDepartmentMeta[key]?.label || key, laborDepartmentValues(scenario, key))));
+  rows.push([]);
+  rows.push(exportYearHeader("Non-Labor Category"));
+  NON_LABOR_CATEGORY_KEYS.forEach(key => rows.push(exportYearRow(nonLaborCategoryMeta[key]?.label || key, nonLaborCategoryValues(scenario, key))));
+  rows.push([]);
+  rows.push(exportYearHeader("Labor FTE"));
+  rows.push(exportYearRow("Total FTE / Equivalent", metrics.laborFte));
+  rows.push(exportYearRow("Cost / FTE Equivalent", laborCostPerFteAggregateValues(scenario)));
+  return { name: "Costs", rows };
+}
+
+function buildSaasMetricsSheet(scenario, metrics) {
+  const rows = [
+    [textCell("SaaS Metrics")],
+    [],
+    exportYearHeader("Metric"),
+    exportFormulaYearRow("Rule of 40", YEARS.map((_year, index) => `${sheetYearCell(index, 5)}+${sheetYearCell(index, 6)}`), metrics.ruleOf40),
+    exportFormulaYearRow("Revenue Growth %", YEARS.map((_year, index) => index === 0 ? '""' : `IFERROR(((${sheetYearCell(index, 10)}/${sheetYearCell(index - 1, 10)})-1)*100,"")`), metrics.revenueGrowth),
+    exportFormulaYearRow("Profit Margin %", YEARS.map((_year, index) => `IFERROR((${sheetYearCell(index, 11)}/${sheetYearCell(index, 10)})*100,"")`), metrics.profitMargin),
+    exportFormulaYearRow("Fully Loaded CAC", YEARS.map((_year, index) => `IFERROR(${sheetYearCell(index, 13)}/${sheetYearCell(index, 12)},"")`), metrics.cac),
+    exportFormulaYearRow("Revenue / FTE", YEARS.map((_year, index) => `IFERROR(${sheetYearCell(index, 10)}/${sheetYearCell(index, 14)},"")`), metrics.revenuePerFte),
+    [],
+    exportFormulaYearRow("Revenue", YEARS.map((_year, index) => sheetYearRef("Revenue Build", index, 8)), metrics.revenue),
+    exportFormulaYearRow("Profit", YEARS.map((_year, index) => sheetYearRef("Summary", index, 9)), metrics.profit),
+    exportFormulaYearRow("New Customers", YEARS.map((_year, index) => sheetYearRef("LTR Revenue", index, 4)), metrics.newCustomers),
+    exportFormulaYearRow("Total Cost", YEARS.map((_year, index) => sheetYearRef("Costs", index, 4)), metrics.totalCost),
+    exportFormulaYearRow("Labor FTE", YEARS.map((_year, index) => sheetYearRef("Costs", index, 35)), metrics.laborFte),
+  ];
+  return { name: "SaaS Metrics", rows };
+}
+
+function scenarioWorkbookSheets(scenario) {
+  const metrics = scenarioExportMetrics(scenario);
+  return [
+    buildSummarySheet(scenario, metrics),
+    buildRevenueBuildSheet(scenario, metrics),
+    buildLtrRevenueSheet(scenario, metrics),
+    buildNewCustomerCohortSheet(scenario),
+    buildGrowthRevenueSheet(scenario, metrics),
+    buildStrOtherRevenueSheet(scenario, metrics),
+    buildCostsSheet(scenario, metrics),
+    buildSaasMetricsSheet(scenario, metrics),
+  ];
+}
+
+function exportScenarioWorkbook(scenario) {
+  const sheets = scenarioWorkbookSheets(scenario);
+  const bytes = createXlsxBytes(sheets);
+  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const scenarioName = sanitizeWorkbookFileName(scenario.name || "scenario");
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${scenarioName}-${timestamp}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function sanitizeWorkbookFileName(value) {
+  return String(value)
+    .trim()
+    .replace(/[^a-z0-9-_]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "scenario";
+}
+
+function xmlEscape(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function workbookSheetName(value, existingNames) {
+  const base = String(value).replace(/[\[\]:*?/\\]/g, " ").trim().slice(0, 31) || "Sheet";
+  let name = base;
+  let suffix = 2;
+  while (existingNames.has(name)) {
+    const suffixText = ` ${suffix}`;
+    name = `${base.slice(0, 31 - suffixText.length)}${suffixText}`;
+    suffix += 1;
+  }
+  existingNames.add(name);
+  return name;
+}
+
+function workbookSheetsWithSafeNames(sheets) {
+  const names = new Set();
+  return sheets.map(sheet => ({
+    ...sheet,
+    name: workbookSheetName(sheet.name, names),
+  }));
+}
+
+function worksheetDimension(rows) {
+  const rowCount = Math.max(1, rows.length);
+  const colCount = Math.max(1, ...rows.map(row => row.length));
+  return `A1:${excelCell(colCount - 1, rowCount)}`;
+}
+
+function worksheetCellXml(cell, rowIndex, columnIndex) {
+  if (!cell) return "";
+  const ref = excelCell(columnIndex, rowIndex);
+  if (cell.type === "number") {
+    return `<c r="${ref}"><v>${Number(cell.value)}</v></c>`;
+  }
+  if (cell.type === "formula") {
+    const valueXml = cell.value === null || cell.value === undefined ? "" : `<v>${Number(cell.value)}</v>`;
+    return `<c r="${ref}"><f>${xmlEscape(cell.formula)}</f>${valueXml}</c>`;
+  }
+  const text = xmlEscape(cell.value ?? "");
+  return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${text}</t></is></c>`;
+}
+
+function worksheetXml(sheet) {
+  const rowsXml = sheet.rows.map((row, rowIndex) => {
+    const rowNumber = rowIndex + 1;
+    const cells = row.map((cell, columnIndex) => worksheetCellXml(cell, rowNumber, columnIndex)).join("");
+    return `<row r="${rowNumber}">${cells}</row>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <dimension ref="${worksheetDimension(sheet.rows)}"/>
+  <sheetViews><sheetView workbookViewId="0"/></sheetViews>
+  <sheetFormatPr defaultRowHeight="15"/>
+  <sheetData>${rowsXml}</sheetData>
+</worksheet>`;
+}
+
+function createXlsxBytes(inputSheets) {
+  const sheets = workbookSheetsWithSafeNames(inputSheets);
+  const files = [
+    {
+      path: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  ${sheets.map((_sheet, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}
+</Types>`,
+    },
+    {
+      path: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    },
+    {
+      path: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    ${sheets.map((sheet, index) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")}
+  </sheets>
+  <calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/>
+</workbook>`,
+    },
+    {
+      path: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${sheets.map((_sheet, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("")}
+</Relationships>`,
+    },
+    ...sheets.map((sheet, index) => ({
+      path: `xl/worksheets/sheet${index + 1}.xml`,
+      content: worksheetXml(sheet),
+    })),
+  ];
+  return createZipBytes(files);
+}
+
+function concatBytes(chunks) {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  chunks.forEach(chunk => {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return output;
+}
+
+function uint16Bytes(value) {
+  return new Uint8Array([value & 0xff, (value >> 8) & 0xff]);
+}
+
+function uint32Bytes(value) {
+  return new Uint8Array([
+    value & 0xff,
+    (value >> 8) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 24) & 0xff,
+  ]);
+}
+
+let crc32Table = null;
+
+function getCrc32Table() {
+  if (crc32Table) return crc32Table;
+  crc32Table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+    }
+    crc32Table[index] = value >>> 0;
+  }
+  return crc32Table;
+}
+
+function crc32(bytes) {
+  const table = getCrc32Table();
+  let crc = 0xffffffff;
+  bytes.forEach(byte => {
+    crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  });
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function zipDosDateTime(date = new Date()) {
+  const year = Math.max(1980, date.getFullYear());
+  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const dosDate = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { dosTime, dosDate };
+}
+
+function createZipBytes(files) {
+  const encoder = new TextEncoder();
+  const localChunks = [];
+  const centralChunks = [];
+  const entries = files.map(file => ({
+    pathBytes: encoder.encode(file.path),
+    dataBytes: typeof file.content === "string" ? encoder.encode(file.content) : file.content,
+  }));
+  const { dosTime, dosDate } = zipDosDateTime();
+  let offset = 0;
+  entries.forEach(entry => {
+    const checksum = crc32(entry.dataBytes);
+    const localHeader = concatBytes([
+      uint32Bytes(0x04034b50),
+      uint16Bytes(20),
+      uint16Bytes(0),
+      uint16Bytes(0),
+      uint16Bytes(dosTime),
+      uint16Bytes(dosDate),
+      uint32Bytes(checksum),
+      uint32Bytes(entry.dataBytes.length),
+      uint32Bytes(entry.dataBytes.length),
+      uint16Bytes(entry.pathBytes.length),
+      uint16Bytes(0),
+      entry.pathBytes,
+    ]);
+    localChunks.push(localHeader, entry.dataBytes);
+    centralChunks.push(concatBytes([
+      uint32Bytes(0x02014b50),
+      uint16Bytes(20),
+      uint16Bytes(20),
+      uint16Bytes(0),
+      uint16Bytes(0),
+      uint16Bytes(dosTime),
+      uint16Bytes(dosDate),
+      uint32Bytes(checksum),
+      uint32Bytes(entry.dataBytes.length),
+      uint32Bytes(entry.dataBytes.length),
+      uint16Bytes(entry.pathBytes.length),
+      uint16Bytes(0),
+      uint16Bytes(0),
+      uint16Bytes(0),
+      uint16Bytes(0),
+      uint32Bytes(0),
+      uint32Bytes(offset),
+      entry.pathBytes,
+    ]));
+    offset += localHeader.length + entry.dataBytes.length;
+  });
+  const centralDirectory = concatBytes(centralChunks);
+  const centralOffset = offset;
+  const endRecord = concatBytes([
+    uint32Bytes(0x06054b50),
+    uint16Bytes(0),
+    uint16Bytes(0),
+    uint16Bytes(entries.length),
+    uint16Bytes(entries.length),
+    uint32Bytes(centralDirectory.length),
+    uint32Bytes(centralOffset),
+    uint16Bytes(0),
+  ]);
+  return concatBytes([...localChunks, centralDirectory, endRecord]);
 }
 
 function activeScenario() {
@@ -1365,6 +2127,25 @@ function existingPropertyNewCustomersTotal(counts, year) {
   }, 0);
 }
 
+function existingPropertyNewCustomersYoyValue(counts, year) {
+  const cohorts = existingPropertyCohortsForYear(year);
+  const current = cohorts.reduce((sum, cohortYear) => {
+    return sum + newCustomerCohortValue(counts, year, cohortYear);
+  }, 0);
+  const prior = cohorts.reduce((sum, cohortYear) => {
+    return sum + newCustomerCohortValue(counts, year - 1, cohortYear);
+  }, 0);
+  return prior > 0 ? (current / prior) - 1 : 0;
+}
+
+function existingPropertyNewCustomersYoyValues(scenario) {
+  return YEARS.map(year => existingPropertyNewCustomersYoyValue(scenario.newCustomerDrilldown.counts, year));
+}
+
+function applicableNewCustomerCohortsForYear(year) {
+  return NEW_CUSTOMER_COHORT_YEARS.filter(cohortYear => newCustomerCohortApplies(cohortYear, year));
+}
+
 function lockedNewCustomerCohorts(scenario = activeScenario()) {
   return new Set((scenario.newCustomerDrilldown.lockedCohorts || []).map(Number));
 }
@@ -1401,6 +2182,30 @@ function setExistingPropertyNewCustomersTotal(counts, year, targetTotal) {
   unlockedCohorts.forEach(cohortYear => setNewCustomerCohortValuePreservingFutureYoy(counts, year, cohortYear, equalValue));
 }
 
+function setTotalNewCustomerCohortValue(counts, year, targetTotal) {
+  const cohorts = applicableNewCustomerCohortsForYear(year);
+  if (!cohorts.length) return [];
+  const unlockedCohorts = cohorts.filter(cohortYear => !isNewCustomerCohortLocked(cohortYear));
+  if (!unlockedCohorts.length) return [];
+  const lockedTotal = cohorts
+    .filter(cohortYear => isNewCustomerCohortLocked(cohortYear))
+    .reduce((sum, cohortYear) => sum + newCustomerCohortValue(counts, year, cohortYear), 0);
+  const unlockedTargetTotal = Math.max(0, targetTotal - lockedTotal);
+  const currentUnlockedTotal = unlockedCohorts.reduce((sum, cohortYear) => {
+    return sum + newCustomerCohortValue(counts, year, cohortYear);
+  }, 0);
+  if (currentUnlockedTotal > 0) {
+    unlockedCohorts.forEach(cohortYear => {
+      const current = newCustomerCohortValue(counts, year, cohortYear);
+      setNewCustomerCohortValuePreservingFutureYoy(counts, year, cohortYear, (current / currentUnlockedTotal) * unlockedTargetTotal);
+    });
+    return unlockedCohorts;
+  }
+  const equalValue = unlockedTargetTotal / unlockedCohorts.length;
+  unlockedCohorts.forEach(cohortYear => setNewCustomerCohortValuePreservingFutureYoy(counts, year, cohortYear, equalValue));
+  return unlockedCohorts;
+}
+
 function newPropertyCohortValue(counts, year) {
   return newCustomerCohortValue(counts, year, year);
 }
@@ -1416,14 +2221,18 @@ function napkinControlKey(type, ...parts) {
   return [type, ...parts].join(":");
 }
 
-function controlledNapkinPairs(key, pairs) {
-  const stored = activeScenario().newCustomerDrilldown.controlPoints?.[key];
+function controlledScenarioNapkinPairs(scenario, key, pairs) {
+  const stored = scenario?.newCustomerDrilldown?.controlPoints?.[key];
   if (!Array.isArray(stored)) return pairs;
   const visibleX = new Set(stored.map(Number));
   const visiblePairs = pairs.filter(([x]) => visibleX.has(Number(x)));
   if (visiblePairs.length >= 2) return visiblePairs;
   if (pairs.length <= 2) return pairs;
   return [pairs[0], pairs[pairs.length - 1]];
+}
+
+function controlledNapkinPairs(key, pairs) {
+  return controlledScenarioNapkinPairs(activeScenario(), key, pairs);
 }
 
 function rememberNapkinControlPoints(key, data) {
@@ -1556,39 +2365,42 @@ function bottomUpNewCustomers(scenario) {
   return YEARS.map(year => newCustomerCohortTotal(counts, year));
 }
 
-function visibleNewCustomerBridgeValue(key, pairs, year, fallback) {
-  const value = interpolateNapkinLineValue(controlledNapkinPairs(key, pairs), year);
+function visibleNewCustomerBridgeValue(scenario, key, pairs, year, fallback) {
+  const value = interpolateNapkinLineValue(controlledScenarioNapkinPairs(scenario, key, pairs), year);
   return value === null ? fallback : value;
 }
 
-function visibleExistingPropertyNewCustomersValue(year) {
-  const counts = activeScenario().newCustomerDrilldown.counts;
+function visibleExistingPropertyNewCustomersValue(year, scenario = activeScenario()) {
+  const sourceScenario = scenario?.newCustomerDrilldown ? scenario : activeScenario();
+  const counts = sourceScenario.newCustomerDrilldown.counts;
   const key = napkinControlKey("bridgeExistingProperties");
   const fallback = existingPropertyNewCustomersTotal(counts, year);
   const pairs = YEARS.map(candidateYear => [
     candidateYear,
     existingPropertyNewCustomersTotal(counts, candidateYear),
   ]);
-  return visibleNewCustomerBridgeValue(key, pairs, year, fallback);
+  return visibleNewCustomerBridgeValue(sourceScenario, key, pairs, year, fallback);
 }
 
-function visibleNewPropertyNewCustomersValue(year) {
-  const counts = activeScenario().newCustomerDrilldown.counts;
+function visibleNewPropertyNewCustomersValue(year, scenario = activeScenario()) {
+  const sourceScenario = scenario?.newCustomerDrilldown ? scenario : activeScenario();
+  const counts = sourceScenario.newCustomerDrilldown.counts;
   const key = napkinControlKey("bridgeNewProperties");
   const fallback = newPropertyCohortValue(counts, year);
   const pairs = YEARS.map(candidateYear => [
     candidateYear,
     newPropertyCohortValue(counts, candidateYear),
   ]);
-  return visibleNewCustomerBridgeValue(key, pairs, year, fallback);
+  return visibleNewCustomerBridgeValue(sourceScenario, key, pairs, year, fallback);
 }
 
-function visibleBottomUpNewCustomersValue(year) {
-  return visibleExistingPropertyNewCustomersValue(year) + visibleNewPropertyNewCustomersValue(year);
+function visibleBottomUpNewCustomersValue(year, scenario = activeScenario()) {
+  const sourceScenario = scenario?.newCustomerDrilldown ? scenario : activeScenario();
+  return visibleExistingPropertyNewCustomersValue(year, sourceScenario) + visibleNewPropertyNewCustomersValue(year, sourceScenario);
 }
 
-function visibleBottomUpNewCustomers() {
-  return YEARS.map(visibleBottomUpNewCustomersValue);
+function visibleBottomUpNewCustomers(scenario = activeScenario()) {
+  return YEARS.map(year => visibleBottomUpNewCustomersValue(year, scenario));
 }
 
 function effectiveNewCustomers(scenario) {
@@ -2334,6 +3146,7 @@ function setLaborTopToBottom() {
   });
   saveScenarios();
   syncCostCharts();
+  syncProfitCharts();
   renderAll();
 }
 
@@ -2464,13 +3277,24 @@ function setNonLaborCategoryTopToBottom() {
   const categoryKey = selectedNonLaborCategoryKey();
   if (nonLaborCategoryTopMatchesBottomUp(scenario, categoryKey)) return;
   pushUndoSnapshot();
+  const parentWasMatched = nonLaborTopDownMatchesBottomUp(scenario);
+  const targets = YEARS.map((year, index) => {
+    return editableCostYear(year)
+      ? selectedNonLaborCategoryBottomUpInterpolatedDollarValue(year, index)
+      : null;
+  });
   YEARS.forEach((year, index) => {
     if (!editableCostYear(year)) return;
-    scenario.costs.nonLaborCategories[categoryKey][index] = selectedNonLaborCategoryBottomUpInterpolatedDollarValue(year, index);
-    addCostControlPointIfControlled(nonLaborCategoryChartKey(categoryKey), year);
+    scenario.costs.nonLaborCategories[categoryKey][index] = Math.max(0, Number(targets[index]) || 0);
+    if (parentWasMatched && !scenario.costLocks.nonLabor) {
+      scenario.costs.nonLabor[index] = nonLaborCategoryTotalForYear(scenario.costs.nonLaborCategories, index);
+      addCostControlPointIfControlled("nonLabor", year);
+      addCostControlPointIfControlled("total", year);
+    }
     addCostControlPointIfControlled("nonLaborBottomUp", year);
     addCostControlPointIfControlled("nonLaborAllocationControl", year);
   });
+  rememberCostControlYears(nonLaborCategoryChartKey(categoryKey), editableCostYears());
   saveScenarios();
   syncCostCharts();
   renderAll();
@@ -2720,11 +3544,66 @@ function compareScenario() {
   return state.compareScenarioSnapshot;
 }
 
+function referenceCompareValue(referenceKey, versionId = "latest") {
+  return `reference:${referenceKey}:${versionId || "latest"}`;
+}
+
+function parseReferenceCompareId(value) {
+  if (!value?.startsWith("reference:")) return null;
+  const [, referenceKey, versionId = "latest"] = value.split(":");
+  if (!REFERENCE_SCENARIO_KEYS.some(item => item.key === referenceKey)) return null;
+  return { referenceKey, versionId: versionId || "latest" };
+}
+
+function referenceVersionById(referenceKey, versionId) {
+  if (!versionId || versionId === "latest") return latestReferenceVersion(referenceKey);
+  return (state.referenceScenarios?.[referenceKey]?.versions || [])
+    .find(version => version.id === versionId) || null;
+}
+
+function formatReferenceCompareTimestamp(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function referenceCompareLabel(referenceKey, version, { latest = false } = {}) {
+  const meta = REFERENCE_SCENARIO_KEYS.find(item => item.key === referenceKey);
+  const prefix = meta?.label || "Reference";
+  if (latest) return `${prefix} - Latest`;
+  const assignedAt = formatReferenceCompareTimestamp(version?.createdAt);
+  const source = (isAnonymizedView() ? ["Source Scenario", "Source Version"] : [version?.sourceScenarioName, version?.sourceVersionLabel])
+    .filter(Boolean)
+    .join(" / ");
+  return source ? `${prefix} - ${assignedAt} (${source})` : `${prefix} - ${assignedAt}`;
+}
+
+function referenceCompareOptionExists(compareId) {
+  const parsed = parseReferenceCompareId(compareId);
+  if (!parsed) return false;
+  return Boolean(referenceVersionById(parsed.referenceKey, parsed.versionId));
+}
+
 function setCompareScenario(scenarioId) {
   state.compareScenarioId = scenarioId;
-  state.compareScenarioSnapshot = scenarioId && state.scenarios[scenarioId]
-    ? clone(state.scenarios[scenarioId])
-    : null;
+  const parsedReference = parseReferenceCompareId(scenarioId);
+  if (parsedReference) {
+    state.compareScenarioId = referenceCompareValue(parsedReference.referenceKey, parsedReference.versionId);
+    const version = referenceVersionById(parsedReference.referenceKey, parsedReference.versionId);
+    state.compareScenarioSnapshot = version
+      ? scenarioFromReferenceVersion(parsedReference.referenceKey, version)
+      : null;
+    return;
+  }
+  state.compareScenarioSnapshot = scenarioId && state.scenarios[scenarioId] ? clone(state.scenarios[scenarioId]) : null;
 }
 
 function snapshotState() {
@@ -2795,7 +3674,7 @@ function editableYear(year) {
 }
 
 function editableCostYear(year) {
-  return year >= FIRST_COST_EDIT_YEAR;
+  return year >= FIRST_FORECAST_YEAR;
 }
 
 function formatValue(value, format) {
@@ -2888,6 +3767,79 @@ function tooltipHeader(axisValue) {
   return `<strong>${year}</strong>`;
 }
 
+function tooltipRawValue(value) {
+  if (Array.isArray(value)) return tooltipRawValue(value[1]);
+  if (value && typeof value === "object" && "value" in value) return tooltipRawValue(value.value);
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function previousTooltipDataValue(data, dataIndex) {
+  if (!Array.isArray(data)) return null;
+  for (let index = Number(dataIndex) - 1; index >= 0; index -= 1) {
+    const value = tooltipRawValue(data[index]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function previousTooltipSeriesValue(item, series) {
+  const seriesItem = series?.[item.seriesIndex]
+    || series?.find(candidate => String(candidate.name) === String(item.seriesName));
+  return previousTooltipDataValue(seriesItem?.data, item.dataIndex);
+}
+
+function tooltipXValue(item) {
+  const data = Array.isArray(item?.data) ? item.data : item?.value;
+  const candidate = Array.isArray(data) ? data[0] : item?.axisValue;
+  const numericValue = Number(candidate);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function previousTooltipLineValue(item, lines = []) {
+  const line = lines.find(candidate => String(candidate.name) === String(item.seriesName));
+  const x = tooltipXValue(item);
+  if (line && x !== null) {
+    const minX = Math.min(...(line.data || [])
+      .map(point => Number(Array.isArray(point) ? point[0] : null))
+      .filter(Number.isFinite));
+    if (Number.isFinite(minX) && x <= minX) return null;
+    return interpolateNapkinLineValue(line.data, x - 1);
+  }
+  return previousTooltipDataValue(line?.data, item.dataIndex);
+}
+
+function formatTooltipYoySuffix(value, previousValue) {
+  if (isAnonymizedView()) return "";
+  const current = Number(value);
+  const previous = Number(previousValue);
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || Math.abs(previous) < 1e-9) return "";
+  const yoy = ((current - previous) / Math.abs(previous)) * 100;
+  if (!Number.isFinite(yoy)) return "";
+  const sign = yoy >= 0 ? "+" : "";
+  return ` (${sign}${trimNumber(yoy, 1)}%YoY)`;
+}
+
+function formatTooltipValueWithYoy(value, previousValue, formatter) {
+  const numericValue = Number(value);
+  const formatted = formatter(numericValue);
+  return `${formatted}${formatTooltipYoySuffix(numericValue, previousValue)}`;
+}
+
+function formatNapkinLineTooltip(params, lines, formatter) {
+  const items = Array.isArray(params) ? params : [params];
+  const rows = items
+    .filter(item => item && item.seriesType === "line")
+    .map(item => {
+      const data = Array.isArray(item.data) ? item.data : item.value;
+      const rawValue = Array.isArray(data) ? data[1] : item.value;
+      const previousValue = previousTooltipLineValue(item, lines);
+      const formatted = formatTooltipValueWithYoy(rawValue, previousValue, formatter);
+      return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatted}`;
+    });
+  return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -2937,6 +3889,38 @@ function rawDataSources() {
       revPerUnit,
     })))
     .sort((left, right) => left.year - right.year || left.cohortYear - right.cohortYear);
+  const costSummaryRows = YEARS.map((year, index) => ({
+    year,
+    labor: baseCosts.labor[index],
+    nonLabor: baseCosts.nonLabor[index],
+    totalCost: baseCosts.labor[index] + baseCosts.nonLabor[index],
+  }));
+  const costHierarchyRows = [
+    ...LABOR_DEPARTMENT_KEYS.map(key => ({
+      level1: "Labor",
+      level2: laborDepartmentMeta[key]?.label || key,
+      level3: "-",
+      driver: "Labor cost by department.",
+      values: baseCosts.laborDepartments[key],
+    })),
+    ...NON_LABOR_CATEGORY_KEYS.map(key => ({
+      level1: "Non-Labor",
+      level2: nonLaborCategoryMeta[key]?.label || key,
+      level3: "-",
+      driver: "Non-labor spend by category.",
+      values: baseCosts.nonLaborCategories[key],
+    })),
+  ].map(row => {
+    return YEARS.reduce((acc, year, index) => {
+      acc[`year${year}`] = row.values[index];
+      return acc;
+    }, {
+      level1: row.level1,
+      level2: row.level2,
+      level3: row.level3,
+      driver: row.driver,
+    });
+  });
   const initiativeTeamRows = INITIATIVE_TEAMS.map((team, index) => ({
     team,
     sortOrder: index + 1,
@@ -3021,6 +4005,33 @@ function rawDataSources() {
       rows: revUnitRpuRows,
     },
     {
+      id: "cost-summary",
+      title: "Cost Summary",
+      category: "Costs",
+      description: "Annual raw labor, non-labor, and total cost values used as the base cost model.",
+      columns: [
+        { key: "year", label: "Year", format: "year" },
+        { key: "labor", label: "Labor", format: "currency0" },
+        { key: "nonLabor", label: "Non-Labor", format: "currency0" },
+        { key: "totalCost", label: "Total Cost", format: "currency0" },
+      ],
+      rows: costSummaryRows,
+    },
+    {
+      id: "cost-hierarchy",
+      title: "Cost Hierarchy Source Values",
+      category: "Costs",
+      description: "Raw cost hierarchy values by labor department and non-labor category.",
+      columns: [
+        { key: "level1", label: "Level 1", format: "text" },
+        { key: "level2", label: "Level 2", format: "text" },
+        { key: "level3", label: "Level 3", format: "text" },
+        { key: "driver", label: "Driver", format: "text" },
+        ...YEARS.map(year => ({ key: `year${year}`, label: String(year), format: "currency0" })),
+      ],
+      rows: costHierarchyRows,
+    },
+    {
       id: "initiative-teams",
       title: "Initiative Teams",
       category: "Defense Metadata",
@@ -3044,6 +4055,8 @@ function napkinChartByKey(key) {
     revenueDrilldownGrowth: state.revenueDrilldownCharts.growth,
     revenueDrilldownStr: state.revenueDrilldownCharts.str,
     revenueDrilldownOther: state.revenueDrilldownCharts.other,
+    growthRevenueTopDown: state.growthCharts.growthRevenueTopDown,
+    costProxyTarget: state.costProxyCharts.targetSpendPerUnit,
     profitTop: state.profitCharts.profit,
     profitRevenue: state.profitCharts.revenue,
     profitCost: state.profitCharts.cost,
@@ -3233,7 +4246,8 @@ function styleComparisonSeries(chart) {
 
 function initDriverChart(key) {
   const meta = driverMeta[key];
-  const chart = new NapkinChart(
+  let chart;
+  chart = new NapkinChart(
     meta.chartId,
     driverChartLines(key),
     true,
@@ -3269,14 +4283,18 @@ function initDriverChart(key) {
               const data = Array.isArray(item.data) ? item.data : item.value;
               year = Array.isArray(data) ? data[0] : item.axisValue;
               const rawValue = Array.isArray(data) ? data[1] : item.value;
-              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatDriverTooltipValue(Number(rawValue), meta)}`);
+              const previousValue = previousTooltipLineValue(item, chart?.lines);
+              const formatted = formatTooltipValueWithYoy(rawValue, previousValue, value => formatDriverTooltipValue(value, meta));
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatted}`);
             });
           if (!rows.length && items[0]) {
             const item = items[0];
             const data = Array.isArray(item.data) ? item.data : item.value;
             year = Array.isArray(data) ? data[0] : item.axisValue;
             const rawValue = Array.isArray(data) ? data[1] : item.value;
-            rows.push(`${item.marker || ""} ${item.seriesName || displayLabel(meta.label)}: ${formatDriverTooltipValue(Number(rawValue), meta)}`);
+            const previousValue = previousTooltipLineValue(item, chart?.lines);
+            const formatted = formatTooltipValueWithYoy(rawValue, previousValue, value => formatDriverTooltipValue(value, meta));
+            rows.push(`${item.marker || ""} ${item.seriesName || displayLabel(meta.label)}: ${formatted}`);
           }
           return [tooltipHeader(year), ...rows].join("<br/>");
         },
@@ -3362,9 +4380,9 @@ function makeCostLine(key, scenario) {
     color: meta.color,
     editable: true,
     editDomain: {
-      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
     },
     data: costChartPairs(scenario, key),
   };
@@ -3636,9 +4654,9 @@ function laborDepartmentChartLines(key) {
     color: meta.color,
     editable: true,
     editDomain: {
-      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
     },
     data: laborDepartmentChartPairs(activeScenario(), key),
   }];
@@ -3655,25 +4673,45 @@ function laborDepartmentChartLines(key) {
 }
 
 function laborDrilldownTopDownChartLines() {
-  return [
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const lines = [
     {
       name: "Bottom Up",
       color: costMeta.labor.color,
       editable: true,
       editDomain: {
-        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
       },
-      data: costPairsFromValuesForMode(activeScenario(), laborBottomUpValues(activeScenario()), "laborBottomUp", "laborDrilldownTopDown"),
+      data: costPairsFromValuesForMode(scenario, laborBottomUpValues(scenario), "laborBottomUp", "laborDrilldownTopDown"),
     },
     {
       name: "Top Down",
       color: "#98a2b3",
       editable: false,
-      data: costPairsFromValuesForMode(activeScenario(), costValues(activeScenario(), "labor"), "labor", "laborDrilldownTopDown"),
+      data: costPairsFromValuesForMode(scenario, costValues(scenario, "labor"), "labor", "laborDrilldownTopDown"),
     },
   ];
+  if (comparison) {
+    const comparisonName = displayScenarioName(comparison);
+    lines.push(
+      {
+        name: `Comparison: ${comparisonName} Bottom Up`,
+        color: "#98a2b3",
+        editable: false,
+        data: costPairsFromValuesForMode(comparison, laborBottomUpValues(comparison), "laborBottomUp", "laborDrilldownTopDown"),
+      },
+      {
+        name: `Comparison: ${comparisonName} Top Down`,
+        color: "#c0c6d0",
+        editable: false,
+        data: costPairsFromValuesForMode(comparison, costValues(comparison, "labor"), "labor", "laborDrilldownTopDown"),
+      }
+    );
+  }
+  return lines;
 }
 
 function laborAllocationControlChartLines() {
@@ -3689,17 +4727,27 @@ function laborAllocationControlChartLines() {
   const label = keys.length === 1
     ? displayLabel(laborDepartmentMeta[keys[0]].label)
     : `${keys.length} Departments`;
-  return [{
+  const lines = [{
     name: label,
     color: "#2f6f73",
     editable: true,
     editDomain: {
-      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
     },
     data: costPairsFromValuesForMode(activeScenario(), laborAllocationControlValues(activeScenario()), "laborAllocationControl", "laborAllocationControl"),
   }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${displayScenarioName(comparison)}`,
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(comparison, laborAllocationControlValues(comparison), "laborAllocationControl", "laborAllocationControl"),
+    });
+  }
+  return lines;
 }
 
 function laborAllocationPctStorageKey(keys = selectedLaborAllocationKeys()) {
@@ -3748,9 +4796,9 @@ function laborAllocationPctLineObjects(scenario = activeScenario()) {
         bandIndex: index,
         editable: true,
         editDomain: {
-          moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-          addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-          deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+          moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+          addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+          deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
         },
         data: clone(data),
       };
@@ -3850,9 +4898,9 @@ function laborFtePctLineObjects(chartKey, scenario = activeScenario()) {
         bandIndex: index,
         editable: true,
         editDomain: {
-          moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-          addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-          deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+          moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+          addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+          deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
         },
         data: clone(data),
       };
@@ -3925,9 +4973,9 @@ function laborFteMetricPairs(values, controlKey, scale = 1) {
 
 function laborFteEditableDomain() {
   return {
-    moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-    addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-    deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
   };
 }
 
@@ -4054,25 +5102,45 @@ function nonLaborCategoryChartKey(key) {
 }
 
 function nonLaborDrilldownTopDownChartLines() {
-  return [
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const lines = [
     {
       name: "Bottom Up",
       color: costMeta.nonLabor.color,
       editable: true,
       editDomain: {
-        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
       },
-      data: costPairsFromValuesForMode(activeScenario(), nonLaborBottomUpValues(activeScenario()), "nonLaborBottomUp", "nonLaborDrilldownTopDown"),
+      data: costPairsFromValuesForMode(scenario, nonLaborBottomUpValues(scenario), "nonLaborBottomUp", "nonLaborDrilldownTopDown"),
     },
     {
       name: "Top Down",
       color: "#98a2b3",
       editable: false,
-      data: costPairsFromValuesForMode(activeScenario(), costValues(activeScenario(), "nonLabor"), "nonLabor", "nonLaborDrilldownTopDown"),
+      data: costPairsFromValuesForMode(scenario, costValues(scenario, "nonLabor"), "nonLabor", "nonLaborDrilldownTopDown"),
     },
   ];
+  if (comparison) {
+    const comparisonName = displayScenarioName(comparison);
+    lines.push(
+      {
+        name: `Comparison: ${comparisonName} Bottom Up`,
+        color: "#98a2b3",
+        editable: false,
+        data: costPairsFromValuesForMode(comparison, nonLaborBottomUpValues(comparison), "nonLaborBottomUp", "nonLaborDrilldownTopDown"),
+      },
+      {
+        name: `Comparison: ${comparisonName} Top Down`,
+        color: "#c0c6d0",
+        editable: false,
+        data: costPairsFromValuesForMode(comparison, costValues(comparison, "nonLabor"), "nonLabor", "nonLaborDrilldownTopDown"),
+      }
+    );
+  }
+  return lines;
 }
 
 function nonLaborAllocationControlChartLines() {
@@ -4088,17 +5156,27 @@ function nonLaborAllocationControlChartLines() {
   const label = keys.length === 1
     ? displayLabel(nonLaborCategoryMeta[keys[0]].label)
     : `${keys.length} Categories`;
-  return [{
+  const lines = [{
     name: label,
     color: "#2f6f73",
     editable: true,
     editDomain: {
-      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
     },
     data: costPairsFromValuesForMode(activeScenario(), nonLaborAllocationControlValues(activeScenario()), "nonLaborAllocationControl", "nonLaborAllocationControl"),
   }];
+  const comparison = compareScenario();
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${displayScenarioName(comparison)}`,
+      color: "#98a2b3",
+      editable: false,
+      data: costPairsFromValuesForMode(comparison, nonLaborAllocationControlValues(comparison), "nonLaborAllocationControl", "nonLaborAllocationControl"),
+    });
+  }
+  return lines;
 }
 
 function nonLaborCategorySelectedSpendChartLines() {
@@ -4110,9 +5188,9 @@ function nonLaborCategorySelectedSpendChartLines() {
       color: meta.color,
       editable: true,
       editDomain: {
-        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
       },
       data: costPairsFromValuesForMode(
         activeScenario(),
@@ -4147,9 +5225,9 @@ function nonLaborCategoryDepartmentControlChartLines() {
     }];
   }
   const editDomain = {
-    moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-    addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-    deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+    moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
   };
   if (isCostChartSeparated("nonLaborCategoryDepartmentControl")) {
     return selected.map(key => {
@@ -4266,6 +5344,7 @@ function initLaborDrilldownTopDownChart() {
   applyCostChartYAxisMode(chart, "laborDrilldownTopDown", meta.yMax);
   chart._refreshChart();
   styleCostReferenceSeries(chart);
+  styleComparisonSeries(chart);
   chart._appEditSnapshot = null;
   chart._appEditCommitted = false;
   chart.chart.getZr().on("mousedown", () => {
@@ -4304,6 +5383,7 @@ function initLaborDrilldownTopDownChart() {
     }
     saveScenarios();
     styleCostReferenceSeries(chart);
+    styleComparisonSeries(chart);
     syncCostCharts({ excludeChart: chart });
     renderCostDrilldownView();
   };
@@ -4356,6 +5436,7 @@ function initLaborAllocationControlChart() {
   chart.globalMaxX = YEARS[YEARS.length - 1];
   applyCostChartYAxisMode(chart, "laborAllocationControl", costMeta.labor.yMax);
   chart._refreshChart();
+  styleComparisonSeries(chart);
   chart._appEditSnapshot = null;
   chart._appEditCommitted = false;
   chart.chart.getZr().on("mousedown", () => {
@@ -4395,6 +5476,7 @@ function initLaborAllocationControlChart() {
       rememberCostControlPoints("laborAllocationControl", chart.lines[0].data);
     }
     saveScenarios();
+    styleComparisonSeries(chart);
     syncCostCharts({ excludeChart: chart });
     renderCostDrilldownView();
   };
@@ -4408,7 +5490,7 @@ function initLaborAllocationPctChart() {
     animation: false,
     xAxis: {
       type: "value",
-      min: FIRST_COST_EDIT_YEAR,
+      min: FIRST_FORECAST_YEAR,
       max: YEARS[YEARS.length - 1],
       minInterval: 1,
       axisLabel: { formatter: formatAxisYear },
@@ -4433,7 +5515,7 @@ function initLaborAllocationPctChart() {
     "none"
   );
   chart.enableZoomBar = false;
-  chart.windowStartX = FIRST_COST_EDIT_YEAR;
+  chart.windowStartX = FIRST_FORECAST_YEAR;
   chart.windowEndX = YEARS[YEARS.length - 1];
   chart.globalMaxX = YEARS[YEARS.length - 1];
   chart._appEditSnapshot = null;
@@ -4607,6 +5689,7 @@ function initLaborFteSelectedCostChart() {
   applyLaborFteSeparatedLegend(chart, "laborFteSelectedCost");
   chart._refreshChart();
   styleCostReferenceSeries(chart);
+  styleComparisonSeries(chart);
   styleLaborFteSeparatedLegendSeries(chart, "laborFteSelectedCost");
   chart._appEditSnapshot = null;
   chart._appEditCommitted = false;
@@ -4648,6 +5731,7 @@ function initLaborFteSelectedCostChart() {
     }
     saveScenarios();
     styleCostReferenceSeries(chart);
+    styleComparisonSeries(chart);
     syncCostCharts({ excludeChart: chart });
     renderCostDrilldownView();
   };
@@ -4665,7 +5749,7 @@ function initLaborFtePctChart(chartKey, domId, applyShares) {
     animation: false,
     xAxis: {
       type: "value",
-      min: FIRST_COST_EDIT_YEAR,
+      min: FIRST_FORECAST_YEAR,
       max: YEARS[YEARS.length - 1],
       minInterval: 1,
       axisLabel: { formatter: formatAxisYear },
@@ -4684,7 +5768,7 @@ function initLaborFtePctChart(chartKey, domId, applyShares) {
   };
   const chart = new NapkinChartArea(domId, laborFtePctLineObjects(chartKey), true, baseOption, "none");
   chart.enableZoomBar = false;
-  chart.windowStartX = FIRST_COST_EDIT_YEAR;
+  chart.windowStartX = FIRST_FORECAST_YEAR;
   chart.windowEndX = YEARS[YEARS.length - 1];
   chart.globalMaxX = YEARS[YEARS.length - 1];
   chart._appEditSnapshot = null;
@@ -4758,6 +5842,7 @@ function initLaborFteCountChart() {
   chart.globalMaxX = YEARS[YEARS.length - 1];
   applyLaborFteSeparatedLegend(chart, "laborFteCount");
   chart._refreshChart();
+  styleComparisonSeries(chart);
   styleLaborFteSeparatedLegendSeries(chart, "laborFteCount");
   chart._appEditSnapshot = null;
   chart._appEditCommitted = false;
@@ -4813,6 +5898,7 @@ function initLaborFteCountChart() {
       rememberCostControlPoints("laborFteCount", chart.lines[0].data);
     }
     saveScenarios();
+    styleComparisonSeries(chart);
     syncCostCharts({ excludeChart: chart });
     renderCostDrilldownView();
   };
@@ -5588,6 +6674,7 @@ function syncCostCharts({ excludeChart = null } = {}) {
     applyCostChartYAxisMode(laborTopDownChart, "laborDrilldownTopDown", costMeta.labor.yMax);
     laborTopDownChart._refreshChart();
     styleCostReferenceSeries(laborTopDownChart);
+    styleComparisonSeries(laborTopDownChart);
   }
   renderLaborDepartmentMixEchart();
   const laborAllocationChart = state.costCharts.laborAllocationControl;
@@ -5595,6 +6682,7 @@ function syncCostCharts({ excludeChart = null } = {}) {
     laborAllocationChart.lines = laborAllocationControlChartLines();
     applyCostChartYAxisMode(laborAllocationChart, "laborAllocationControl", costMeta.labor.yMax);
     laborAllocationChart._refreshChart();
+    styleComparisonSeries(laborAllocationChart);
   }
   const laborAllocationPctChart = state.costCharts.laborAllocationPct;
   if (laborAllocationPctChart && laborAllocationPctChart !== excludeChart) {
@@ -5636,6 +6724,7 @@ function syncCostCharts({ excludeChart = null } = {}) {
     applyCostChartYAxisMode(nonLaborTopDownChart, "nonLaborDrilldownTopDown", costMeta.nonLabor.yMax);
     nonLaborTopDownChart._refreshChart();
     styleCostReferenceSeries(nonLaborTopDownChart);
+    styleComparisonSeries(nonLaborTopDownChart);
   }
   renderNonLaborCategoryMixEchart();
   renderNonLaborCategoryDepartmentMixEchart();
@@ -5644,6 +6733,7 @@ function syncCostCharts({ excludeChart = null } = {}) {
     nonLaborAllocationChart.lines = nonLaborAllocationControlChartLines();
     applyCostChartYAxisMode(nonLaborAllocationChart, "nonLaborAllocationControl", costMeta.nonLabor.yMax);
     nonLaborAllocationChart._refreshChart();
+    styleComparisonSeries(nonLaborAllocationChart);
   }
   const nonLaborCategorySelectedSpendChart = state.costCharts.nonLaborCategorySelectedSpend;
   if (nonLaborCategorySelectedSpendChart && nonLaborCategorySelectedSpendChart !== excludeChart) {
@@ -5763,6 +6853,10 @@ function initOutputCharts() {
   state.outputCharts.saasRuleOf40 = initEchartById("saas-rule-of-40-chart");
   state.outputCharts.saasCac = initEchartById("saas-cac-chart");
   state.outputCharts.saasRevenuePerFte = initEchartById("saas-revenue-per-fte-chart");
+  state.outputCharts.costProxySelectedCost = initEchartById("cost-proxy-selected-cost-chart");
+  state.outputCharts.costProxySpendPerUnit = initEchartById("cost-proxy-spend-per-unit-chart");
+  state.outputCharts.costProxyNewUnits = initEchartById("cost-proxy-new-units-chart");
+  state.outputCharts.costProxyImpliedCost = initEchartById("cost-proxy-implied-cost-chart");
   state.outputCharts.growthRevenueProxyCustomers = initEchartById("growth-revenue-proxy-customers-chart");
   state.outputCharts.costLaborDepartmentMix = initEchartById("cost-labor-department-mix-chart");
   state.outputCharts.costNonLaborCategoryMix = initEchartById("cost-non-labor-category-mix-chart");
@@ -5772,9 +6866,81 @@ function initOutputCharts() {
     Object.values(state.growthCharts).forEach(chart => chart?.resize());
     Object.values(state.strCharts).forEach(chart => chart?.resize());
     Object.values(state.otherRevenueCharts).forEach(chart => chart?.resize());
+    Object.values(state.costProxyCharts).forEach(chart => chart?.resize());
     Object.values(state.revenueDrilldownCharts).forEach(chart => chart?.resize());
     Object.values(state.profitCharts).forEach(chart => chart?.resize());
   });
+}
+
+function initCostProxyTargetChart() {
+  const element = document.getElementById("cost-proxy-target-chart");
+  if (!element || typeof NapkinChart === "undefined") return;
+  const currentCost = selectedCostProxyValues(activeScenario());
+  const currentUnits = costProxyNewUnitsValues(activeScenario());
+  const currentSpendPerUnit = spendPerNewUnitValues(currentCost, currentUnits);
+  const chart = new NapkinChart(
+    "cost-proxy-target-chart",
+    [{
+      name: "Target Spend / New Unit",
+      color: "#1d4ed8",
+      editable: true,
+      editDomain: {
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      },
+      data: costProxyTargetPairs(currentSpendPerUnit),
+    }],
+    true,
+    {
+      animation: false,
+      xAxis: {
+        type: "value",
+        min: YEARS[0],
+        max: YEARS[YEARS.length - 1],
+        minInterval: 1,
+        axisLabel: { formatter: formatAxisYear },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: costProxyTargetYMax(currentSpendPerUnit),
+        axisLabel: { formatter: value => formatCompactCurrency(Number(value)) },
+      },
+      grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        formatter: params => {
+          const items = Array.isArray(params) ? params : [params];
+          const rows = [];
+          let year = items[0]?.axisValue;
+          items
+            .filter(item => item && item.seriesType === "line" && item.seriesIndex % 2 === 1)
+            .forEach(item => {
+              const data = Array.isArray(item.data) ? item.data : item.value;
+              year = Array.isArray(data) ? data[0] : item.axisValue;
+              const rawValue = Array.isArray(data) ? data[1] : item.value;
+              const previousValue = previousTooltipLineValue(item, chart?.lines);
+              const formatted = formatTooltipValueWithYoy(rawValue, previousValue, value => formatOptionalCurrency(value, 0));
+              rows.push(`${item.marker || ""} ${item.seriesName}: ${formatted}`);
+            });
+          return [tooltipHeader(year), ...rows].join("<br/>");
+        },
+      },
+    },
+    "none",
+    false
+  );
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart._refreshChart();
+  chart.onDataChanged = () => {
+    if (state.syncingCostProxyCharts) return;
+    state.costProxyTargetPoints = clone(chart.lines[0].data);
+    renderCostProxyMetrics({ syncTargetChart: false });
+  };
+  state.costProxyCharts.targetSpendPerUnit = chart;
 }
 
 function initRetentionDefenseCharts() {
@@ -6281,6 +7447,97 @@ function setLtrBottomToTop() {
   renderAll();
 }
 
+function forecastYears() {
+  return YEARS.filter(year => year >= FIRST_FORECAST_YEAR);
+}
+
+function setScenarioNewPropertiesValue(scenario, year, value) {
+  const plan = newCustomerNewUnitsPropertyPlan(scenario);
+  if (!plan.newProperties) plan.newProperties = {};
+  plan.newProperties[String(year)] = Math.max(0, Number(value) || 0);
+}
+
+function setScenarioNewUnitsValue(scenario, year, value) {
+  const plan = newCustomerUnitPlan(scenario);
+  if (!plan.newUnits) plan.newUnits = {};
+  plan.newUnits[String(year)] = Math.max(0, Number(value) || 0);
+}
+
+function setScenarioCustomersPerUnitValue(scenario, year, value) {
+  const plan = newCustomerUnitPlan(scenario);
+  if (!plan.customersPerUnit) plan.customersPerUnit = {};
+  plan.customersPerUnit[String(year)] = Math.max(0, Number(value) || 0);
+}
+
+function setScenarioUnitsPerNewPropertyValue(scenario, year, value) {
+  const plan = newCustomerNewUnitsPropertyPlan(scenario);
+  if (!plan.unitsPerNewProperty) plan.unitsPerNewProperty = {};
+  plan.unitsPerNewProperty[String(year)] = Math.max(0, Number(value) || 0);
+}
+
+function setScenarioNewPropertyCohortFromUnitBuild(scenario, year, newUnits, customersPerUnit) {
+  setNewCustomerCohortValuePreservingFutureYoy(
+    scenario.newCustomerDrilldown.counts,
+    year,
+    year,
+    Math.max(0, Number(newUnits || 0) * Number(customersPerUnit || 0))
+  );
+}
+
+function scenarioWithNewCustomerUnitLeafBaseline(scenario, baseline, key) {
+  const adjusted = clone(scenario);
+  normalizeScenario(adjusted);
+  normalizeScenario(baseline);
+  forecastYears().forEach(year => {
+    const activeProperties = newCustomerNewUnitsNewPropertiesValue(adjusted, year);
+    const activeUnitsPerProperty = newCustomerNewUnitsUnitsPerPropertyValue(adjusted, year);
+    const activeCustomersPerUnit = newCustomerUnitCustomersPerUnitValue(adjusted, year);
+    const baselineProperties = newCustomerNewUnitsNewPropertiesValue(baseline, year);
+    const baselineUnitsPerProperty = newCustomerNewUnitsUnitsPerPropertyValue(baseline, year);
+    const baselineCustomersPerUnit = newCustomerUnitCustomersPerUnitValue(baseline, year);
+    const properties = key === "newProperties" ? baselineProperties : activeProperties;
+    const unitsPerProperty = key === "newUnitsPerProperty" ? baselineUnitsPerProperty : activeUnitsPerProperty;
+    const customersPerUnit = key === "newCustomersPerUnit" ? baselineCustomersPerUnit : activeCustomersPerUnit;
+    const newUnits = properties * unitsPerProperty;
+    setScenarioNewPropertiesValue(adjusted, year, properties);
+    setScenarioUnitsPerNewPropertyValue(adjusted, year, unitsPerProperty);
+    setScenarioNewUnitsValue(adjusted, year, newUnits);
+    setScenarioCustomersPerUnitValue(adjusted, year, customersPerUnit);
+    setScenarioNewPropertyCohortFromUnitBuild(adjusted, year, newUnits, customersPerUnit);
+  });
+  return adjusted;
+}
+
+function newCustomerDeltaFromUnitLeafBaseline(scenario, baseline, key) {
+  const adjusted = scenarioWithNewCustomerUnitLeafBaseline(scenario, baseline, key);
+  const activeValues = visibleBottomUpNewCustomers(scenario);
+  const baselineValues = visibleBottomUpNewCustomers(adjusted);
+  return activeValues.map((value, index) => Number(value || 0) - Number(baselineValues[index] || 0));
+}
+
+function scenarioWithExistingPropertyYoyBaseline(scenario, baseline) {
+  const adjusted = clone(scenario);
+  normalizeScenario(adjusted);
+  normalizeScenario(baseline);
+  forecastYears().forEach(year => {
+    existingPropertyCohortsForYear(year).forEach(cohortYear => {
+      const baselineYoy = newCustomerCohortYoy(baseline.newCustomerDrilldown.counts, year, cohortYear);
+      const prior = newCustomerCohortValue(adjusted.newCustomerDrilldown.counts, year - 1, cohortYear);
+      if (baselineYoy !== null && prior > 0) {
+        setNewCustomerCohortValue(adjusted.newCustomerDrilldown.counts, year, cohortYear, prior * (1 + baselineYoy));
+      }
+    });
+  });
+  return adjusted;
+}
+
+function newCustomerDeltaFromExistingPropertyYoyBaseline(scenario, baseline) {
+  const adjusted = scenarioWithExistingPropertyYoyBaseline(scenario, baseline);
+  const activeValues = visibleBottomUpNewCustomers(scenario);
+  const baselineValues = visibleBottomUpNewCustomers(adjusted);
+  return activeValues.map((value, index) => Number(value || 0) - Number(baselineValues[index] || 0));
+}
+
 const leafDefenseConfigs = {
   retentionRate: {
     title: "Retention Rate",
@@ -6348,17 +7605,15 @@ const leafDefenseConfigs = {
     },
   },
   existingPropertyNewPayingCustomers: {
-    title: "New Paying Customers From Existing Properties",
-    shortTitle: "Existing Properties",
-    format: "integer",
+    title: "Existing Properties YoY % Diff",
+    shortTitle: "Existing Properties YoY",
+    format: "percent",
     color: TOP_DOWN_COLOR,
     treeAction: "newCustomers",
-    values: scenario => YEARS.map(year => existingPropertyNewCustomersTotal(scenario.newCustomerDrilldown.counts, year)),
-    baseValues: () => YEARS.map(year => existingPropertyNewCustomersTotal(baseNewCustomerCohortCounts, year)),
-    newCustomerDelta: scenario => {
-      const activeValues = YEARS.map(year => existingPropertyNewCustomersTotal(scenario.newCustomerDrilldown.counts, year));
-      const baseValues = YEARS.map(year => existingPropertyNewCustomersTotal(baseNewCustomerCohortCounts, year));
-      return activeValues.map((value, index) => value - baseValues[index]);
+    values: scenario => existingPropertyNewCustomersYoyValues(scenario),
+    baseValues: () => existingPropertyNewCustomersYoyValues(makeBaseScenario()),
+    newCustomerDelta: (scenario, baseline = makeBaseScenario()) => {
+      return newCustomerDeltaFromExistingPropertyYoyBaseline(scenario, baseline);
     },
   },
   growthNewPayingCustomers: {
@@ -6474,12 +7729,8 @@ const leafDefenseConfigs = {
       const base = makeBaseScenario();
       return YEARS.map(year => newCustomerUnitCustomersPerUnitValue(base, year));
     },
-    newCustomerDelta: scenario => {
-      const base = makeBaseScenario();
-      return YEARS.map(year => {
-        const units = newCustomerUnitNewUnitsValue(scenario, year);
-        return units * (newCustomerUnitCustomersPerUnitValue(scenario, year) - newCustomerUnitCustomersPerUnitValue(base, year));
-      });
+    newCustomerDelta: (scenario, baseline = makeBaseScenario()) => {
+      return newCustomerDeltaFromUnitLeafBaseline(scenario, baseline, "newCustomersPerUnit");
     },
   },
   newProperties: {
@@ -6493,15 +7744,8 @@ const leafDefenseConfigs = {
       const base = makeBaseScenario();
       return YEARS.map(year => newCustomerNewUnitsNewPropertiesValue(base, year));
     },
-    newCustomerDelta: scenario => {
-      const base = makeBaseScenario();
-      return YEARS.map(year => {
-        const unitsPerProperty = newCustomerNewUnitsUnitsPerPropertyValue(scenario, year);
-        const customersPerUnit = newCustomerUnitCustomersPerUnitValue(scenario, year);
-        const activeUnits = newCustomerNewUnitsNewPropertiesValue(scenario, year) * unitsPerProperty;
-        const baseUnits = newCustomerNewUnitsNewPropertiesValue(base, year) * unitsPerProperty;
-        return (activeUnits - baseUnits) * customersPerUnit;
-      });
+    newCustomerDelta: (scenario, baseline = makeBaseScenario()) => {
+      return newCustomerDeltaFromUnitLeafBaseline(scenario, baseline, "newProperties");
     },
   },
   newUnitsPerProperty: {
@@ -6515,15 +7759,8 @@ const leafDefenseConfigs = {
       const base = makeBaseScenario();
       return YEARS.map(year => newCustomerNewUnitsUnitsPerPropertyValue(base, year));
     },
-    newCustomerDelta: scenario => {
-      const base = makeBaseScenario();
-      return YEARS.map(year => {
-        const properties = newCustomerNewUnitsNewPropertiesValue(scenario, year);
-        const customersPerUnit = newCustomerUnitCustomersPerUnitValue(scenario, year);
-        const activeUnits = properties * newCustomerNewUnitsUnitsPerPropertyValue(scenario, year);
-        const baseUnits = properties * newCustomerNewUnitsUnitsPerPropertyValue(base, year);
-        return (activeUnits - baseUnits) * customersPerUnit;
-      });
+    newCustomerDelta: (scenario, baseline = makeBaseScenario()) => {
+      return newCustomerDeltaFromUnitLeafBaseline(scenario, baseline, "newUnitsPerProperty");
     },
   },
   priorPayingCustomers: {
@@ -6545,6 +7782,66 @@ const leafDefenseConfigs = {
 
 function activeDefenseConfig() {
   return leafDefenseConfigs[state.activeDefenseKey] || leafDefenseConfigs.retentionRate;
+}
+
+function defenseBaselineScenario() {
+  const bauVersion = latestReferenceVersion("bau");
+  if (bauVersion?.snapshot) {
+    return scenarioFromReferenceVersion("bau", bauVersion);
+  }
+  return makeBaseScenario("Base Scenario");
+}
+
+function defenseBaselineLabel() {
+  return latestReferenceVersion("bau") ? "BAU" : "Base Scenario";
+}
+
+function defenseBaselineValues(config = activeDefenseConfig()) {
+  const baseline = defenseBaselineScenario();
+  return typeof config.values === "function"
+    ? config.values(baseline)
+    : typeof config.baseValues === "function"
+      ? config.baseValues()
+      : YEARS.map(() => 0);
+}
+
+function applyDefenseMetricBaseline(scenario, key, baseline = defenseBaselineScenario()) {
+  normalizeScenario(scenario);
+  normalizeScenario(baseline);
+  if (key === "retentionRate") scenario.drivers.retention = clone(baseline.drivers.retention);
+  if (key === "profilesReturningCustomer") scenario.drivers.profilesReturning = clone(baseline.drivers.profilesReturning);
+  if (key === "profilesNewCustomer") scenario.drivers.profilesNew = clone(baseline.drivers.profilesNew);
+  if (key === "revenueReturningProfile") scenario.drivers.revReturningProfile = clone(baseline.drivers.revReturningProfile);
+  if (key === "revenueNewProfile") scenario.drivers.revNewProfile = clone(baseline.drivers.revNewProfile);
+  if (key === "growthRevPerNewPayingCustomer") {
+    growthRevenuePlan(scenario).revPerNewPayingCustomer = clone(growthRevenuePlan(baseline).revPerNewPayingCustomer);
+  }
+  if (key === "strProperties") {
+    strRevenuePlan(scenario).numStrProperties = clone(strRevenuePlan(baseline).numStrProperties);
+  }
+  if (key === "strRevPerProperty") {
+    strRevenuePlan(scenario).revPerStrProperty = clone(strRevenuePlan(baseline).revPerStrProperty);
+  }
+  if (key === "otherRevenue") {
+    otherRevenuePlan(scenario).topDown = clone(otherRevenuePlan(baseline).topDown);
+  }
+  if (key === "nonLaborCost") {
+    normalizeCostPlan(scenario);
+    normalizeCostPlan(baseline);
+    scenario.costs.nonLabor = clone(baseline.costs.nonLabor);
+    scenario.costs.nonLaborCategories = clone(baseline.costs.nonLaborCategories);
+    scenario.costs.nonLaborCategoryDepartments = clone(baseline.costs.nonLaborCategoryDepartments);
+  }
+  if (key === "laborFte") {
+    normalizeCostPlan(scenario);
+    normalizeCostPlan(baseline);
+    scenario.costs.laborFte = clone(baseline.costs.laborFte);
+  }
+  if (key === "laborCostPerFte") {
+    normalizeCostPlan(scenario);
+    normalizeCostPlan(baseline);
+    scenario.costs.laborCostPerFte = clone(baseline.costs.laborCostPerFte);
+  }
 }
 
 function defenseEntry(scenario = activeScenario(), key = state.activeDefenseKey) {
@@ -6651,18 +7948,16 @@ function retentionPctTotalSharesForYear(scenario, year, key = state.activeDefens
 
 function retentionRevenueDeltaToBase(scenario = activeScenario(), key = state.activeDefenseKey) {
   const config = leafDefenseConfigs[key] || activeDefenseConfig();
+  const baseline = defenseBaselineScenario();
   const activeOutputs = calculateOutputs(scenario);
   if (typeof config.newCustomerDelta === "function") {
-    const deltas = config.newCustomerDelta(scenario);
+    const deltas = config.newCustomerDelta(scenario, baseline);
     const baselineNewCustomers = driverValues(scenario, "newCustomers").map((value, index) => Math.max(0, value - (deltas[index] || 0)));
     const baseOutputs = calculateOutputsWithNewCustomers(scenario, baselineNewCustomers);
     return activeOutputs.revenue.map((value, index) => value - baseOutputs.revenue[index]);
   }
-  if (typeof config.applyBaseline !== "function") {
-    return YEARS.map(() => 0);
-  }
   const baseRetentionScenario = clone(scenario);
-  config.applyBaseline(baseRetentionScenario);
+  applyDefenseMetricBaseline(baseRetentionScenario, key, baseline);
   const baseRetentionOutputs = calculateOutputs(baseRetentionScenario);
   return activeOutputs.revenue.map((value, index) => value - baseRetentionOutputs.revenue[index]);
 }
@@ -6736,33 +8031,38 @@ function renderRetentionRevenueImpactChart(impacts = retentionInitiativeRevenueI
       ...item,
       chartData: state.retentionImpactCumulative
         ? item.yearly.map(value => {
-          running += value;
-          return running;
-        })
+            running += value;
+            return running;
+          })
         : item.yearly,
     };
   });
+  const retentionImpactSeries = seriesImpacts.map(item => ({
+    name: item.name,
+    type: isBar ? "bar" : "line",
+    data: item.chartData,
+    ...(isBar ? { stack: "retentionImpact", barMaxWidth: 46 } : { symbolSize: 5 }),
+    lineStyle: isBar ? undefined : { color: item.color, width: 2 },
+    itemStyle: { color: item.color },
+  }));
   chart.setOption({
     animation: false,
     tooltip: {
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 0)}`),
+        ...params.map(item => {
+          const previousValue = previousTooltipSeriesValue(item, retentionImpactSeries);
+          const formatted = formatTooltipValueWithYoy(item.value, previousValue, value => formatCurrency(value, 0));
+          return `${item.marker} ${displayLabel(item.seriesName)}: ${formatted}`;
+        }),
       ].join("<br/>"),
     },
     legend: { type: "scroll", top: 0 },
     grid: { left: 12, right: 18, top: 48, bottom: 36, containLabel: true },
     xAxis: { type: "category", data: YEARS.map(String) },
     yAxis: { type: "value", axisLabel: { formatter: formatCompactCurrency } },
-    series: seriesImpacts.map(item => ({
-      name: item.name,
-      type: isBar ? "bar" : "line",
-      data: item.chartData,
-      ...(isBar ? { stack: "retentionImpact", barMaxWidth: 46 } : { symbolSize: 5 }),
-      lineStyle: isBar ? undefined : { color: item.color, width: 2 },
-      itemStyle: { color: item.color },
-    })),
+    series: retentionImpactSeries,
   }, true);
   chart.resize();
   requestAnimationFrame(() => chart.resize());
@@ -6839,14 +8139,15 @@ function renderRetentionDefense() {
   if (subtitle) {
     subtitle.textContent = `Capture the rationale behind ${displayLabel(config.shortTitle).toLowerCase()} assumptions, especially where they depart from BAU.`;
   }
-  if (chartTitle) chartTitle.textContent = `${displayLabel(config.shortTitle)} vs Base`;
+  const baselineLabel = defenseBaselineLabel();
+  if (chartTitle) chartTitle.textContent = `${displayLabel(config.shortTitle)} vs ${baselineLabel}`;
 
   const chart = state.outputCharts.retentionDefense;
   if (chart) {
     const scenario = activeScenario();
     const scenarioName = displayScenarioName(scenario);
     const activeValues = config.values(scenario);
-    const baseValues = config.baseValues(scenario);
+    const baseValues = defenseBaselineValues(config);
     chart.setOption({
       animation: false,
       tooltip: {
@@ -6870,7 +8171,7 @@ function renderRetentionDefense() {
           itemStyle: { color: config.color },
         },
         {
-          name: "Base Scenario",
+          name: baselineLabel,
           type: "line",
           data: baseValues,
           symbolSize: 5,
@@ -7220,7 +8521,10 @@ function metricTreeChartOption(series, { format = "number", stacked = false } = 
       trigger: "axis",
       formatter: params => [
         tooltipHeader(params[0]?.axisValue),
-        ...params.map(item => `${item.marker} ${item.seriesName}: ${formatTooltipValue(item.value)}`),
+        ...params.map(item => {
+          const previousValue = previousTooltipSeriesValue(item, series);
+          return `${item.marker} ${item.seriesName}: ${formatTooltipValueWithYoy(item.value, previousValue, formatTooltipValue)}`;
+        }),
       ].join("<br/>"),
     },
     legend: { top: 0, type: "scroll" },
@@ -7235,6 +8539,40 @@ function metricTreeChartOption(series, { format = "number", stacked = false } = 
 
 function setMetricTreeChart(key, series, options) {
   state.outputCharts[key]?.setOption(metricTreeChartOption(series, options), true);
+}
+
+const metricTreeReferenceColors = {
+  bau: "#64748b",
+  target: "#d39b2a",
+};
+
+function metricTreeReferenceContexts() {
+  const parsedCompare = parseReferenceCompareId(state.compareScenarioId);
+  return REFERENCE_SCENARIO_KEYS.map(item => {
+    const version = latestReferenceVersion(item.key);
+    if (!version?.snapshot) return null;
+    if (
+      parsedCompare?.referenceKey === item.key
+      && (parsedCompare.versionId === "latest" || parsedCompare.versionId === version.id)
+    ) {
+      return null;
+    }
+    const scenario = scenarioFromReferenceVersion(item.key, version);
+    return {
+      key: item.key,
+      label: item.label,
+      color: metricTreeReferenceColors[item.key] || metricTreeScenarioColor(scenario),
+      scenario,
+      outputs: calculateOutputs(scenario),
+    };
+  }).filter(Boolean);
+}
+
+function metricTreeReferenceSeries(referenceContexts, valueGetter, labelSuffix = "") {
+  return referenceContexts.map(context => {
+    const values = valueGetter(context);
+    return metricTreeSeries(displayLabel(`${context.label}${labelSuffix}`), values, context.color);
+  });
 }
 
 function profilesPerCustomerValues(outputs) {
@@ -7354,6 +8692,408 @@ function formatSaasPercent(value, decimals = 1) {
   return Number.isFinite(value) ? `${trimNumber(value, decimals)}%` : "-";
 }
 
+function selectedCostProxyKeys() {
+  const validKeys = new Set(costProxyPoolOptions.map(option => option.key));
+  return normalizeCostProxySelection((state.selectedCostProxyKeys || []).filter(key => validKeys.has(key)));
+}
+
+function costProxyOptionByKey(key) {
+  return costProxyPoolOptions.find(option => option.key === key) || null;
+}
+
+function costProxyGroupForOption(option) {
+  if (!option) return "";
+  if (option.type === "labor" || option.key === "total:labor") return "labor";
+  if (option.type === "nonLabor" || option.key === "total:nonLabor") return "nonLabor";
+  return "";
+}
+
+function costProxyTotalKeyForGroup(group) {
+  if (group === "labor") return "total:labor";
+  if (group === "nonLabor") return "total:nonLabor";
+  return "";
+}
+
+function costProxyChildKeysForGroup(group) {
+  return costProxyPoolOptions
+    .filter(option => costProxyGroupForOption(option) === group && option.type !== "total")
+    .map(option => option.key);
+}
+
+function normalizeCostProxySelection(keys) {
+  const selected = new Set(keys);
+  ["labor", "nonLabor"].forEach(group => {
+    const totalKey = costProxyTotalKeyForGroup(group);
+    if (!selected.has(totalKey)) return;
+    costProxyChildKeysForGroup(group).forEach(key => selected.delete(key));
+  });
+  return Array.from(selected);
+}
+
+function toggleCostProxySelection(key) {
+  const option = costProxyOptionByKey(key);
+  if (!option) return;
+  const group = costProxyGroupForOption(option);
+  const totalKey = costProxyTotalKeyForGroup(group);
+  const selected = new Set(selectedCostProxyKeys());
+  if (selected.has(key)) {
+    selected.delete(key);
+  } else {
+    selected.add(key);
+    if (option.type === "total") {
+      costProxyChildKeysForGroup(group).forEach(childKey => selected.delete(childKey));
+    } else if (totalKey) {
+      selected.delete(totalKey);
+    }
+  }
+  state.selectedCostProxyKeys = normalizeCostProxySelection(Array.from(selected));
+  state.costProxyTargetPoints = null;
+}
+
+function costProxyValuesForOption(scenario, option) {
+  if (!scenario || !option) return YEARS.map(() => 0);
+  if (option.type === "total") return costValues(scenario, option.valueKey);
+  if (option.type === "labor") return laborDepartmentValues(scenario, option.valueKey);
+  if (option.type === "nonLabor") return nonLaborCategoryValues(scenario, option.valueKey);
+  return YEARS.map(() => 0);
+}
+
+function selectedCostProxyValues(scenario = activeScenario()) {
+  const keys = selectedCostProxyKeys();
+  return YEARS.map((_year, index) => {
+    return keys.reduce((sum, key) => {
+      const option = costProxyOptionByKey(key);
+      return sum + Number(costProxyValuesForOption(scenario, option)[index] || 0);
+    }, 0);
+  });
+}
+
+function costProxyNewUnitsValues(scenario = activeScenario()) {
+  return YEARS.map(year => newCustomerUnitNewUnitsValue(scenario, year));
+}
+
+function spendPerNewUnitValues(costValueList, newUnitValueList) {
+  return YEARS.map((_year, index) => {
+    const units = Number(newUnitValueList[index] || 0);
+    return units > 0 ? Number(costValueList[index] || 0) / units : null;
+  });
+}
+
+function forecastTotal(values) {
+  return YEARS.reduce((sum, year, index) => {
+    return year >= FIRST_FORECAST_YEAR ? sum + Number(values[index] || 0) : sum;
+  }, 0);
+}
+
+function renderCostProxyPoolChips() {
+  const container = document.getElementById("cost-proxy-pool-chips");
+  if (!container) return;
+  const selected = new Set(selectedCostProxyKeys());
+  const groupMarkup = [
+    {
+      key: "labor",
+      label: "Labor",
+      totalLabel: "All Labor",
+      totalKey: "total:labor",
+      children: costProxyPoolOptions.filter(option => option.type === "labor"),
+    },
+    {
+      key: "nonLabor",
+      label: "Non-Labor",
+      totalLabel: "All Non-Labor",
+      totalKey: "total:nonLabor",
+      children: costProxyPoolOptions.filter(option => option.type === "nonLabor"),
+    },
+  ].map(group => {
+    const totalOption = costProxyOptionByKey(group.totalKey);
+    const isTotalSelected = selected.has(group.totalKey);
+    const childMarkup = group.children.map(option => `
+      <button
+        class="cost-proxy-chip cost-proxy-chip-child ${selected.has(option.key) ? "active" : ""}"
+        type="button"
+        style="--chip-color: ${escapeHtml(option.color)}"
+        data-cost-proxy-key="${escapeHtml(option.key)}"
+        aria-pressed="${selected.has(option.key) ? "true" : "false"}"
+      >${escapeHtml(displayLabel(option.label))}</button>
+    `).join("");
+    return `
+      <div class="cost-proxy-chip-group">
+        <div class="cost-proxy-chip-group-header">
+          <span>${escapeHtml(displayLabel(group.label))}</span>
+          <button
+            class="cost-proxy-chip cost-proxy-chip-total ${isTotalSelected ? "active" : ""}"
+            type="button"
+            style="--chip-color: ${escapeHtml(totalOption.color)}"
+            data-cost-proxy-key="${escapeHtml(group.totalKey)}"
+            aria-pressed="${isTotalSelected ? "true" : "false"}"
+          >${escapeHtml(displayLabel(group.totalLabel))}</button>
+        </div>
+        <div class="cost-proxy-chip-children">${childMarkup}</div>
+      </div>
+    `;
+  }).join("");
+  container.innerHTML = groupMarkup;
+}
+
+function costProxyPoolLabel() {
+  const selected = selectedCostProxyKeys();
+  if (!selected.length) return "No Lines";
+  if (selected.length === 1) return displayLabel(costProxyOptionByKey(selected[0])?.label || "Selected Line");
+  return `${selected.length} Lines`;
+}
+
+function costProxyLeafSelections() {
+  const leaves = [];
+  selectedCostProxyKeys().forEach(key => {
+    const option = costProxyOptionByKey(key);
+    if (!option) return;
+    if (option.type === "total" && option.valueKey === "labor") {
+      LABOR_DEPARTMENT_KEYS.forEach(departmentKey => leaves.push({ type: "labor", key: departmentKey }));
+    } else if (option.type === "total" && option.valueKey === "nonLabor") {
+      NON_LABOR_CATEGORY_KEYS.forEach(categoryKey => leaves.push({ type: "nonLabor", key: categoryKey }));
+    } else if (option.type === "labor") {
+      leaves.push({ type: "labor", key: option.valueKey });
+    } else if (option.type === "nonLabor") {
+      leaves.push({ type: "nonLabor", key: option.valueKey });
+    }
+  });
+  const unique = new Map();
+  leaves.forEach(leaf => unique.set(`${leaf.type}:${leaf.key}`, leaf));
+  return Array.from(unique.values());
+}
+
+function costProxyLeafValue(scenario, leaf, index) {
+  normalizeCostPlan(scenario);
+  if (leaf.type === "labor") return Number(scenario.costs.laborDepartments?.[leaf.key]?.[index] || 0);
+  if (leaf.type === "nonLabor") return Number(scenario.costs.nonLaborCategories?.[leaf.key]?.[index] || 0);
+  return 0;
+}
+
+function baseCostProxyLeafValue(leaf, index) {
+  if (leaf.type === "labor") return Number(baseCosts.laborDepartments?.[leaf.key]?.[index] || 0);
+  if (leaf.type === "nonLabor") return Number(baseCosts.nonLaborCategories?.[leaf.key]?.[index] || 0);
+  return 0;
+}
+
+function setCostProxyLeafValue(scenario, leaf, index, value) {
+  normalizeCostPlan(scenario);
+  const actualValue = Math.max(0, Number(value) || 0);
+  if (leaf.type === "labor") {
+    scenario.costs.laborDepartments[leaf.key][index] = actualValue;
+    addCostControlPointIfControlled(laborDepartmentChartKey(leaf.key), YEARS[index]);
+  } else if (leaf.type === "nonLabor") {
+    scenario.costs.nonLaborCategories[leaf.key][index] = actualValue;
+    addCostControlPointIfControlled(nonLaborCategoryChartKey(leaf.key), YEARS[index]);
+  }
+}
+
+function costProxyTargetPairs(currentSpendPerUnit) {
+  const source = Array.isArray(state.costProxyTargetPoints) && state.costProxyTargetPoints.length
+    ? state.costProxyTargetPoints
+    : YEARS.map((year, index) => [year, Number(currentSpendPerUnit[index] || 0)]);
+  return source
+    .map(([year, value]) => [Number(year), Number(value)])
+    .filter(([year, value]) => Number.isFinite(year) && Number.isFinite(value))
+    .sort((left, right) => left[0] - right[0]);
+}
+
+function targetSpendPerUnitValues(currentSpendPerUnit) {
+  const pairs = costProxyTargetPairs(currentSpendPerUnit);
+  return YEARS.map((year, index) => {
+    const value = interpolateNapkinLineValue(pairs, year);
+    return Number.isFinite(value) ? value : Number(currentSpendPerUnit[index] || 0);
+  });
+}
+
+function impliedCostProxyValues(targetSpendPerUnit, newUnitValueList) {
+  return YEARS.map((_year, index) => Math.max(0, Number(targetSpendPerUnit[index] || 0) * Number(newUnitValueList[index] || 0)));
+}
+
+function costProxyTargetYMax(values) {
+  const maxValue = Math.max(1, ...values.map(value => Number(value) || 0));
+  return stepYAxisLeadingDigit(maxValue * 1.25, "up") || maxValue * 1.5;
+}
+
+function syncCostProxyTargetChart(currentSpendPerUnit) {
+  const chart = state.costProxyCharts.targetSpendPerUnit;
+  if (!chart) return;
+  state.syncingCostProxyCharts = true;
+  chart.lines = [{
+    name: "Target Spend / New Unit",
+    color: "#1d4ed8",
+    editable: true,
+    editDomain: {
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+    },
+    data: costProxyTargetPairs(currentSpendPerUnit),
+  }];
+  chart.baseOption.yAxis.max = costProxyTargetYMax(targetSpendPerUnitValues(currentSpendPerUnit));
+  chart._refreshChart();
+  state.syncingCostProxyCharts = false;
+}
+
+function costProxyLineSeries({ name, data, color, width = 3, dashed = false }) {
+  return {
+    name,
+    type: "line",
+    data,
+    symbolSize: width >= 3 ? 6 : 5,
+    lineStyle: { color, width, type: dashed ? "dashed" : "solid" },
+    itemStyle: { color },
+  };
+}
+
+function costProxyApplicationDelta(selectedCost, impliedCost) {
+  return forecastTotal(impliedCost) - forecastTotal(selectedCost);
+}
+
+function applyCostProxyTargetToCosts() {
+  const scenario = activeScenario();
+  const leaves = costProxyLeafSelections();
+  if (!leaves.length) return;
+  const selectedCost = selectedCostProxyValues(scenario);
+  const newUnits = costProxyNewUnitsValues(scenario);
+  const spendPerUnit = spendPerNewUnitValues(selectedCost, newUnits);
+  const targetSpendPerUnit = targetSpendPerUnitValues(spendPerUnit);
+  const impliedCost = impliedCostProxyValues(targetSpendPerUnit, newUnits);
+  if (Math.abs(costProxyApplicationDelta(selectedCost, impliedCost)) < 1) return;
+
+  pushUndoSnapshot();
+  normalizeCostPlan(scenario);
+  YEARS.forEach((year, index) => {
+    if (!editableCostYear(year)) return;
+    const targetTotal = Math.max(0, Number(impliedCost[index] || 0));
+    const currentTotal = leaves.reduce((sum, leaf) => sum + costProxyLeafValue(scenario, leaf, index), 0);
+    const baseTotal = leaves.reduce((sum, leaf) => sum + baseCostProxyLeafValue(leaf, index), 0);
+    leaves.forEach(leaf => {
+      const currentValue = costProxyLeafValue(scenario, leaf, index);
+      const baseValue = baseCostProxyLeafValue(leaf, index);
+      const share = currentTotal > 0
+        ? currentValue / currentTotal
+        : baseTotal > 0 ? baseValue / baseTotal : 1 / leaves.length;
+      setCostProxyLeafValue(scenario, leaf, index, targetTotal * share);
+    });
+    syncLaborTotalsFromDepartments(scenario);
+    syncNonLaborTotalsFromCategories(scenario);
+    addCostControlPointIfControlled("labor", year);
+    addCostControlPointIfControlled("nonLabor", year);
+    addCostControlPointIfControlled("total", year);
+    addCostControlPointIfControlled("laborBottomUp", year);
+    addCostControlPointIfControlled("nonLaborBottomUp", year);
+    addCostControlPointIfControlled("laborAllocationControl", year);
+    addCostControlPointIfControlled("nonLaborAllocationControl", year);
+  });
+  saveScenarios();
+  syncCostCharts();
+  renderAll();
+}
+
+function costProxyChartOption({ series, valueFormatter, axisFormatter = valueFormatter }) {
+  return {
+    animation: false,
+    tooltip: {
+      trigger: "axis",
+      formatter: params => {
+        const lines = [tooltipHeader(params[0]?.axisValue)];
+        params.forEach(item => {
+          const value = item.value === null || item.value === undefined ? null : Number(item.value);
+          const previousValue = previousTooltipSeriesValue(item, series);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatTooltipValueWithYoy(value, previousValue, valueFormatter)}`);
+        });
+        return lines.join("<br/>");
+      },
+    },
+    legend: { top: 0 },
+    grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
+    xAxis: { type: "category", data: YEARS.map(String) },
+    yAxis: { type: "value", axisLabel: { formatter: axisFormatter } },
+    series,
+  };
+}
+
+function renderCostProxyMetrics({ syncTargetChart = true } = {}) {
+  renderCostProxyPoolChips();
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const scenarioName = displayScenarioName(scenario);
+  const comparisonName = comparison ? displayScenarioName(comparison) : "";
+  const selectedCost = selectedCostProxyValues(scenario);
+  const newUnits = costProxyNewUnitsValues(scenario);
+  const spendPerUnit = spendPerNewUnitValues(selectedCost, newUnits);
+  if (syncTargetChart) syncCostProxyTargetChart(spendPerUnit);
+  const targetSpendPerUnit = targetSpendPerUnitValues(spendPerUnit);
+  const impliedCost = impliedCostProxyValues(targetSpendPerUnit, newUnits);
+  const forecastUnits = forecastTotal(newUnits);
+  const forecastSpendPerUnit = forecastUnits > 0 ? forecastTotal(selectedCost) / forecastUnits : null;
+  const targetForecastSpendPerUnit = forecastUnits > 0 ? forecastTotal(impliedCost) / forecastUnits : null;
+  const applicationDelta = costProxyApplicationDelta(selectedCost, impliedCost);
+  const last = YEARS.length - 1;
+  const selectedCount = selectedCostProxyKeys().length;
+
+  setText("cost-proxy-selected-cost-2029", formatCurrency(selectedCost[last], 0));
+  setText("cost-proxy-selected-cost-forecast", formatCurrency(forecastTotal(selectedCost), 0));
+  setText("cost-proxy-selected-count", formatIntegerMetric(selectedCount));
+  setText("cost-proxy-spend-per-unit-2029", formatOptionalCurrency(spendPerUnit[last], 0));
+  setText("cost-proxy-spend-per-unit-forecast", formatOptionalCurrency(forecastSpendPerUnit, 0));
+  setText("cost-proxy-pool-label", costProxyPoolLabel());
+  setText("cost-proxy-new-units-2029", formatIntegerMetric(newUnits[last]));
+  setText("cost-proxy-new-units-forecast", formatIntegerMetric(forecastUnits));
+  setText("cost-proxy-target-spend-2029", formatOptionalCurrency(targetSpendPerUnit[last], 0));
+  setText("cost-proxy-target-spend-forecast", formatOptionalCurrency(targetForecastSpendPerUnit, 0));
+  setText("cost-proxy-implied-cost-2029", formatCurrency(impliedCost[last], 0));
+  setText("cost-proxy-implied-cost-forecast", formatCurrency(forecastTotal(impliedCost), 0));
+  setText("cost-proxy-implied-delta-forecast", formatCurrency(applicationDelta, 0));
+  setText("cost-proxy-apply-selected-count", formatIntegerMetric(costProxyLeafSelections().length));
+  const applyButton = document.getElementById("cost-proxy-apply-to-costs");
+  if (applyButton) applyButton.disabled = !selectedCount || Math.abs(applicationDelta) < 1;
+
+  const selectedCostSeries = [
+    costProxyLineSeries({ name: `${scenarioName} Selected Cost`, data: selectedCost, color: "#2f6f73" }),
+  ];
+  const spendPerUnitSeries = [
+    costProxyLineSeries({ name: `${scenarioName} Spend / New Unit`, data: spendPerUnit, color: "#1d4ed8" }),
+  ];
+  const newUnitsSeries = [
+    costProxyLineSeries({ name: `${scenarioName} New Units`, data: newUnits, color: "#4f7f52" }),
+  ];
+  const impliedCostSeries = [
+    costProxyLineSeries({ name: `${scenarioName} Current Cost Pool`, data: selectedCost, color: "#2f6f73", width: 2 }),
+    costProxyLineSeries({ name: `${scenarioName} Implied Cost Pool`, data: impliedCost, color: "#1d4ed8" }),
+  ];
+
+  if (comparison) {
+    const comparisonSelectedCost = selectedCostProxyValues(comparison);
+    const comparisonNewUnits = costProxyNewUnitsValues(comparison);
+    const comparisonSpendPerUnit = spendPerNewUnitValues(comparisonSelectedCost, comparisonNewUnits);
+    selectedCostSeries.push(costProxyLineSeries({ name: `${comparisonName} Selected Cost`, data: comparisonSelectedCost, color: "#98a2b3", width: 2, dashed: true }));
+    spendPerUnitSeries.push(costProxyLineSeries({ name: `${comparisonName} Spend / New Unit`, data: comparisonSpendPerUnit, color: "#98a2b3", width: 2, dashed: true }));
+    newUnitsSeries.push(costProxyLineSeries({ name: `${comparisonName} New Units`, data: comparisonNewUnits, color: "#98a2b3", width: 2, dashed: true }));
+  }
+
+  state.outputCharts.costProxySelectedCost?.setOption(costProxyChartOption({
+    series: selectedCostSeries,
+    valueFormatter: value => formatOptionalCurrency(value, 0),
+    axisFormatter: value => formatCompactCurrency(Number(value)),
+  }), true);
+  state.outputCharts.costProxySpendPerUnit?.setOption(costProxyChartOption({
+    series: spendPerUnitSeries,
+    valueFormatter: value => formatOptionalCurrency(value, 0),
+    axisFormatter: value => formatCompactCurrency(Number(value)),
+  }), true);
+  state.outputCharts.costProxyNewUnits?.setOption(costProxyChartOption({
+    series: newUnitsSeries,
+    valueFormatter: value => Number.isFinite(value) ? formatIntegerMetric(value) : "-",
+    axisFormatter: value => formatCompactNumber(Number(value)),
+  }), true);
+  state.outputCharts.costProxyImpliedCost?.setOption(costProxyChartOption({
+    series: impliedCostSeries,
+    valueFormatter: value => formatOptionalCurrency(value, 0),
+    axisFormatter: value => formatCompactCurrency(Number(value)),
+  }), true);
+}
+
 function fullyLoadedCacValues(totalCostValueList, newCustomerValueList) {
   return YEARS.map((_year, index) => {
     const newCustomers = Number(newCustomerValueList[index] || 0);
@@ -7410,8 +9150,8 @@ function growthRevenueControlPoints(scenario = activeScenario()) {
   return growthRevenuePlan(scenario).controlPoints;
 }
 
-function controlledGrowthRevenuePairs(key, values, scale = 1) {
-  const stored = growthRevenueControlPoints()[key];
+function controlledScenarioGrowthRevenuePairs(scenario, key, values, scale = 1) {
+  const stored = growthRevenueControlPoints(scenario)[key];
   if (Array.isArray(stored) && stored.length >= 2) {
     return stored
       .map(year => {
@@ -7430,6 +9170,10 @@ function controlledGrowthRevenuePairs(key, values, scale = 1) {
     .filter(Boolean);
 }
 
+function controlledGrowthRevenuePairs(key, values, scale = 1) {
+  return controlledScenarioGrowthRevenuePairs(activeScenario(), key, values, scale);
+}
+
 function rememberGrowthRevenueControlPoints(key, pairs) {
   const years = (pairs || [])
     .map(point => Number(point?.[0]))
@@ -7443,14 +9187,48 @@ function rememberGrowthRevenueControlPoints(key, pairs) {
 }
 
 function growthRevenueTopMatchesBottomUp(scenario = activeScenario()) {
-  const topDown = growthRevenueTopDownValues(scenario);
-  const bottomUp = growthRevenueBottomUpValues(scenario);
   return YEARS.every((year, index) => {
     if (year < FIRST_FORECAST_YEAR) return true;
-    const topValue = Number(topDown[index]);
-    const bottomValue = Number(bottomUp[index]);
+    const topValue = visibleGrowthRevenueTopDownValue(year, scenario);
+    const bottomValue = visibleGrowthRevenueBottomUpValue(year, scenario);
     return Number.isFinite(topValue) && Number.isFinite(bottomValue) && Math.abs(topValue - bottomValue) < 1;
   });
+}
+
+function visibleGrowthRevenuePairValue(key, values, year, fallback, scale = 1000000, scenario = activeScenario()) {
+  const pairs = controlledScenarioGrowthRevenuePairs(scenario, key, values, scale);
+  const value = interpolateNapkinLineValue(pairs, year);
+  return value === null ? fallback : value * scale;
+}
+
+function visibleGrowthRevenueTopDownValue(year, scenario = activeScenario()) {
+  const index = YEARS.indexOf(Number(year));
+  if (index < 0) return null;
+  const fallback = growthRevenueTopDownValues(scenario)[index];
+  return visibleGrowthRevenuePairValue("topDown", growthRevenueTopDownValues(scenario), Number(year), fallback, 1000000, scenario);
+}
+
+function visibleGrowthRevenueBottomUpValue(year, scenario = activeScenario()) {
+  const index = YEARS.indexOf(Number(year));
+  if (index < 0) return null;
+  const fallback = growthRevenueBottomUpValues(scenario)[index];
+  return visibleGrowthRevenuePairValue("bottomUp", growthRevenueBottomUpValues(scenario), Number(year), fallback, 1000000, scenario);
+}
+
+function currentGrowthRevenueTileLineValue(lineName, year) {
+  const chart = state.growthCharts.growthRevenueTopDown;
+  const line = chart?.lines?.find(item => String(item?.name || "") === lineName);
+  if (!line) return null;
+  const value = interpolateNapkinLineValue(line.data, year);
+  return Number.isFinite(value) ? value * 1000000 : null;
+}
+
+function currentGrowthRevenueTileTopDownValue(year, scenario = activeScenario()) {
+  return currentGrowthRevenueTileLineValue("Top Down", year) ?? visibleGrowthRevenueTopDownValue(year, scenario);
+}
+
+function currentGrowthRevenueTileBottomUpValue(year, scenario = activeScenario()) {
+  return currentGrowthRevenueTileLineValue("Bottom Up", year) ?? visibleGrowthRevenueBottomUpValue(year, scenario);
 }
 
 function growthRevenueTopDownPairs(scenario = activeScenario()) {
@@ -7565,10 +9343,10 @@ function setGrowthRevenueBottomToTop() {
   pushUndoSnapshot();
   const scenario = activeScenario();
   const plan = growthRevenuePlan(scenario);
-  const bottomUp = growthRevenueBottomUpValues(scenario);
   YEARS.forEach((year, index) => {
     if (year < FIRST_FORECAST_YEAR) return;
-    plan.topDown[index] = bottomUp[index];
+    const bottomUpValue = currentGrowthRevenueTileBottomUpValue(year, scenario);
+    if (Number.isFinite(bottomUpValue)) plan.topDown[index] = bottomUpValue;
   });
   plan.controlPoints.topDown = YEARS.filter((year, index) => plan.topDown[index] !== null && plan.topDown[index] !== undefined);
   saveScenarios();
@@ -7583,7 +9361,7 @@ function setGrowthRevenueTopToBottom() {
   const plan = growthRevenuePlan(scenario);
   YEARS.forEach((year, index) => {
     if (year < FIRST_FORECAST_YEAR) return;
-    const topValue = Number(plan.topDown[index]);
+    const topValue = currentGrowthRevenueTileTopDownValue(year, scenario);
     const customers = Number(growthRevenueProxyCustomers(scenario)[index] || 0);
     if (Number.isFinite(topValue) && customers > 0) {
       plan.revPerNewPayingCustomer[index] = topValue / customers;
@@ -7597,7 +9375,8 @@ function setGrowthRevenueTopToBottom() {
 }
 
 function initGrowthRevenueCharts() {
-  const topChart = new NapkinChart(
+  let topChart;
+  topChart = new NapkinChart(
     "growth-revenue-topdown-chart",
     safeNapkinLines(growthRevenueTopDownChartLines()),
     true,
@@ -7608,17 +9387,7 @@ function initGrowthRevenueCharts() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => {
-          const items = Array.isArray(params) ? params : [params];
-          const rows = items
-            .filter(item => item && item.seriesType === "line")
-            .map(item => {
-              const data = Array.isArray(item.data) ? item.data : item.value;
-              const rawValue = Array.isArray(data) ? data[1] : item.value;
-              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
-            });
-          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
-        },
+        formatter: params => formatNapkinLineTooltip(params, topChart?.lines, value => formatCurrency(Number(value) * 1000000, 0)),
       },
     },
     "none",
@@ -7659,7 +9428,8 @@ function initGrowthRevenueCharts() {
   };
   state.growthCharts.growthRevenueTopDown = topChart;
 
-  const revPerChart = new NapkinChart(
+  let revPerChart;
+  revPerChart = new NapkinChart(
     "growth-revenue-rev-per-new-customer-chart",
     safeNapkinLines(growthRevenueRevPerNewCustomerChartLines()),
     true,
@@ -7670,17 +9440,7 @@ function initGrowthRevenueCharts() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => {
-          const items = Array.isArray(params) ? params : [params];
-          const rows = items
-            .filter(item => item && item.seriesType === "line")
-            .map(item => {
-              const data = Array.isArray(item.data) ? item.data : item.value;
-              const rawValue = Array.isArray(data) ? data[1] : item.value;
-              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue), 2)}`;
-            });
-          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
-        },
+        formatter: params => formatNapkinLineTooltip(params, revPerChart?.lines, value => formatCurrency(Number(value), 2)),
       },
     },
     "none",
@@ -7934,7 +9694,8 @@ function setStrRevenueTopToBottom() {
 }
 
 function initStrRevenueCharts() {
-  const topChart = new NapkinChart(
+  let topChart;
+  topChart = new NapkinChart(
     "str-revenue-topdown-chart",
     safeNapkinLines(strRevenueTopDownChartLines()),
     true,
@@ -7945,17 +9706,7 @@ function initStrRevenueCharts() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => {
-          const items = Array.isArray(params) ? params : [params];
-          const rows = items
-            .filter(item => item && item.seriesType === "line")
-            .map(item => {
-              const data = Array.isArray(item.data) ? item.data : item.value;
-              const rawValue = Array.isArray(data) ? data[1] : item.value;
-              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
-            });
-          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
-        },
+        formatter: params => formatNapkinLineTooltip(params, topChart?.lines, value => formatCurrency(Number(value) * 1000000, 0)),
       },
     },
     "none",
@@ -7996,7 +9747,8 @@ function initStrRevenueCharts() {
   };
   state.strCharts.strRevenueTopDown = topChart;
 
-  const propertiesChart = new NapkinChart(
+  let propertiesChart;
+  propertiesChart = new NapkinChart(
     "str-revenue-properties-chart",
     safeNapkinLines(strRevenuePropertiesChartLines()),
     true,
@@ -8007,17 +9759,7 @@ function initStrRevenueCharts() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => {
-          const items = Array.isArray(params) ? params : [params];
-          const rows = items
-            .filter(item => item && item.seriesType === "line")
-            .map(item => {
-              const data = Array.isArray(item.data) ? item.data : item.value;
-              const rawValue = Array.isArray(data) ? data[1] : item.value;
-              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatIntegerMetric(Number(rawValue))}`;
-            });
-          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
-        },
+        formatter: params => formatNapkinLineTooltip(params, propertiesChart?.lines, value => formatIntegerMetric(Number(value))),
       },
     },
     "none",
@@ -8053,7 +9795,8 @@ function initStrRevenueCharts() {
   };
   state.strCharts.strRevenueProperties = propertiesChart;
 
-  const revPerChart = new NapkinChart(
+  let revPerChart;
+  revPerChart = new NapkinChart(
     "str-revenue-rev-per-property-chart",
     safeNapkinLines(strRevenueRevPerPropertyChartLines()),
     true,
@@ -8064,17 +9807,7 @@ function initStrRevenueCharts() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => {
-          const items = Array.isArray(params) ? params : [params];
-          const rows = items
-            .filter(item => item && item.seriesType === "line")
-            .map(item => {
-              const data = Array.isArray(item.data) ? item.data : item.value;
-              const rawValue = Array.isArray(data) ? data[1] : item.value;
-              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue), 0)}`;
-            });
-          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
-        },
+        formatter: params => formatNapkinLineTooltip(params, revPerChart?.lines, value => formatCurrency(Number(value), 0)),
       },
     },
     "none",
@@ -8185,7 +9918,8 @@ function syncOtherRevenueCharts({ excludeChart = null } = {}) {
 }
 
 function initOtherRevenueCharts() {
-  const chart = new NapkinChart(
+  let chart;
+  chart = new NapkinChart(
     "other-revenue-chart",
     safeNapkinLines(otherRevenueChartLines()),
     true,
@@ -8196,17 +9930,7 @@ function initOtherRevenueCharts() {
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: {
         trigger: "axis",
-        formatter: params => {
-          const items = Array.isArray(params) ? params : [params];
-          const rows = items
-            .filter(item => item && item.seriesType === "line")
-            .map(item => {
-              const data = Array.isArray(item.data) ? item.data : item.value;
-              const rawValue = Array.isArray(data) ? data[1] : item.value;
-              return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
-            });
-          return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
-        },
+        formatter: params => formatNapkinLineTooltip(params, chart?.lines, value => formatCurrency(Number(value) * 1000000, 0)),
       },
     },
     "none",
@@ -8248,17 +9972,11 @@ function profitPlan(scenario = activeScenario()) {
 }
 
 function derivedProfitRevenueValues(scenario = activeScenario()) {
-  return totalRevenueValues(calculateOutputs(scenario), scenario);
+  return revenueTotalTopDownValues(scenario);
 }
 
 function profitRevenueValues(scenario = activeScenario()) {
-  const plan = profitPlan(scenario);
-  const derived = derivedProfitRevenueValues(scenario);
-  if (!plan.revenueEdited) return derived;
-  return YEARS.map((_year, index) => {
-    const value = Number(plan.revenue[index]);
-    return Number.isFinite(value) ? Math.max(0, value) : derived[index];
-  });
+  return revenueTotalTopDownValues(scenario);
 }
 
 function profitCostValues(scenario = activeScenario()) {
@@ -8285,10 +10003,17 @@ function profitPlanControlPoints(scenario = activeScenario()) {
   return profitPlan(scenario).controlPoints;
 }
 
-function controlledProfitPairs(key, values, scale = 1) {
-  const stored = profitPlanControlPoints()[key];
+function controlledScenarioProfitPairs(scenario, key, values, scale = 1) {
+  const historicalPairs = YEARS
+    .map((year, index) => {
+      if (year >= FIRST_FORECAST_YEAR) return null;
+      const value = values[index];
+      return value === null || value === undefined ? null : [year, value / scale];
+    })
+    .filter(Boolean);
+  const stored = profitPlanControlPoints(scenario)[key];
   if (Array.isArray(stored) && stored.length >= 2) {
-    return stored
+    const storedPairs = stored
       .map(year => {
         const index = YEARS.indexOf(Number(year));
         if (index < 0) return null;
@@ -8296,6 +10021,17 @@ function controlledProfitPairs(key, values, scale = 1) {
         return value === null || value === undefined ? null : [Number(year), value / scale];
       })
       .filter(Boolean);
+    return [...historicalPairs, ...storedPairs]
+      .reduce((pairs, pair) => {
+        const existingIndex = pairs.findIndex(existingPair => existingPair[0] === pair[0]);
+        if (existingIndex >= 0) {
+          pairs[existingIndex] = pair;
+        } else {
+          pairs.push(pair);
+        }
+        return pairs;
+      }, [])
+      .sort((left, right) => left[0] - right[0]);
   }
   return YEARS
     .map((year, index) => {
@@ -8303,6 +10039,10 @@ function controlledProfitPairs(key, values, scale = 1) {
       return value === null || value === undefined ? null : [year, value / scale];
     })
     .filter(Boolean);
+}
+
+function controlledProfitPairs(key, values, scale = 1) {
+  return controlledScenarioProfitPairs(activeScenario(), key, values, scale);
 }
 
 function rememberProfitControlPoints(key, pairs) {
@@ -8321,63 +10061,105 @@ function profitValuesMatch(scenario = activeScenario()) {
   const top = profitTopDownValues(scenario);
   const bottom = profitBottomUpValues(scenario);
   return YEARS.every((year, index) => {
-    if (year < FIRST_COST_EDIT_YEAR) return true;
+    if (year < FIRST_FORECAST_YEAR) return true;
     return Math.abs(Number(top[index] || 0) - Number(bottom[index] || 0)) < 1;
   });
 }
 
-function profitChartPairs(key, values) {
-  return controlledProfitPairs(key, values, 1000000);
+function profitChartPairs(key, values, scenario = activeScenario()) {
+  return controlledScenarioProfitPairs(scenario, key, values, 1000000);
 }
 
 function profitChartLines() {
-  return [
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const lines = [
     {
       name: "Profit",
       color: TOP_DOWN_COLOR,
       editable: true,
       editDomain: {
-        moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-        deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+        moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+        deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
       },
-      data: profitChartPairs("profit", profitTopDownValues(activeScenario())),
+      data: profitChartPairs("profit", profitTopDownValues(scenario), scenario),
     },
     {
       name: "Bottom Up",
       color: "#98a2b3",
       editable: false,
-      data: profitChartPairs("bottomUp", profitBottomUpValues(activeScenario())),
+      data: profitChartPairs("bottomUp", profitBottomUpValues(scenario), scenario),
     },
   ];
+  if (comparison) {
+    const comparisonName = displayScenarioName(comparison);
+    lines.push(
+      {
+        name: `Comparison: ${comparisonName} Profit`,
+        color: "#98a2b3",
+        editable: false,
+        data: profitChartPairs("profit", profitTopDownValues(comparison), comparison),
+      },
+      {
+        name: `Comparison: ${comparisonName} Bottom Up`,
+        color: "#c0c6d0",
+        editable: false,
+        data: profitChartPairs("bottomUp", profitBottomUpValues(comparison), comparison),
+      }
+    );
+  }
+  return lines;
 }
 
 function profitRevenueChartLines() {
-  return [{
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const lines = [{
     name: "Revenue",
     color: BOTTOM_UP_COLOR,
     editable: true,
     editDomain: {
-      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
     },
-    data: profitChartPairs("revenue", profitRevenueValues(activeScenario())),
+    data: profitChartPairs("revenue", profitRevenueValues(scenario), scenario),
   }];
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${displayScenarioName(comparison)} Revenue`,
+      color: "#98a2b3",
+      editable: false,
+      data: profitChartPairs("revenue", profitRevenueValues(comparison), comparison),
+    });
+  }
+  return lines;
 }
 
 function profitCostChartLines() {
-  return [{
+  const scenario = activeScenario();
+  const comparison = compareScenario();
+  const lines = [{
     name: "Cost",
     color: "#a96c50",
     editable: true,
     editDomain: {
-      moveX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      addX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
-      deleteX: [[FIRST_COST_EDIT_YEAR, YEARS[YEARS.length - 1]]],
+      moveX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      addX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
+      deleteX: [[FIRST_FORECAST_YEAR, YEARS[YEARS.length - 1]]],
     },
-    data: profitChartPairs("cost", profitCostValues(activeScenario())),
+    data: profitChartPairs("cost", profitCostValues(scenario), scenario),
   }];
+  if (comparison) {
+    lines.push({
+      name: `Comparison: ${displayScenarioName(comparison)} Cost`,
+      color: "#98a2b3",
+      editable: false,
+      data: profitChartPairs("cost", profitCostValues(comparison), comparison),
+    });
+  }
+  return lines;
 }
 
 function ensureProfitSnapshot(key, scenario = activeScenario()) {
@@ -8387,8 +10169,7 @@ function ensureProfitSnapshot(key, scenario = activeScenario()) {
     plan.profitEdited = true;
   }
   if (key === "revenue" && !plan.revenueEdited) {
-    plan.revenue = clone(derivedProfitRevenueValues(scenario));
-    plan.revenueEdited = true;
+    normalizeRevenuePaths(scenario);
   }
 }
 
@@ -8396,7 +10177,9 @@ function setProfitRevenueDollarValue(scenario, index, value) {
   const actualValue = Math.max(0, Number(value) || 0);
   const plan = profitPlan(scenario);
   ensureProfitSnapshot("revenue", scenario);
+  setRevenueTotalTopDownValue(scenario, index, actualValue);
   plan.revenue[index] = actualValue;
+  plan.revenueEdited = false;
 }
 
 function setProfitCostDollarValue(scenario, index, value) {
@@ -8490,16 +10273,19 @@ function syncProfitCharts({ excludeChart = null } = {}) {
     profitChart.lines = safeNapkinLines(profitChartLines());
     profitChart._refreshChart();
     styleGrowthReferenceSeries(profitChart);
+    styleComparisonSeries(profitChart);
   }
   const revenueChart = state.profitCharts.revenue;
   if (revenueChart && revenueChart !== excludeChart) {
     revenueChart.lines = safeNapkinLines(profitRevenueChartLines());
     revenueChart._refreshChart();
+    styleComparisonSeries(revenueChart);
   }
   const costChart = state.profitCharts.cost;
   if (costChart && costChart !== excludeChart) {
     costChart.lines = safeNapkinLines(profitCostChartLines());
     costChart._refreshChart();
+    styleComparisonSeries(costChart);
   }
   state.syncingProfitCharts = false;
   renderProfitDrilldown();
@@ -8510,7 +10296,7 @@ function setProfitBottomToTop() {
   if (plan.locks.profit || profitValuesMatch()) return;
   pushUndoSnapshot();
   YEARS.forEach((year, index) => {
-    if (year < FIRST_COST_EDIT_YEAR) return;
+    if (year < FIRST_FORECAST_YEAR) return;
     setProfitTopFromBottomForYear(activeScenario(), index);
   });
   plan.controlPoints.profit = YEARS.slice();
@@ -8525,7 +10311,7 @@ function setProfitTopToBottom() {
   pushUndoSnapshot();
   const top = profitTopDownValues(activeScenario());
   YEARS.forEach((year, index) => {
-    if (year < FIRST_COST_EDIT_YEAR) return;
+    if (year < FIRST_FORECAST_YEAR) return;
     applyProfitTopToBottomForYear(activeScenario(), index, top[index]);
   });
   saveScenarios();
@@ -8552,7 +10338,7 @@ function toggleProfitLock(key) {
   renderProfitDrilldown();
 }
 
-function profitTooltipFormatter(params, formatter) {
+function profitTooltipFormatter(params, formatter, lines = []) {
   const formatValue = typeof formatter === "function"
     ? formatter
     : value => formatCurrency(Number(value) * 1000000, 0);
@@ -8562,13 +10348,16 @@ function profitTooltipFormatter(params, formatter) {
     .map(item => {
       const data = Array.isArray(item.data) ? item.data : item.value;
       const rawValue = Array.isArray(data) ? data[1] : item.value;
-      return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatValue(Number(rawValue))}`;
+      const previousValue = previousTooltipLineValue(item, lines);
+      const formatted = formatTooltipValueWithYoy(rawValue, previousValue, formatValue);
+      return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatted}`;
     });
   return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
 }
 
 function makeProfitNapkinChart(id, lines, yAxis, onValuesChanged) {
-  const chart = new NapkinChart(
+  let chart;
+  chart = new NapkinChart(
     id,
     safeNapkinLines(lines),
     true,
@@ -8577,7 +10366,7 @@ function makeProfitNapkinChart(id, lines, yAxis, onValuesChanged) {
       xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
       yAxis,
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
-      tooltip: { trigger: "axis", formatter: profitTooltipFormatter },
+      tooltip: { trigger: "axis", formatter: params => profitTooltipFormatter(params, null, chart?.lines) },
     },
     "none",
     false
@@ -8621,7 +10410,7 @@ function initProfitCharts() {
     chart => {
       const scenario = activeScenario();
       YEARS.forEach((year, index) => {
-        if (year < FIRST_COST_EDIT_YEAR) return;
+        if (year < FIRST_FORECAST_YEAR) return;
         const value = interpolateNapkinLineValue(chart.lines[0].data, year);
         if (!Number.isFinite(value)) return;
         setProfitTopDollarValue(scenario, index, value * 1000000);
@@ -8631,6 +10420,7 @@ function initProfitCharts() {
     }
   );
   styleGrowthReferenceSeries(profitChart);
+  styleComparisonSeries(profitChart);
   state.profitCharts.profit = profitChart;
 
   state.profitCharts.revenue = makeProfitNapkinChart(
@@ -8640,13 +10430,14 @@ function initProfitCharts() {
     chart => {
       const scenario = activeScenario();
       YEARS.forEach((year, index) => {
-        if (year < FIRST_COST_EDIT_YEAR) return;
+        if (year < FIRST_FORECAST_YEAR) return;
         const value = interpolateNapkinLineValue(chart.lines[0].data, year);
         if (Number.isFinite(value)) applyProfitRevenueEditForYear(scenario, index, value * 1000000);
       });
       rememberProfitControlPoints("revenue", chart.lines[0].data);
     }
   );
+  styleComparisonSeries(state.profitCharts.revenue);
 
   state.profitCharts.cost = makeProfitNapkinChart(
     "profit-cost-chart",
@@ -8655,13 +10446,14 @@ function initProfitCharts() {
     chart => {
       const scenario = activeScenario();
       YEARS.forEach((year, index) => {
-        if (year < FIRST_COST_EDIT_YEAR) return;
+        if (year < FIRST_FORECAST_YEAR) return;
         const value = interpolateNapkinLineValue(chart.lines[0].data, year);
         if (Number.isFinite(value)) applyProfitCostEditForYear(scenario, index, value * 1000000);
       });
       rememberProfitControlPoints("cost", chart.lines[0].data);
     }
   );
+  styleComparisonSeries(state.profitCharts.cost);
 }
 
 function renderSaasMetrics(outputs) {
@@ -8687,6 +10479,41 @@ function renderSaasMetrics(outputs) {
   setText("saas-revenue-per-fte-revenue-2029", formatCurrency(outputs.revenue[last], 0));
   setText("saas-revenue-per-fte-fte-2029", formatDecimalMetric(laborFteTotals[last], 1));
 
+  const ruleOf40Series = [
+    {
+      name: "Rule of 40",
+      type: "line",
+      data: ruleOf40,
+      symbolSize: 6,
+      lineStyle: { color: "#1d4ed8", width: 3 },
+      itemStyle: { color: "#1d4ed8" },
+    },
+    {
+      name: "Revenue Growth",
+      type: "line",
+      data: revenueGrowth,
+      symbolSize: 5,
+      lineStyle: { color: "#4f7f52", width: 2 },
+      itemStyle: { color: "#4f7f52" },
+    },
+    {
+      name: "Profit Margin",
+      type: "line",
+      data: profitMargin,
+      symbolSize: 5,
+      lineStyle: { color: "#8b5cf6", width: 2 },
+      itemStyle: { color: "#8b5cf6" },
+    },
+    {
+      name: "40 Target",
+      type: "line",
+      data: YEARS.map(() => 40),
+      symbol: "none",
+      silent: true,
+      lineStyle: { color: "#111827", width: 1.5, type: "dashed" },
+      itemStyle: { color: "#111827" },
+    },
+  ];
   state.outputCharts.saasRuleOf40?.setOption({
     animation: false,
     tooltip: {
@@ -8695,7 +10522,8 @@ function renderSaasMetrics(outputs) {
         const lines = [tooltipHeader(params[0]?.axisValue)];
         params.forEach(item => {
           const value = item.value === null || item.value === undefined ? null : Number(item.value);
-          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatSaasPercent(value, 1)}`);
+          const previousValue = previousTooltipSeriesValue(item, ruleOf40Series);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatTooltipValueWithYoy(value, previousValue, metricValue => formatSaasPercent(metricValue, 1))}`);
         });
         return lines.join("<br/>");
       },
@@ -8704,43 +10532,17 @@ function renderSaasMetrics(outputs) {
     grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
     xAxis: { type: "category", data: YEARS.map(String) },
     yAxis: { type: "value", axisLabel: { formatter: value => formatSaasPercent(Number(value), 0) } },
-    series: [
-      {
-        name: "Rule of 40",
-        type: "line",
-        data: ruleOf40,
-        symbolSize: 6,
-        lineStyle: { color: "#1d4ed8", width: 3 },
-        itemStyle: { color: "#1d4ed8" },
-      },
-      {
-        name: "Revenue Growth",
-        type: "line",
-        data: revenueGrowth,
-        symbolSize: 5,
-        lineStyle: { color: "#4f7f52", width: 2 },
-        itemStyle: { color: "#4f7f52" },
-      },
-      {
-        name: "Profit Margin",
-        type: "line",
-        data: profitMargin,
-        symbolSize: 5,
-        lineStyle: { color: "#8b5cf6", width: 2 },
-        itemStyle: { color: "#8b5cf6" },
-      },
-      {
-        name: "40 Target",
-        type: "line",
-        data: YEARS.map(() => 40),
-        symbol: "none",
-        silent: true,
-        lineStyle: { color: "#111827", width: 1.5, type: "dashed" },
-        itemStyle: { color: "#111827" },
-      },
-    ],
+    series: ruleOf40Series,
   }, true);
 
+  const cacSeries = [{
+    name: "Fully Loaded CAC",
+    type: "line",
+    data: fullyLoadedCac,
+    symbolSize: 6,
+    lineStyle: { color: "#0f766e", width: 3 },
+    itemStyle: { color: "#0f766e" },
+  }];
   state.outputCharts.saasCac?.setOption({
     animation: false,
     tooltip: {
@@ -8749,7 +10551,8 @@ function renderSaasMetrics(outputs) {
         const lines = [tooltipHeader(params[0]?.axisValue)];
         params.forEach(item => {
           const value = item.value === null || item.value === undefined ? null : Number(item.value);
-          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatOptionalCurrency(value, 0)}`);
+          const previousValue = previousTooltipSeriesValue(item, cacSeries);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatTooltipValueWithYoy(value, previousValue, metricValue => formatOptionalCurrency(metricValue, 0))}`);
         });
         return lines.join("<br/>");
       },
@@ -8758,18 +10561,17 @@ function renderSaasMetrics(outputs) {
     grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
     xAxis: { type: "category", data: YEARS.map(String) },
     yAxis: { type: "value", axisLabel: { formatter: value => formatCompactCurrency(Number(value)) } },
-    series: [
-      {
-        name: "Fully Loaded CAC",
-        type: "line",
-        data: fullyLoadedCac,
-        symbolSize: 6,
-        lineStyle: { color: "#0f766e", width: 3 },
-        itemStyle: { color: "#0f766e" },
-      },
-    ],
+    series: cacSeries,
   }, true);
 
+  const revenuePerFteSeries = [{
+    name: "Revenue / FTE",
+    type: "line",
+    data: revenuePerFte,
+    symbolSize: 6,
+    lineStyle: { color: "#7c3aed", width: 3 },
+    itemStyle: { color: "#7c3aed" },
+  }];
   state.outputCharts.saasRevenuePerFte?.setOption({
     animation: false,
     tooltip: {
@@ -8778,7 +10580,8 @@ function renderSaasMetrics(outputs) {
         const lines = [tooltipHeader(params[0]?.axisValue)];
         params.forEach(item => {
           const value = item.value === null || item.value === undefined ? null : Number(item.value);
-          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatOptionalCurrency(value, 0)}`);
+          const previousValue = previousTooltipSeriesValue(item, revenuePerFteSeries);
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatTooltipValueWithYoy(value, previousValue, metricValue => formatOptionalCurrency(metricValue, 0))}`);
         });
         return lines.join("<br/>");
       },
@@ -8787,16 +10590,7 @@ function renderSaasMetrics(outputs) {
     grid: { left: 12, right: 18, top: 42, bottom: 36, containLabel: true },
     xAxis: { type: "category", data: YEARS.map(String) },
     yAxis: { type: "value", axisLabel: { formatter: value => formatCompactCurrency(Number(value)) } },
-    series: [
-      {
-        name: "Revenue / FTE",
-        type: "line",
-        data: revenuePerFte,
-        symbolSize: 6,
-        lineStyle: { color: "#7c3aed", width: 3 },
-        itemStyle: { color: "#7c3aed" },
-      },
-    ],
+    series: revenuePerFteSeries,
   }, true);
 }
 
@@ -9070,20 +10864,23 @@ function syncRevenueDrilldownCharts({ excludeChart = null } = {}) {
   state.syncingRevenueDrilldownCharts = false;
 }
 
-function revenueDrilldownTooltipFormatter(params) {
+function revenueDrilldownTooltipFormatter(params, lines = []) {
   const items = Array.isArray(params) ? params : [params];
   const rows = items
     .filter(item => item && item.seriesType === "line")
     .map(item => {
       const data = Array.isArray(item.data) ? item.data : item.value;
       const rawValue = Array.isArray(data) ? data[1] : item.value;
-      return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(rawValue) * 1000000, 0)}`;
+      const previousValue = previousTooltipLineValue(item, lines);
+      const formatted = formatTooltipValueWithYoy(rawValue, previousValue, value => formatCurrency(Number(value) * 1000000, 0));
+      return `${item.marker || ""} ${displayLabel(item.seriesName)}: ${formatted}`;
     });
   return [tooltipHeader(items[0]?.axisValue), ...rows].join("<br/>");
 }
 
 function makeRevenueDrilldownNapkinChart(id, lines, yMax, onValuesChanged) {
-  const chart = new NapkinChart(
+  let chart;
+  chart = new NapkinChart(
     id,
     safeNapkinLines(lines),
     true,
@@ -9092,7 +10889,7 @@ function makeRevenueDrilldownNapkinChart(id, lines, yMax, onValuesChanged) {
       xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1, axisLabel: { formatter: formatAxisYear } },
       yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatCompactCurrency(Number(value) * 1000000) } },
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
-      tooltip: { trigger: "axis", formatter: revenueDrilldownTooltipFormatter },
+      tooltip: { trigger: "axis", formatter: params => revenueDrilldownTooltipFormatter(params, chart?.lines) },
     },
     "none",
     false
@@ -9198,171 +10995,207 @@ function renderMetricTree(outputs) {
     : null;
   const scenarioName = displayScenarioName(scenario);
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
+  const referenceContexts = metricTreeReferenceContexts();
 
   setMetricTreeChart("treeProfit", [
     metricTreeSeries(scenarioName, profits, scenarioColor),
     ...(comparisonProfits ? [metricTreeSeries(comparisonName, comparisonProfits, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => profitValues(context.outputs, context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treeRevenue", [
     metricTreeSeries(scenarioName, totalRevenue, scenarioColor),
-    metricTreeSeries("Plan", outputs.planRevenue, "#111827"),
     ...(comparisonTotalRevenue ? [metricTreeSeries(comparisonName, comparisonTotalRevenue, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => totalRevenueValues(context.outputs, context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treeLtrRevenue", [
     metricTreeSeries(displayLabel(`${scenarioName} LTR`), revenueCategoryValues(scenario, "ltr", outputs), scenarioColor),
     ...(comparisonOutputs ? [metricTreeSeries(displayLabel(`${comparisonName} LTR`), revenueCategoryValues(comparison, "ltr", comparisonOutputs), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => revenueCategoryValues(context.scenario, "ltr", context.outputs), " LTR"),
   ], { format: "currency" });
 
   setMetricTreeChart("treeStrRevenue", [
     metricTreeSeries(scenarioName, strRevenueValues, scenarioColor),
     ...(comparisonStrRevenueValues ? [metricTreeSeries(comparisonName, comparisonStrRevenueValues, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => strRevenueTopDownValues(context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treeStrProperties", [
     metricTreeSeries(scenarioName, strPropertiesValues, scenarioColor),
     ...(comparisonStrPropertiesValues ? [metricTreeSeries(comparisonName, comparisonStrPropertiesValues, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => strRevenuePropertiesValues(context.scenario)),
   ]);
 
   setMetricTreeChart("treeStrRevPerProperty", [
     metricTreeSeries(scenarioName, strRevPerPropertyValues, scenarioColor),
     ...(comparisonStrRevPerPropertyValues ? [metricTreeSeries(comparisonName, comparisonStrRevPerPropertyValues, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => strRevenueRevPerPropertyValues(context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treeGrowthRevenue", [
     metricTreeSeries(scenarioName, growthRevenueValues, scenarioColor),
     ...(comparisonGrowthRevenueValues ? [metricTreeSeries(comparisonName, comparisonGrowthRevenueValues, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => growthRevenueTopDownValues(context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treeGrowthNewPayingCustomers", [
     metricTreeSeries(scenarioName, growthProxyCustomers, scenarioColor),
     ...(comparisonGrowthProxyCustomers ? [metricTreeSeries(comparisonName, comparisonGrowthProxyCustomers, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => growthRevenueProxyCustomers(context.scenario)),
   ]);
 
   setMetricTreeChart("treeGrowthRevPerNewPayingCustomer", [
     metricTreeSeries(scenarioName, growthRevenuePerProxyCustomer, scenarioColor),
     ...(comparisonGrowthRevenuePerProxyCustomer ? [metricTreeSeries(comparisonName, comparisonGrowthRevenuePerProxyCustomer, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => growthRevenueRevPerNewCustomerValues(context.scenario)),
   ], { format: "currency2" });
 
   setMetricTreeChart("treeOtherRevenue", [
     metricTreeSeries(scenarioName, otherRevenueValues, scenarioColor),
     ...(comparisonOtherRevenueValues ? [metricTreeSeries(comparisonName, comparisonOtherRevenueValues, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => otherRevenueTopDownValues(context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treeCost", [
     metricTreeSeries(scenarioName, costs, scenarioColor),
     ...(comparisonCosts ? [metricTreeSeries(comparisonName, comparisonCosts, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => totalCostValues(context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treeLaborCost", [
     metricTreeSeries(scenarioName, costValues(scenario, "labor"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, costValues(comparison, "labor"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => costValues(context.scenario, "labor")),
   ], { format: "currency" });
 
   setMetricTreeChart("treeNonLaborCost", [
     metricTreeSeries(scenarioName, costValues(scenario, "nonLabor"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, costValues(comparison, "nonLabor"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => costValues(context.scenario, "nonLabor")),
   ], { format: "currency" });
 
   setMetricTreeChart("treeLaborFte", [
     metricTreeSeries(scenarioName, laborFteTotals, scenarioColor),
     ...(comparisonLaborFteTotals ? [metricTreeSeries(comparisonName, comparisonLaborFteTotals, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => laborFteTotalValues(context.scenario)),
   ], { format: "decimal" });
 
   setMetricTreeChart("treeLaborCostPerFte", [
     metricTreeSeries(scenarioName, laborCostPerFte, scenarioColor),
     ...(comparisonLaborCostPerFte ? [metricTreeSeries(comparisonName, comparisonLaborCostPerFte, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => laborCostPerFteAggregateValues(context.scenario)),
   ], { format: "currency" });
 
   setMetricTreeChart("treePayingCustomers", [
     metricTreeSeries(scenarioName, outputs.totalCustomers, scenarioColor),
     ...(comparisonOutputs ? [metricTreeSeries(comparisonName, comparisonOutputs.totalCustomers, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => context.outputs.totalCustomers),
   ]);
 
   setMetricTreeChart("treeNewPayingCustomers", [
     metricTreeSeries(scenarioName, driverValues(scenario, "newCustomers"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "newCustomers"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => driverValues(context.scenario, "newCustomers")),
   ]);
 
   setMetricTreeChart("treeExistingPropertyNewPayingCustomers", [
     metricTreeSeries(scenarioName, YEARS.map(visibleExistingPropertyNewCustomersValue), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => existingPropertyNewCustomersTotal(comparison.newCustomerDrilldown.counts, year)), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => YEARS.map(year => visibleExistingPropertyNewCustomersValue(year, context.scenario))),
   ]);
 
   setMetricTreeChart("treeNewPropertyNewPayingCustomers", [
     metricTreeSeries(scenarioName, YEARS.map(visibleNewPropertyNewCustomersValue), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newPropertyCohortValue(comparison.newCustomerDrilldown.counts, year)), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => YEARS.map(year => visibleNewPropertyNewCustomersValue(year, context.scenario))),
   ]);
 
   setMetricTreeChart("treeNewUnits", [
     metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerUnitValue("newUnits", newCustomerUnitNewUnitsPairs(scenario), year, newCustomerUnitNewUnitsValue(scenario, year))), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerUnitNewUnitsValue(comparison, year)), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => YEARS.map(year => newCustomerUnitNewUnitsValue(context.scenario, year))),
   ]);
 
   setMetricTreeChart("treeNewProperties", [
     metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerNewUnitsValue("newProperties", newCustomerNewUnitsNewPropertiesPairs(scenario), year, newCustomerNewUnitsNewPropertiesValue(scenario, year))), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerNewUnitsNewPropertiesValue(comparison, year)), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => YEARS.map(year => newCustomerNewUnitsNewPropertiesValue(context.scenario, year))),
   ]);
 
   setMetricTreeChart("treeNewUnitsPerProperty", [
     metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerNewUnitsValue("unitsPerNewProperty", newCustomerNewUnitsUnitsPerPropertyPairs(scenario), year, newCustomerNewUnitsUnitsPerPropertyValue(scenario, year))), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerNewUnitsUnitsPerPropertyValue(comparison, year)), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => YEARS.map(year => newCustomerNewUnitsUnitsPerPropertyValue(context.scenario, year))),
   ], { format: "decimal" });
 
   setMetricTreeChart("treeNewCustomersPerUnit", [
     metricTreeSeries(scenarioName, YEARS.map(year => visibleNewCustomerUnitValue("customersPerUnit", newCustomerUnitCustomersPerUnitPairs(scenario), year, newCustomerUnitCustomersPerUnitValue(scenario, year))), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, YEARS.map(year => newCustomerUnitCustomersPerUnitValue(comparison, year)), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => YEARS.map(year => newCustomerUnitCustomersPerUnitValue(context.scenario, year))),
   ], { format: "decimal" });
 
   setMetricTreeChart("treeReturningPayingCustomers", [
     metricTreeSeries(scenarioName, outputs.returningCustomers, scenarioColor),
     ...(comparisonOutputs ? [metricTreeSeries(comparisonName, comparisonOutputs.returningCustomers, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => context.outputs.returningCustomers),
   ]);
 
   setMetricTreeChart("treePriorPayingCustomers", [
     metricTreeSeries(scenarioName, priorYearPayingCustomers, scenarioColor),
     ...(comparisonPriorYearPayingCustomers ? [metricTreeSeries(comparisonName, comparisonPriorYearPayingCustomers, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => context.outputs.totalCustomers.map((value, index) => index === 0 ? null : context.outputs.totalCustomers[index - 1])),
   ]);
 
   setMetricTreeChart("treeRetentionRate", [
     metricTreeSeries(scenarioName, driverValues(scenario, "retention"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "retention"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => driverValues(context.scenario, "retention")),
   ], { format: "percent" });
 
   setMetricTreeChart("treeRevenuePerCustomer", [
     metricTreeSeries(scenarioName, revenuePerCustomer, scenarioColor),
     ...(comparisonRevenuePerCustomer ? [metricTreeSeries(comparisonName, comparisonRevenuePerCustomer, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => context.outputs.revenue.map((value, index) => {
+      const customers = context.outputs.totalCustomers[index];
+      return customers > 0 ? value / customers : 0;
+    })),
   ], { format: "currency2" });
 
   setMetricTreeChart("treeProfilesPerCustomer", [
     metricTreeSeries(scenarioName, profilesPerCustomer, scenarioColor),
     ...(comparisonProfilesPerCustomer ? [metricTreeSeries(comparisonName, comparisonProfilesPerCustomer, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => profilesPerCustomerValues(context.outputs)),
   ], { format: "decimal" });
 
   setMetricTreeChart("treeRevenuePerProfile", [
     metricTreeSeries(scenarioName, revenuePerProfile, scenarioColor),
     ...(comparisonRevenuePerProfile ? [metricTreeSeries(comparisonName, comparisonRevenuePerProfile, comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => revenuePerProfileValues(context.outputs)),
   ], { format: "currency2" });
 
   setMetricTreeChart("treeProfilesReturningCustomer", [
     metricTreeSeries(scenarioName, driverValues(scenario, "profilesReturning"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "profilesReturning"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => driverValues(context.scenario, "profilesReturning")),
   ], { format: "decimal" });
 
   setMetricTreeChart("treeProfilesNewCustomer", [
     metricTreeSeries(scenarioName, driverValues(scenario, "profilesNew"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "profilesNew"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => driverValues(context.scenario, "profilesNew")),
   ], { format: "decimal" });
 
   setMetricTreeChart("treeRevenueReturningProfile", [
     metricTreeSeries(scenarioName, driverValues(scenario, "revReturningProfile"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "revReturningProfile"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => driverValues(context.scenario, "revReturningProfile")),
   ], { format: "currency2" });
 
   setMetricTreeChart("treeRevenueNewProfile", [
     metricTreeSeries(scenarioName, driverValues(scenario, "revNewProfile"), scenarioColor),
     ...(comparison ? [metricTreeSeries(comparisonName, driverValues(comparison, "revNewProfile"), comparisonColor)] : []),
+    ...metricTreeReferenceSeries(referenceContexts, context => driverValues(context.scenario, "revNewProfile")),
   ], { format: "currency2" });
 }
 
@@ -9612,7 +11445,9 @@ function revenuePathChartOption(outputs) {
       formatter: params => {
         const lines = [tooltipHeader(params[0]?.axisValue)];
         params.forEach(item => {
-          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatCurrency(Number(item.value), 0)}`);
+          const previousValue = previousTooltipSeriesValue(item, revenueSeries);
+          const formatted = formatTooltipValueWithYoy(item.value, previousValue, value => formatCurrency(value, 0));
+          lines.push(`${item.marker} ${displayLabel(item.seriesName)}: ${formatted}`);
         });
         return lines.join("<br/>");
       },
@@ -9856,6 +11691,20 @@ function resizeNewCustomerUnitDrilldownCharts() {
   state.outputCharts.newCustomerUnitBridge?.resize();
   state.cohortCharts.unitNewUnits?.resize();
   state.cohortCharts.unitCustomersPerUnit?.resize();
+}
+
+function resizeNewCustomerMainDrilldownCharts() {
+  state.outputCharts.newCustomerTotal?.resize();
+  state.cohortCharts.bridgeExisting?.resize();
+  state.cohortCharts.bridgeNew?.resize();
+  state.outputCharts.newCustomerAllCohorts?.resize();
+}
+
+function scheduleNewCustomerDrilldownResize() {
+  setTimeout(() => {
+    resizeNewCustomerMainDrilldownCharts();
+    requestAnimationFrame(resizeNewCustomerMainDrilldownCharts);
+  }, 0);
 }
 
 function resizeNewCustomerNewUnitsDrilldownCharts() {
@@ -10748,7 +12597,7 @@ function renderNewCustomerDrilldownCharts() {
   const comparison = compareScenario();
   const scenarioName = displayScenarioName(activeScenario());
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
-  const comparisonTotals = comparison ? bottomUpNewCustomers(comparison) : null;
+  const comparisonTotals = comparison ? visibleBottomUpNewCustomers(comparison) : null;
   const activeTotals = visibleBottomUpNewCustomers();
   const activeTopDown = activeScenario().drivers.newCustomers;
   const totalSeries = [
@@ -10780,7 +12629,7 @@ function renderNewCustomerUnitDrilldown() {
   const scenario = activeScenario();
   const comparison = compareScenario();
   const comparisonName = comparison ? displayScenarioName(comparison) : "";
-  const topDown = YEARS.map(year => newPropertyCohortValue(scenario.newCustomerDrilldown.counts, year));
+  const topDown = YEARS.map(year => visibleNewPropertyNewCustomersValue(year, scenario));
   const bottomUp = YEARS.map(year => visibleNewCustomerUnitBottomUpValue(year));
   const comparisonBottomUp = comparison ? YEARS.map(year => newCustomerUnitBottomUpValue(comparison, year)) : null;
 
@@ -11369,7 +13218,7 @@ function matchNewCustomerUnitNewUnitsToTopDown() {
   const counts = activeScenario().newCustomerDrilldown.counts;
   const years = YEARS.filter(editableYear);
   years.forEach(year => {
-    const targetNewCustomers = newPropertyCohortValue(counts, year);
+    const targetNewCustomers = visibleNewPropertyNewCustomersValue(year);
     const customersPerUnit = visibleNewCustomerUnitValue(
       "customersPerUnit",
       newCustomerUnitCustomersPerUnitPairs(activeScenario()),
@@ -11388,7 +13237,7 @@ function matchNewCustomerUnitCustomersPerUnitToTopDown() {
   const counts = activeScenario().newCustomerDrilldown.counts;
   const years = YEARS.filter(editableYear);
   years.forEach(year => {
-    const targetNewCustomers = newPropertyCohortValue(counts, year);
+    const targetNewCustomers = visibleNewPropertyNewCustomersValue(year);
     const newUnits = visibleNewCustomerUnitValue(
       "newUnits",
       newCustomerUnitNewUnitsPairs(activeScenario()),
@@ -11826,7 +13675,7 @@ function renderNewCustomerDrilldownTable() {
       `).join("")}
       <tr>
         <td><strong>Total New Customers</strong></td>
-        ${totals.map(total => `<td class="output">${Math.round(total).toLocaleString("en-US")}</td>`).join("")}
+        ${totals.map((total, index) => renderNewCustomerTotalCell(YEARS[index], total)).join("")}
       </tr>
     </tbody>
   `;
@@ -11846,6 +13695,19 @@ function renderNewCustomerDrilldownTable() {
       renderAll();
     });
   });
+  table.querySelectorAll("input[data-total-count-year]").forEach(input => {
+    input.addEventListener("focus", event => {
+      highlightNewCustomerCells({
+        countYear: event.target.dataset.totalCountYear,
+        countCohortYears: applicableNewCustomerCohortsForYear(Number(event.target.dataset.totalCountYear)),
+      });
+    });
+    input.addEventListener("blur", clearNewCustomerCellHighlights);
+    input.addEventListener("change", event => {
+      const updated = updateNewCustomerTotalCount(event.target.dataset.totalCountYear, event.target.value);
+      if (!updated) renderNewCustomerDrilldownTable();
+    });
+  });
 }
 
 function renderNewCustomerCohortCell(cohortYear, year, value) {
@@ -11862,6 +13724,19 @@ function renderNewCustomerCohortCell(cohortYear, year, value) {
   return `<td class="historical" ${attrs}>${formatted}</td>`;
 }
 
+function renderNewCustomerTotalCell(year, value) {
+  const attrs = `data-count-year="${year}" data-count-cohort-year="total"`;
+  const formatted = Math.round(value).toLocaleString("en-US");
+  if (editableYear(year)) {
+    return `
+      <td class="input total-row-input" ${attrs}>
+        <input data-total-count-year="${year}" value="${formatted}" aria-label="Total new customers ${year}" />
+      </td>
+    `;
+  }
+  return `<td class="historical" ${attrs}>${formatted}</td>`;
+}
+
 function renderNewCustomerYoyTable() {
   const table = document.getElementById("new-customers-yoy-table");
   const counts = activeScenario().newCustomerDrilldown.counts;
@@ -11869,6 +13744,12 @@ function renderNewCustomerYoyTable() {
     cohortYear,
     values: YEARS.map(year => newCustomerCohortYoy(counts, year, cohortYear)),
   }));
+  const totals = YEARS.map((year, index) => {
+    if (index === 0) return null;
+    const current = newCustomerCohortTotal(counts, year);
+    const prior = newCustomerCohortTotal(counts, YEARS[index - 1]);
+    return prior ? (current / prior) - 1 : null;
+  });
   table.innerHTML = `
     <thead>
       <tr>
@@ -11883,6 +13764,10 @@ function renderNewCustomerYoyTable() {
           ${YEARS.map((year, index) => renderNewCustomerYoyCell(row.cohortYear, year, row.values[index])).join("")}
         </tr>
       `).join("")}
+      <tr>
+        <td><strong>Total YoY % Diff</strong></td>
+        ${totals.map((total, index) => renderNewCustomerTotalYoyCell(YEARS[index], total)).join("")}
+      </tr>
     </tbody>
   `;
   table.querySelectorAll("input[data-yoy-cohort-year]").forEach(input => {
@@ -11903,6 +13788,22 @@ function renderNewCustomerYoyTable() {
       if (!updated) renderNewCustomerYoyTable();
     });
   });
+  table.querySelectorAll("input[data-total-yoy-year]").forEach(input => {
+    input.addEventListener("focus", event => {
+      const year = Number(event.target.dataset.totalYoyYear);
+      highlightNewCustomerCells({
+        countYear: year,
+        countCohortYears: applicableNewCustomerCohortsForYear(year),
+        yoyYear: year,
+        yoyCohortYears: applicableNewCustomerCohortsForYear(year),
+      });
+    });
+    input.addEventListener("blur", clearNewCustomerCellHighlights);
+    input.addEventListener("change", event => {
+      const updated = updateNewCustomerTotalYoy(event.target.dataset.totalYoyYear, event.target.value);
+      if (!updated) renderNewCustomerYoyTable();
+    });
+  });
 }
 
 function renderNewCustomerYoyCell(cohortYear, year, value) {
@@ -11913,6 +13814,20 @@ function renderNewCustomerYoyCell(cohortYear, year, value) {
     return `
       <td class="input" ${attrs}>
         <input data-year="${year}" data-yoy-cohort-year="${cohortYear}" value="${formatted}" aria-label="${cohortYear} cohort ${year} new customer YoY percent diff" />
+      </td>
+    `;
+  }
+  return `<td class="historical" ${attrs}>${formatted}</td>`;
+}
+
+function renderNewCustomerTotalYoyCell(year, value) {
+  const attrs = `data-yoy-year="${year}" data-yoy-cohort-year="total"`;
+  if (value === null) return `<td class="output" ${attrs}>-</td>`;
+  const formatted = formatValue(value, "percent");
+  if (editableYear(year)) {
+    return `
+      <td class="input total-row-input" ${attrs}>
+        <input data-total-yoy-year="${year}" value="${formatted}" aria-label="Total new customers ${year} YoY percent diff" />
       </td>
     `;
   }
@@ -11998,34 +13913,109 @@ function updateNewCustomerCohortYoy(year, cohortYear, rawValue, undoSnapshot = s
   return true;
 }
 
+function markNewCustomerTotalEditControlPoints(year, affectedCohorts) {
+  affectedCohorts.forEach(cohortYear => {
+    addNapkinControlPointIfControlled(napkinControlKey("cohortCount", cohortYear), year);
+    addNapkinControlPointIfControlled(napkinControlKey("cohortYoy", cohortYear), year);
+    addNapkinControlPointIfControlled(napkinControlKey("cohortYoy", cohortYear), year + 1);
+  });
+  if (affectedCohorts.some(cohortYear => cohortYear === year)) {
+    addNapkinControlPointIfControlled(napkinControlKey("newPropertiesCount"), year);
+    addNapkinControlPointIfControlled(napkinControlKey("newPropertiesYoy"), year);
+    addNapkinControlPointIfControlled(napkinControlKey("newPropertiesYoy"), year + 1);
+    addNapkinControlPointIfControlled(napkinControlKey("bridgeNewProperties"), year);
+  }
+  if (affectedCohorts.some(cohortYear => cohortYear !== year)) {
+    addNapkinControlPointIfControlled(napkinControlKey("bridgeExistingProperties"), year);
+  }
+}
+
+function updateNewCustomerTotalCount(year, rawValue, undoSnapshot = snapshotState()) {
+  const numericYear = Number(year);
+  const parsed = Number(String(rawValue).replace(/[,\s]/g, ""));
+  if (!editableYear(numericYear) || !Number.isFinite(parsed)) return false;
+  pushUndoSnapshot(undoSnapshot);
+  const affectedCohorts = setTotalNewCustomerCohortValue(
+    activeScenario().newCustomerDrilldown.counts,
+    numericYear,
+    Math.max(0, parsed)
+  );
+  markNewCustomerTotalEditControlPoints(numericYear, affectedCohorts);
+  ensureBridgeExistingPointsForActuals();
+  saveScenarios();
+  syncDriverCharts();
+  renderAll();
+  return true;
+}
+
+function updateNewCustomerTotalYoy(year, rawValue, undoSnapshot = snapshotState()) {
+  const numericYear = Number(year);
+  const parsed = parseInput(rawValue, "percent");
+  const counts = activeScenario().newCustomerDrilldown.counts;
+  const priorTotal = newCustomerCohortTotal(counts, numericYear - 1);
+  if (!editableYear(numericYear) || parsed === null || !priorTotal) return false;
+  pushUndoSnapshot(undoSnapshot);
+  const affectedCohorts = setTotalNewCustomerCohortValue(counts, numericYear, priorTotal * (1 + parsed));
+  markNewCustomerTotalEditControlPoints(numericYear, affectedCohorts);
+  ensureBridgeExistingPointsForActuals();
+  saveScenarios();
+  syncDriverCharts();
+  renderAll();
+  return true;
+}
+
 function renderScenarioSelect() {
   const scenarios = Object.values(state.scenarios);
   const select = document.getElementById("scenario-select");
   const compareSelect = document.getElementById("compare-scenario-select");
   const versionSelect = document.getElementById("version-select");
-  const restoreButton = document.getElementById("restore-version");
+  const referenceGroups = REFERENCE_SCENARIO_KEYS
+    .map(item => {
+      const versions = (state.referenceScenarios?.[item.key]?.versions || [])
+        .slice()
+        .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+      if (!versions.length) return "";
+      return `
+        <optgroup label="${escapeHtml(item.label)}">
+          <option value="${referenceCompareValue(item.key, "latest")}">${escapeHtml(referenceCompareLabel(item.key, versions[0], { latest: true }))}</option>
+          ${versions.map(version => `
+            <option value="${escapeHtml(referenceCompareValue(item.key, version.id))}">
+              ${escapeHtml(referenceCompareLabel(item.key, version))}
+            </option>
+          `).join("")}
+        </optgroup>
+      `;
+    })
+    .filter(Boolean);
   select.innerHTML = scenarios
     .map(scenario => `<option value="${scenario.id}">${displayScenarioName(scenario)}</option>`)
     .join("");
   select.value = state.activeScenarioId;
   compareSelect.innerHTML = [
     `<option value="">None</option>`,
-    ...scenarios.map(scenario => `<option value="${scenario.id}">${displayScenarioName(scenario)}</option>`),
+    ...referenceGroups,
+    `<optgroup label="Scenarios">
+      ${scenarios.map(scenario => `<option value="${scenario.id}">${displayScenarioName(scenario)}</option>`).join("")}
+    </optgroup>`,
   ].join("");
-  if (state.compareScenarioId && !state.scenarios[state.compareScenarioId]) {
+  if (state.compareScenarioId && !state.scenarios[state.compareScenarioId] && !referenceCompareOptionExists(state.compareScenarioId)) {
     setCompareScenario("");
   }
   compareSelect.value = state.compareScenarioId;
 
   const versions = activeScenario().versions || [];
   versionSelect.innerHTML = versions.length
-    ? versions.slice().reverse().map((version, index) => `<option value="${version.id}">${formatVersionLabel(version, index)}</option>`).join("")
-    : `<option value="">No versions</option>`;
+    ? [
+      `<option value="">Restore ▾</option>`,
+      ...versions.slice().reverse().map((version, index) => `<option value="${version.id}">${formatVersionLabel(version, index)}</option>`),
+    ].join("")
+    : `<option value="">No saved versions</option>`;
   if (!state.selectedVersionId || !versions.some(version => version.id === state.selectedVersionId)) {
     state.selectedVersionId = versions.length ? versions[versions.length - 1].id : "";
   }
-  versionSelect.value = state.selectedVersionId;
-  restoreButton.disabled = !state.selectedVersionId;
+  versionSelect.value = "";
+  versionSelect.disabled = !versions.length;
+  renderExcelScenarioSelect();
 }
 
 function formatVersionLabel(version, reverseIndex = 0) {
@@ -12065,10 +14055,73 @@ function scenarioFromVersion(scenario, version) {
   return restored;
 }
 
+function scenarioModelSnapshot(scenario) {
+  normalizeScenario(scenario);
+  return {
+    drivers: clone(scenario.drivers),
+    costs: clone(scenario.costs || baseCosts),
+    costControlPoints: clone(scenario.costControlPoints || {}),
+    costPctTotalLines: clone(scenario.costPctTotalLines || {}),
+    costLocks: clone(scenario.costLocks || {}),
+    newCustomerSource: scenario.newCustomerSource || "topDown",
+    newCustomerDrilldown: clone(scenario.newCustomerDrilldown || createDefaultNewCustomerDrilldown()),
+    revUnitPlan: clone(scenario.revUnitPlan || createDefaultRevUnitPlan()),
+    revenuePaths: clone(scenario.revenuePaths || {
+      total: createDefaultTotalRevenuePlan(),
+      ltr: createDefaultLtrRevenuePlan(),
+      growth: createDefaultGrowthRevenuePlan(),
+      str: createDefaultStrRevenuePlan(),
+      other: createDefaultOtherRevenuePlan(),
+    }),
+    profitPlan: clone(scenario.profitPlan || createDefaultProfitPlan()),
+    defenses: clone(scenario.defenses || createDefaultDefenses()),
+  };
+}
+
+function scenarioFromSnapshot(snapshot, { id = "", name = "Reference Scenario" } = {}) {
+  const scenario = {
+    id,
+    name,
+    ...clone(snapshot),
+    versions: [],
+  };
+  normalizeScenario(scenario);
+  return scenario;
+}
+
+function scenarioFromReferenceVersion(referenceKey, version) {
+  const meta = REFERENCE_SCENARIO_KEYS.find(item => item.key === referenceKey);
+  return scenarioFromSnapshot(version.snapshot, {
+    id: `reference:${referenceKey}`,
+    name: meta?.label || "Reference",
+  });
+}
+
+function latestReferenceVersion(referenceKey) {
+  return (state.referenceScenarios?.[referenceKey]?.versions || [])
+    .slice()
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] || null;
+}
+
+function selectedVersionScenario() {
+  const scenario = activeScenario();
+  const version = (scenario.versions || []).find(item => item.id === state.selectedVersionId);
+  return version ? scenarioFromVersion(scenario, version) : null;
+}
+
+function liveScenarioMatchesSelectedVersion() {
+  const savedScenario = selectedVersionScenario();
+  if (!savedScenario) return false;
+  return JSON.stringify(scenarioModelSnapshot(activeScenario())) === JSON.stringify(scenarioModelSnapshot(savedScenario));
+}
+
+function scenarioSnapshotsMatch(left, right) {
+  if (!left || !right) return false;
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function scenarioCumulativeProfit(scenario) {
-  const outputs = calculateOutputs(scenario);
-  return profitValues(outputs, scenario)
-    .reduce((sum, value, index) => YEARS[index] >= FIRST_COST_EDIT_YEAR ? sum + Number(value || 0) : sum, 0);
+  return scenarioCumulativeProfitForYears(scenario);
 }
 
 function scenarioCumulativeProfitForYears(scenario, startYear = YEARS[0], endYear = YEARS[YEARS.length - 1]) {
@@ -12132,7 +14185,7 @@ function topLineMetricForCurrentView(scenario = activeScenario()) {
     if (state.newCustomerUnitDrilldownOpen) {
       return {
         label: "New Property Customers",
-        values: YEARS.map(year => newPropertyCohortValue(scenario.newCustomerDrilldown.counts, year)),
+        values: YEARS.map(year => visibleNewPropertyNewCustomersValue(year, scenario)),
         format: "integer",
       };
     }
@@ -12151,6 +14204,11 @@ function topLineMetricForCurrentView(scenario = activeScenario()) {
       };
     }
     return { label: "Total Cost", values: costValues(scenario, "total"), format: "currency" };
+  }
+  if (view === "costProxies") {
+    const selectedCost = selectedCostProxyValues(scenario);
+    const newUnits = costProxyNewUnitsValues(scenario);
+    return { label: "Spend / New Unit", values: spendPerNewUnitValues(selectedCost, newUnits), format: "currency" };
   }
   return { label: "Profit", values: profitTopDownValues(scenario), format: "currency" };
 }
@@ -12215,7 +14273,7 @@ function renderScenarioVersionRows(scenario) {
         <tr>
           <th>Version</th>
           <th>Saved</th>
-          <th>2025-2029 Cumulative Profit</th>
+          <th>2021-2029 Cumulative Profit</th>
           <th>Top Down / Bottom Up</th>
         </tr>
       </thead>
@@ -12237,17 +14295,185 @@ function renderScenarioVersionRows(scenario) {
   `;
 }
 
+function referenceAssignmentReadiness() {
+  const selectedVersion = selectedVersionMetadata();
+  const liveMatchesVersion = liveScenarioMatchesSelectedVersion();
+  const unmatched = scenarioReconciliationChecks(activeScenario()).filter(check => !check.matched);
+  if (!selectedVersion) {
+    return { canAssign: false, selectedVersion, unmatched, message: "Select a saved version before assigning" };
+  }
+  if (!liveMatchesVersion) {
+    return { canAssign: false, selectedVersion, unmatched, message: "Save or restore before assigning" };
+  }
+  if (unmatched.length) {
+    return {
+      canAssign: false,
+      selectedVersion,
+      unmatched,
+      message: `Resolve top-down / bottom-up issues: ${unmatched.map(check => check.label).join(", ")}`,
+    };
+  }
+  return { canAssign: true, selectedVersion, unmatched, message: "Ready to assign BAU or Target" };
+}
+
+function referenceScenarioCanAssign(referenceKey, readiness = referenceAssignmentReadiness()) {
+  if (!readiness.canAssign) {
+    return { canAssign: false, label: null };
+  }
+  const latest = latestReferenceVersion(referenceKey);
+  const liveSnapshot = scenarioModelSnapshot(activeScenario());
+  if (latest && scenarioSnapshotsMatch(latest.snapshot, liveSnapshot)) {
+    return { canAssign: false, label: "Already Current" };
+  }
+  return { canAssign: true, label: null };
+}
+
+function selectedVersionMetadata() {
+  const scenario = activeScenario();
+  const version = (scenario.versions || []).find(item => item.id === state.selectedVersionId);
+  return version ? {
+    id: version.id,
+    label: version.label || "Version",
+    createdAt: version.createdAt || "",
+  } : null;
+}
+
+function assignReferenceScenario(referenceKey) {
+  const reference = state.referenceScenarios?.[referenceKey];
+  const meta = REFERENCE_SCENARIO_KEYS.find(item => item.key === referenceKey);
+  const readiness = referenceAssignmentReadiness();
+  const referenceReadiness = referenceScenarioCanAssign(referenceKey, readiness);
+  const sourceVersion = readiness.selectedVersion;
+  if (!reference || !meta || !referenceReadiness.canAssign) return;
+  const sourceScenario = activeScenario();
+  const assignment = {
+    id: `reference-${referenceKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: new Date().toISOString(),
+    sourceScenarioId: sourceScenario.id,
+    sourceScenarioName: sourceScenario.name || "Scenario",
+    sourceVersionId: sourceVersion.id,
+    sourceVersionLabel: sourceVersion.label,
+    sourceVersionCreatedAt: sourceVersion.createdAt,
+    snapshot: scenarioModelSnapshot(sourceScenario),
+  };
+  reference.versions.push(assignment);
+  saveReferenceScenarios();
+  const compareReference = parseReferenceCompareId(state.compareScenarioId);
+  if (compareReference?.referenceKey === referenceKey && compareReference.versionId === "latest") {
+    setCompareScenario(state.compareScenarioId);
+  }
+  renderScenarioSelect();
+  renderScenariosModule();
+  refreshHeaderKpis();
+}
+
+function renderReferenceScenarioRows(referenceKey) {
+  const versions = (state.referenceScenarios?.[referenceKey]?.versions || [])
+    .slice()
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  if (!versions.length) {
+    return `<div class="scenario-version-empty">No assignments yet.</div>`;
+  }
+  return `
+    <table class="scenario-version-table">
+      <thead>
+        <tr>
+          <th>Assigned</th>
+          <th>Source Scenario</th>
+          <th>Source Version</th>
+          <th>2021-2029 Cumulative Profit</th>
+          <th>Top Down / Bottom Up</th>
+          <th>Compare</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${versions.map(version => {
+          const scenario = scenarioFromReferenceVersion(referenceKey, version);
+          const checks = scenarioReconciliationChecks(scenario);
+          const compareValue = referenceCompareValue(referenceKey, version.id);
+          const isCurrentCompare = state.compareScenarioId === compareValue;
+          return `
+            <tr>
+              <td>${escapeHtml(formatScenarioSavedAt(version.createdAt))}</td>
+              <td>${escapeHtml(isAnonymizedView() ? "Source Scenario" : version.sourceScenarioName || "-")}</td>
+              <td>
+                ${escapeHtml(isAnonymizedView() ? "Source Version" : version.sourceVersionLabel || "-")}
+                <small>${escapeHtml(formatScenarioSavedAt(version.sourceVersionCreatedAt))}</small>
+              </td>
+              <td class="number-cell">${formatCurrency(scenarioCumulativeProfit(scenario), 0)}</td>
+              <td>${renderScenarioMatchStatus(checks)}</td>
+              <td>
+                <button
+                  class="set-button reference-compare-button ${isCurrentCompare ? "active" : ""}"
+                  data-reference-compare-key="${escapeHtml(referenceKey)}"
+                  data-reference-compare-version="${escapeHtml(version.id)}"
+                  type="button"
+                >${isCurrentCompare ? "Comparing" : "Compare"}</button>
+              </td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderReferenceScenariosModule() {
+  const readiness = referenceAssignmentReadiness();
+  return `
+    <section class="reference-scenario-section">
+      <div class="reference-scenario-header">
+        <div>
+          <h3>Saved References</h3>
+          <p>BAU and Target are protected reference tracks. Assignments copy the selected saved version.</p>
+        </div>
+        <span class="reference-save-state ${readiness.canAssign ? "matched" : "open"}">
+          ${escapeHtml(readiness.message)}
+        </span>
+      </div>
+      <div class="reference-scenario-grid">
+        ${REFERENCE_SCENARIO_KEYS.map(item => {
+          const latest = latestReferenceVersion(item.key);
+          const referenceReadiness = referenceScenarioCanAssign(item.key, readiness);
+          const buttonLabel = referenceReadiness.label || `Set Current as ${item.label}`;
+          return `
+            <article class="reference-scenario-card">
+              <div class="reference-scenario-card-header">
+                <div>
+                  <span>Reference Scenario</span>
+                  <h4>${escapeHtml(item.label)}</h4>
+                  <p>${latest ? `Latest set ${escapeHtml(formatScenarioSavedAt(latest.createdAt))}` : "Not assigned yet"}</p>
+                </div>
+                <button
+                  class="set-button"
+                  data-reference-scenario-key="${escapeHtml(item.key)}"
+                  type="button"
+                  ${referenceReadiness.canAssign ? "" : "disabled"}
+                >${escapeHtml(buttonLabel)}</button>
+              </div>
+              <div class="reference-scenario-history">
+                ${renderReferenceScenarioRows(item.key)}
+              </div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderScenariosModule() {
   const container = document.getElementById("scenarios-module");
   if (!container) return;
   const scenarios = Object.values(state.scenarios);
   container.innerHTML = `
+    ${renderReferenceScenariosModule()}
     <div class="scenario-table-wrap">
       <table class="scenario-table">
         <thead>
           <tr>
             <th>Scenario</th>
-            <th>2025-2029 Cumulative Profit</th>
+            <th>2021-2029 Cumulative Profit</th>
             <th>Top Down / Bottom Up</th>
             <th>Latest Saved</th>
             <th>Versions</th>
@@ -12286,6 +14512,7 @@ function renderScenariosModule() {
       </table>
     </div>
   `;
+  renderExcelScenarioSelect();
 }
 
 function isMetricTextNodeValue(text) {
@@ -12344,6 +14571,7 @@ function renderAll({ syncNewCustomerEditors = true, excludeNewCustomerChart = nu
   renderStrRevenueDrilldown();
   renderGrowthRevenueDrilldown();
   renderSaasMetrics(outputs);
+  renderCostProxyMetrics();
   renderScenariosModule();
   renderMetricTree(outputs);
   renderCanvasFocus();
@@ -12460,11 +14688,12 @@ function saveScenarioVersion(label) {
   renderScenariosModule();
 }
 
-function restoreVersion() {
+function restoreVersion(versionId = state.selectedVersionId) {
   const scenario = activeScenario();
-  const version = (scenario.versions || []).find(item => item.id === state.selectedVersionId);
+  const version = (scenario.versions || []).find(item => item.id === versionId);
   if (!version) return;
   pushUndoSnapshot();
+  state.selectedVersionId = version.id;
   scenario.drivers = clone(version.drivers);
   scenario.costs = version.costs
     ? clone(version.costs)
@@ -12678,6 +14907,7 @@ function resizeAllRenderedCharts() {
   resizeChartCollection(state.growthCharts);
   resizeChartCollection(state.strCharts);
   resizeChartCollection(state.otherRevenueCharts);
+  resizeChartCollection(state.costProxyCharts);
   resizeChartCollection(state.revenueDrilldownCharts);
   resizeChartCollection(state.profitCharts);
 }
@@ -12691,6 +14921,23 @@ function scheduleViewResize(view) {
 
 function bindControls() {
   bindNapkinYAxisControls();
+  document.getElementById("export-scenarios-json")?.addEventListener("click", exportScenariosJson);
+  document.getElementById("import-scenarios-json")?.addEventListener("click", () => {
+    document.getElementById("import-scenarios-json-file")?.click();
+  });
+  document.getElementById("cost-proxy-pool-chips")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-cost-proxy-key]");
+    if (!button) return;
+    toggleCostProxySelection(button.dataset.costProxyKey);
+    renderCostProxyMetrics();
+  });
+  document.getElementById("cost-proxy-apply-to-costs")?.addEventListener("click", applyCostProxyTargetToCosts);
+  document.getElementById("export-scenario-excel")?.addEventListener("click", exportSelectedScenarioExcel);
+  document.getElementById("import-scenarios-json-file")?.addEventListener("change", async event => {
+    const [file] = Array.from(event.target.files || []);
+    await importScenariosJsonFile(file);
+    event.target.value = "";
+  });
   document.getElementById("anonymized-view-toggle")?.addEventListener("change", event => {
     state.anonymizedView = event.target.checked;
     syncDriverCharts();
@@ -12708,6 +14955,7 @@ function bindControls() {
   document.getElementById("scenario-select").addEventListener("change", event => {
     state.activeScenarioId = event.target.value;
     state.selectedVersionId = "";
+    state.costProxyTargetPoints = null;
     updateHistoryControls();
     renderScenarioSelect();
     syncDriverCharts();
@@ -12983,6 +15231,7 @@ function bindControls() {
     state.newCustomerNewUnitsDrilldownOpen = false;
     renderNewCustomerUnitDrilldownToggle();
     setTimeout(() => {
+      resizeNewCustomerMainDrilldownCharts();
       syncNewCustomerCohortEditors();
     }, 0);
   });
@@ -13015,10 +15264,10 @@ function bindControls() {
   document.getElementById("undo-change").addEventListener("click", undoChange);
   document.getElementById("redo-change").addEventListener("click", redoChange);
   document.getElementById("version-select").addEventListener("change", event => {
-    state.selectedVersionId = event.target.value;
-    renderScenarioSelect();
+    if (!event.target.value) return;
+    restoreVersion(event.target.value);
+    event.target.value = "";
   });
-  document.getElementById("restore-version").addEventListener("click", restoreVersion);
   document.getElementById("scenario-dialog-cancel").addEventListener("click", closeScenarioDialog);
   document.getElementById("scenario-dialog-confirm").addEventListener("click", confirmScenarioDialog);
   document.getElementById("scenario-dialog-input").addEventListener("keydown", event => {
@@ -13031,7 +15280,7 @@ function bindControls() {
   });
   document.getElementById("save-as-scenario").addEventListener("click", saveAsScenario);
   document.getElementById("update-scenario").addEventListener("click", updateScenario);
-  document.getElementById("reset-scenario").addEventListener("click", resetScenario);
+  document.getElementById("reset-scenario")?.addEventListener("click", resetScenario);
   document.querySelectorAll("[data-defense-key]").forEach(button => {
     button.addEventListener("click", event => {
       event.stopPropagation();
@@ -13095,6 +15344,7 @@ function bindControls() {
   document.getElementById("tab-tree").addEventListener("click", () => setView("tree"));
   document.getElementById("tab-definitions").addEventListener("click", () => setView("definitions"));
   document.getElementById("tab-saas-metrics").addEventListener("click", () => setView("saasMetrics"));
+  document.getElementById("tab-cost-proxies").addEventListener("click", () => setView("costProxies"));
   document.getElementById("tab-scenarios").addEventListener("click", () => setView("scenarios"));
   document.getElementById("tab-initiatives").addEventListener("click", () => setView("initiatives"));
   document.getElementById("tab-guided").addEventListener("click", () => setView("guided"));
@@ -13108,6 +15358,11 @@ function bindControls() {
   document.getElementById("back-ltr-revenue-drilldown")?.addEventListener("click", () => {
     setView("revenueDrilldown");
     syncRevenueDrilldownCharts();
+  });
+  document.getElementById("back-new-customers-drilldown")?.addEventListener("click", () => {
+    setView("chart");
+    syncDriverCharts();
+    focusElementById("revenue-chart");
   });
   document.getElementById("back-profit-drilldown")?.addEventListener("click", () => setView("tree"));
   document.getElementById("set-profit-top-to-bottom")?.addEventListener("click", setProfitTopToBottom);
@@ -13156,6 +15411,18 @@ function bindControls() {
     const focusTarget = button.dataset.categoryKey || button.dataset.focusChart;
     openMetricTreeTarget(button.dataset.reconciliationAction, focusTarget);
   });
+  document.getElementById("scenarios-module")?.addEventListener("click", event => {
+    const compareButton = event.target.closest("[data-reference-compare-key]");
+    if (compareButton) {
+      setCompareScenario(referenceCompareValue(compareButton.dataset.referenceCompareKey, compareButton.dataset.referenceCompareVersion));
+      renderScenarioSelect();
+      renderAll();
+      return;
+    }
+    const assignButton = event.target.closest("[data-reference-scenario-key]");
+    if (!assignButton) return;
+    assignReferenceScenario(assignButton.dataset.referenceScenarioKey);
+  });
   document.getElementById("initiative-team-filter")?.addEventListener("change", renderInitiativesModule);
   document.getElementById("initiative-assumption-filter")?.addEventListener("change", renderInitiativesModule);
   document.getElementById("initiatives-view")?.addEventListener("click", event => {
@@ -13195,6 +15462,7 @@ function setView(view) {
   document.getElementById("tab-tree").classList.toggle("active", view === "tree");
   document.getElementById("tab-definitions").classList.toggle("active", view === "definitions");
   document.getElementById("tab-saas-metrics").classList.toggle("active", view === "saasMetrics");
+  document.getElementById("tab-cost-proxies").classList.toggle("active", view === "costProxies");
   document.getElementById("tab-scenarios").classList.toggle("active", view === "scenarios");
   document.getElementById("tab-initiatives").classList.toggle("active", view === "initiatives");
   document.getElementById("tab-guided").classList.toggle("active", view === "guided");
@@ -13211,6 +15479,7 @@ function setView(view) {
   document.getElementById("str-revenue-view").classList.toggle("active", view === "strRevenue");
   document.getElementById("growth-revenue-view").classList.toggle("active", view === "growthRevenue");
   document.getElementById("saas-metrics-view").classList.toggle("active", view === "saasMetrics");
+  document.getElementById("cost-proxy-view").classList.toggle("active", view === "costProxies");
   document.getElementById("scenarios-view").classList.toggle("active", view === "scenarios");
   document.getElementById("initiatives-view").classList.toggle("active", view === "initiatives");
   document.getElementById("guided-view").classList.toggle("active", view === "guided");
@@ -13227,6 +15496,7 @@ function setView(view) {
   }
   refreshHeaderKpis();
   scheduleViewResize(view);
+  if (view === "newCustomers") scheduleNewCustomerDrilldownResize();
 }
 
 function init() {
@@ -13249,6 +15519,7 @@ function init() {
   initNonLaborCategoryDepartmentControlChart();
   initRevenueDrilldownCharts();
   initProfitCharts();
+  initCostProxyTargetChart();
   initOtherRevenueCharts();
   initStrRevenueCharts();
   initGrowthRevenueCharts();

@@ -17,15 +17,12 @@
         <select id="scenario-select"></select>
         <label for="compare-scenario-select">Compare</label>
         <select id="compare-scenario-select"></select>
-        <label for="version-select">Version</label>
-        <select id="version-select"></select>
-        <button id="restore-version" type="button" disabled>Restore</button>
+        <select id="version-select" class="restore-select" aria-label="Restore saved version"></select>
         <button id="undo-change" type="button" disabled>Undo</button>
         <button id="redo-change" type="button" disabled>Redo</button>
-        <button id="save-as-scenario" type="button">Save As</button>
-        <button id="update-scenario" type="button">Update</button>
-        <button id="reset-scenario" type="button">Reset</button>
-        <label class="anonymized-toggle" for="anonymized-view-toggle">
+        <button id="save-as-scenario" type="button">Save as New</button>
+        <button id="update-scenario" type="button">Save</button>
+        <label class="anonymized-toggle hidden-control" for="anonymized-view-toggle">
           <input id="anonymized-view-toggle" type="checkbox" />
           Anonymized
         </label>
@@ -53,16 +50,17 @@
       </section>
 
       <nav class="view-tabs" aria-label="Model views">
-        <button id="tab-chart" class="active" type="button">Napkin View</button>
-        <button id="tab-tree" type="button">Everything</button>
-        <button id="tab-definitions" type="button">Definitions</button>
+        <button id="tab-chart" class="active" type="button">Napkin Chart Drivers</button>
+        <button id="tab-tree" type="button">Canvas View</button>
+        <button id="tab-definitions" type="button">Hierarchy Definitions</button>
         <button id="tab-saas-metrics" type="button">SaaS Metrics</button>
+        <button id="tab-cost-proxies" type="button">Cost Proxy Metrics</button>
         <button id="tab-scenarios" type="button">Scenarios</button>
         <button id="tab-initiatives" type="button">Initiatives</button>
-        <button id="tab-guided" type="button">Guided Plan</button>
+        <button id="tab-guided" class="hidden-tab" type="button">Guided Plan</button>
         <button id="tab-costs" type="button">Costs</button>
-        <button id="tab-table" type="button">Spreadsheet View</button>
-        <button id="tab-rev-per-unit" type="button">Rev Per Unit Plan</button>
+        <button id="tab-table" class="hidden-tab" type="button">Spreadsheet View</button>
+        <button id="tab-rev-per-unit" class="hidden-tab" type="button">Rev Per Unit Plan</button>
         <button id="tab-raw-data" type="button">Raw Data</button>
       </nav>
 
@@ -926,6 +924,12 @@
             <div class="chart-heading-actions">
               <button id="set-growth-revenue-top-to-bottom" class="set-button" type="button">Fit to Top Down</button>
               <button id="set-growth-revenue-bottom-to-top" class="set-button" type="button">Set to Bottom Up</button>
+              <div class="axis-button-row" data-napkin-y-axis-controls="growthRevenueTopDown" aria-label="Growth revenue Y axis controls">
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+              </div>
             </div>
           </div>
           <div id="growth-revenue-topdown-chart" class="chart chart-output"></div>
@@ -1028,6 +1032,172 @@
         </div>
       </section>
 
+      <section id="cost-proxy-view" class="view">
+        <div class="saas-metrics-header">
+          <div>
+            <h2>Cost Proxy Metrics</h2>
+            <p>Compare selected cost pools against new unit volume to reason about spend intensity.</p>
+          </div>
+        </div>
+        <section class="cost-proxy-builder">
+          <div class="chart-heading">
+            <div>
+              <h2>Cost Pool</h2>
+              <p>Select one or more cost lines to evaluate as spend per new unit.</p>
+            </div>
+          </div>
+          <div id="cost-proxy-pool-chips" class="cost-proxy-chip-list"></div>
+        </section>
+        <div class="saas-metrics-grid cost-proxy-grid">
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Selected Cost Pool</h2>
+                <p>Total selected cost lines.</p>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 Spend</span>
+                <strong id="cost-proxy-selected-cost-2029">$0</strong>
+              </div>
+              <div>
+                <span>2026-2029 Spend</span>
+                <strong id="cost-proxy-selected-cost-forecast">$0</strong>
+              </div>
+              <div>
+                <span>Selected Lines</span>
+                <strong id="cost-proxy-selected-count">0</strong>
+              </div>
+            </div>
+            <div id="cost-proxy-selected-cost-chart" class="chart chart-output"></div>
+          </section>
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Spend / New Unit</h2>
+                <p>Selected cost pool divided by new units.</p>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 Spend / Unit</span>
+                <strong id="cost-proxy-spend-per-unit-2029">$0</strong>
+              </div>
+              <div>
+                <span>2026-2029 Spend / Unit</span>
+                <strong id="cost-proxy-spend-per-unit-forecast">$0</strong>
+              </div>
+              <div>
+                <span>Cost Pool</span>
+                <strong id="cost-proxy-pool-label">-</strong>
+              </div>
+            </div>
+            <div id="cost-proxy-spend-per-unit-chart" class="chart chart-output"></div>
+          </section>
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>New Units</h2>
+                <p>Unit volume used as the denominator.</p>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 New Units</span>
+                <strong id="cost-proxy-new-units-2029">0</strong>
+              </div>
+              <div>
+                <span>2026-2029 New Units</span>
+                <strong id="cost-proxy-new-units-forecast">0</strong>
+              </div>
+              <div>
+                <span>Proxy Basis</span>
+                <strong>New Units</strong>
+              </div>
+            </div>
+            <div id="cost-proxy-new-units-chart" class="chart chart-output"></div>
+          </section>
+        </div>
+        <div class="saas-metrics-grid cost-proxy-grid cost-proxy-application-grid">
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Target Spend / New Unit</h2>
+                <p>Draw the proxy you want this cost pool to follow.</p>
+              </div>
+              <div class="axis-button-row" data-napkin-y-axis-controls="costProxyTarget" aria-label="Target spend per new unit Y axis controls">
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+                <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 Target</span>
+                <strong id="cost-proxy-target-spend-2029">$0</strong>
+              </div>
+              <div>
+                <span>2026-2029 Target</span>
+                <strong id="cost-proxy-target-spend-forecast">$0</strong>
+              </div>
+              <div>
+                <span>Editable Years</span>
+                <strong>2026+</strong>
+              </div>
+            </div>
+            <div id="cost-proxy-target-chart" class="chart chart-output"></div>
+          </section>
+          <section class="saas-metric-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Implied Cost Pool</h2>
+                <p>Target spend per unit multiplied by new units.</p>
+              </div>
+            </div>
+            <div class="saas-metric-summary">
+              <div>
+                <span>2029 Implied Spend</span>
+                <strong id="cost-proxy-implied-cost-2029">$0</strong>
+              </div>
+              <div>
+                <span>2026-2029 Implied Spend</span>
+                <strong id="cost-proxy-implied-cost-forecast">$0</strong>
+              </div>
+              <div>
+                <span>2026-2029 Delta</span>
+                <strong id="cost-proxy-implied-delta-forecast">$0</strong>
+              </div>
+            </div>
+            <div id="cost-proxy-implied-cost-chart" class="chart chart-output"></div>
+          </section>
+          <section class="saas-metric-tile cost-proxy-apply-tile">
+            <div class="chart-heading">
+              <div>
+                <h2>Apply to Costs</h2>
+                <p>Scale the selected cost lines proportionally to match the implied cost pool.</p>
+              </div>
+            </div>
+            <div class="cost-proxy-apply-body">
+              <div>
+                <span>Method</span>
+                <strong>Scale selected lines proportionally</strong>
+              </div>
+              <div>
+                <span>Updated Years</span>
+                <strong>2026-2029</strong>
+              </div>
+              <div>
+                <span>Selected Cost Lines</span>
+                <strong id="cost-proxy-apply-selected-count">0</strong>
+              </div>
+              <button id="cost-proxy-apply-to-costs" class="set-button" type="button">Apply to Costs</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section id="raw-data-view" class="view">
         <div class="raw-data-toolbar">
           <div>
@@ -1043,6 +1213,13 @@
           <div>
             <h2>Scenarios</h2>
             <p>Compare scenario-level profit and top-down vs bottom-up reconciliation status.</p>
+          </div>
+          <div class="scenario-storage-actions">
+            <button id="export-scenarios-json" type="button">Export JSON</button>
+            <button id="import-scenarios-json" type="button">Import JSON</button>
+            <input id="import-scenarios-json-file" type="file" accept="application/json,.json" hidden>
+            <select id="excel-scenario-select" aria-label="Scenario to export to Excel"></select>
+            <button id="export-scenario-excel" type="button">Export Excel</button>
           </div>
         </div>
         <div id="scenarios-module"></div>
@@ -1649,7 +1826,7 @@
         </div>
         <div class="defense-top-row">
           <section>
-            <h2 id="defense-metric-chart-title">Retention vs Base</h2>
+            <h2 id="defense-metric-chart-title">Retention vs BAU</h2>
             <div id="retention-defense-chart" class="chart chart-output"></div>
           </section>
           <section class="defense-card defense-impact-summary">
@@ -1705,6 +1882,7 @@
             <h2>New Customers Drilldown</h2>
             <p>Build the new customer line from property cohort contributions.</p>
           </div>
+          <button id="back-new-customers-drilldown" class="back-button" type="button">Back</button>
         </div>
         <div class="output-row output-row-single new-customer-main-panel">
           <div>
@@ -1768,13 +1946,13 @@
         </div>
         <div id="new-customers-unit-drilldown" class="cohort-editor nested-drilldown" hidden>
           <div class="cohort-editor-header unit-drilldown-main-panel">
-            <h2>New Properties Unit Drilldown</h2>
+            <h2>New Property Customers Drilldown</h2>
             <button id="back-new-customers-unit-drilldown" class="back-button" type="button">Back</button>
           </div>
           <div class="output-row output-row-single unit-drilldown-main-panel">
             <div>
               <div class="chart-heading">
-                <h2>New Properties Top-Down vs Unit Build</h2>
+                <h2>New Properties: New Customers</h2>
                 <button id="set-new-customer-unit-top-down" class="set-button" type="button">Set</button>
               </div>
               <div id="new-customers-unit-bridge-chart" class="chart chart-output"></div>
@@ -1787,6 +1965,20 @@
                 <div class="chart-heading-actions">
                   <button id="match-new-customer-unit-new-units" class="match-button" type="button">Match</button>
                   <button id="toggle-new-customers-new-units-drilldown" class="drilldown-button" type="button">Drilldown</button>
+                  <div class="axis-button-row" data-napkin-y-axis-controls="unitNewUnits" aria-label="New units Y axis controls">
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step">
+                      <span class="axis-triangle axis-triangle-up"></span>
+                    </button>
+                    <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step">
+                      <span class="axis-triangle axis-triangle-down"></span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div id="new-customers-unit-new-units-chart" class="chart chart-output"></div>
