@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operating Model Canvas V2</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">V2 Sandbox</p>
+        <h1>Metric Operating Model Canvas</h1>
+      </div>
+      <div class="header-note">
+        Generic proof of concept: metric catalog -> calculation engine -> canvas and charts.
+      </div>
+    </header>
+
+    <section class="workspace">
+      <aside class="metric-sidebar">
+        <h2>Metric Catalog</h2>
+        <div id="metric-list" class="metric-list"></div>
+      </aside>
+
+      <section class="canvas-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Canvas</h2>
+            <p>Click a node to inspect top-down and bottom-up definitions.</p>
+          </div>
+          <button id="set-top-to-bottom" type="button">Set Top -> Bottom</button>
+        </div>
+        <div id="metric-canvas" class="metric-canvas"></div>
+      </section>
+
+      <section class="detail-panel">
+        <div class="panel-heading">
+          <div>
+            <h2 id="detail-title">Metric Detail</h2>
+            <p id="detail-subtitle">Select a metric from the canvas.</p>
+          </div>
+          <span id="reconciliation-badge" class="reconciliation-badge">-</span>
+        </div>
+        <div class="definition-grid">
+          <div>
+            <span>Top-Down</span>
+            <strong id="top-down-definition">-</strong>
+          </div>
+          <div>
+            <span>Bottom-Up</span>
+            <strong id="bottom-up-definition">-</strong>
+          </div>
+          <div>
+            <span>Time Behavior</span>
+            <strong id="time-definition">-</strong>
+          </div>
+        </div>
+        <div id="metric-detail-chart" class="chart"></div>
+      </section>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
