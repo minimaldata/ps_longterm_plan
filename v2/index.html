@@ -6,6 +6,7 @@
   <title>Operating Model Canvas V2</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="../napkinChart.js"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -14,15 +15,34 @@
         <p class="eyebrow">V2 Sandbox</p>
         <h1>Metric Operating Model Canvas</h1>
       </div>
-      <div class="header-note">
-        Generic proof of concept: metric catalog -> calculation engine -> canvas and charts.
+      <div class="header-actions">
+        <button id="new-blank-model" type="button">New Blank Model</button>
+        <button id="load-starter-model" type="button">Load Starter Example</button>
       </div>
     </header>
 
     <section class="workspace">
       <aside class="metric-sidebar">
-        <h2>Metric Catalog</h2>
+        <div class="panel-heading">
+          <div>
+            <h2>Metric Catalog</h2>
+            <p id="model-name">Blank Model</p>
+          </div>
+          <button id="add-metric" type="button">Add Metric</button>
+        </div>
         <div id="metric-list" class="metric-list"></div>
+        <form id="metric-create-form" class="metric-create-form">
+          <label for="metric-name-input">New Metric</label>
+          <div class="metric-create-row">
+            <input id="metric-name-input" type="text" placeholder="Metric name">
+            <select id="metric-unit-input">
+              <option value="currency">Currency</option>
+              <option value="count">Count</option>
+              <option value="percent">Percent</option>
+            </select>
+          </div>
+          <button type="submit">Create Metric</button>
+        </form>
       </aside>
 
       <section class="canvas-panel">
@@ -57,9 +77,149 @@
             <span>Time Behavior</span>
             <strong id="time-definition">-</strong>
           </div>
+          <div>
+            <span>Dimensions</span>
+            <strong id="dimension-definition">-</strong>
+          </div>
         </div>
+        <section id="dimension-member-section" class="dimension-member-section is-hidden">
+          <div>
+            <span id="dimension-member-title">Dimension Members</span>
+            <small>Select total or a member-specific view.</small>
+          </div>
+          <div id="dimension-member-list" class="dimension-member-list"></div>
+        </section>
+        <form id="bottom-up-form" class="bottom-up-form">
+          <div class="panel-heading">
+            <div>
+              <h2>Bottom-Up Formula</h2>
+              <p>Define the selected metric from other metrics.</p>
+            </div>
+            <button type="submit">Apply Formula</button>
+          </div>
+          <div class="formula-controls">
+            <label class="formula-field">
+              Type
+              <select id="formula-type-input">
+                <option value="">No bottom-up definition</option>
+                <option value="sum">Sum</option>
+                <option value="product">Product</option>
+                <option value="difference">Difference</option>
+                <option value="cohortAgeProduct">Cohort Age Product</option>
+                <option value="cohortMatrixFromStartsAndAgeYoy">Cohort Matrix Sum</option>
+                <option value="cumulativeNetFlow">Cumulative Net Flow</option>
+                <option value="laggedMetric">Lagged Metric</option>
+                <option value="laggedRetentionFlow">Lagged Retention Flow</option>
+              </select>
+            </label>
+            <div class="formula-field">
+              <span>Inputs</span>
+              <div id="formula-input-list" class="formula-input-list"></div>
+            </div>
+          </div>
+        </form>
+        <section id="top-down-napkin-section" class="top-down-napkin-section">
+          <div class="panel-heading">
+            <div>
+              <h2>Top-Down Napkin Chart</h2>
+              <p>Define the selected metric's independent top-down series.</p>
+            </div>
+          </div>
+          <div id="top-down-napkin-chart" class="top-down-napkin-chart"></div>
+        </section>
+        <form id="lagged-opening-form" class="lagged-opening-form">
+          <div class="panel-heading">
+            <div>
+              <h2>Opening Value</h2>
+              <p>Set the first value used before the lagged source series begins.</p>
+            </div>
+            <button type="submit">Apply Opening Value</button>
+          </div>
+          <div id="lagged-opening-inputs" class="lagged-opening-inputs"></div>
+        </form>
+        <section id="dimension-breakdown-section" class="dimension-breakdown-section">
+          <div class="panel-heading">
+            <div>
+              <h2 id="dimension-breakdown-title">Dimension Breakdown</h2>
+              <p>Member-level calculated values for the selected metric.</p>
+            </div>
+          </div>
+          <div id="dimension-breakdown-chart" class="dimension-breakdown-chart"></div>
+        </section>
+        <section id="dimension-mix-section" class="dimension-mix-section">
+          <div class="panel-heading">
+            <div>
+              <h2 id="dimension-mix-title">Dimension % Total</h2>
+              <p>Edit the selected metric's member mix without changing the total.</p>
+            </div>
+          </div>
+          <div id="dimension-mix-chart" class="dimension-mix-chart"></div>
+        </section>
+        <form id="cohort-matrix-builder-form" class="cohort-matrix-builder-form">
+          <div class="panel-heading">
+            <div>
+              <h2>Cohort Matrix Builder</h2>
+              <p>Generate a cohort matrix from starting values and YoY change by age.</p>
+            </div>
+            <button type="submit">Apply Matrix Inputs</button>
+          </div>
+          <div class="cohort-builder-grid">
+            <section class="cohort-builder-card">
+              <h3>Starting Cohort Values</h3>
+              <label class="cohort-source-field">
+                Source
+                <select id="cohort-start-source-input"></select>
+              </label>
+              <div id="cohort-starts-chart" class="cohort-builder-chart"></div>
+              <div id="cohort-starts-inputs" class="cohort-builder-inputs"></div>
+            </section>
+            <section class="cohort-builder-card">
+              <h3>YoY % Change By Cohort Age</h3>
+              <div id="cohort-yoy-chart" class="cohort-builder-chart"></div>
+              <div id="cohort-yoy-inputs" class="cohort-builder-inputs"></div>
+            </section>
+          </div>
+        </form>
+        <form id="stock-flow-builder-form" class="stock-flow-builder-form">
+          <div class="panel-heading">
+            <div>
+              <h2>Stock / Flow Builder</h2>
+              <p>Calculate the selected stock from an opening value, additions, and losses.</p>
+            </div>
+            <button type="submit">Apply Stock Flow</button>
+          </div>
+          <div class="stock-flow-grid">
+            <label>
+              Opening Value
+              <input id="stock-opening-value-input" type="number" step="1" value="0">
+            </label>
+            <label>
+              Additions
+              <select id="stock-inflow-input"></select>
+            </label>
+            <label>
+              Losses
+              <select id="stock-outflow-input"></select>
+            </label>
+          </div>
+        </form>
         <div id="metric-detail-chart" class="chart"></div>
       </section>
+    </section>
+
+    <section class="developer-panel">
+      <div class="panel-heading">
+        <div>
+          <h2>Catalog Source</h2>
+          <p>Editable JSON for the current metric catalog and scenario state.</p>
+        </div>
+        <div class="source-actions">
+          <button id="copy-catalog-source" type="button">Copy</button>
+          <button id="apply-catalog-source" type="button">Apply JSON</button>
+        </div>
+      </div>
+      <textarea id="catalog-source" spellcheck="false"></textarea>
+      <p id="catalog-source-status" class="source-status"></p>
     </section>
   </main>
 

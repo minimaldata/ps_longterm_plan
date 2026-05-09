@@ -1,6 +1,54 @@
 export const YEARS = [2026, 2027, 2028, 2029];
 
-export const metricDefinitions = {
+export function createBlankModel() {
+  return {
+    name: "Blank Model",
+    dimensions: {},
+    metricDefinitions: {},
+    scenario: {
+      id: "scenario-1",
+      name: "Scenario 1",
+      metrics: {},
+    },
+  };
+}
+
+export function createStarterModel() {
+  return {
+    name: "Starter Example",
+    dimensions: {},
+    metricDefinitions: clone(starterMetricDefinitions),
+    scenario: clone(starterScenario),
+  };
+}
+
+export function createManualMetric({ id, label, unit = "currency", color = "#4f7fb8" }) {
+  return {
+    id,
+    label,
+    unit,
+    topDown: { type: "manualSeries", editable: true },
+    bottomUp: null,
+    reconciliation: { enabled: false, tolerance: 1 },
+    time: {
+      nativeGrain: "year",
+      supportedGrains: ["year"],
+      flowType: unit === "percent" ? "rate" : "flow",
+      aggregateMethod: unit === "percent" ? "weightedAverage" : "sum",
+      cumulativeAllowed: unit !== "percent",
+      growthAllowed: true,
+      seasonalityAllowed: unit !== "percent",
+      dailyTargetAllowed: unit !== "percent",
+    },
+    presentation: { color },
+  };
+}
+
+export function defaultSeries() {
+  return YEARS.map(() => 0);
+}
+
+const starterMetricDefinitions = {
   profit: {
     id: "profit",
     label: "Profit",
@@ -58,14 +106,14 @@ export const metricDefinitions = {
     },
     presentation: { color: "#6fa76b" },
   },
-  productARevenue: leafMetric("productARevenue", "Product A Revenue", "#7b6fb8"),
-  productBRevenue: leafMetric("productBRevenue", "Product B Revenue", "#d39b2a"),
-  servicesRevenue: leafMetric("servicesRevenue", "Services Revenue", "#4b9b8e"),
-  laborCost: leafMetric("laborCost", "Labor Cost", "#5c8fb7"),
-  nonLaborCost: leafMetric("nonLaborCost", "Non-Labor Cost", "#a96c50"),
+  productARevenue: createManualMetric({ id: "productARevenue", label: "Product A Revenue", color: "#7b6fb8" }),
+  productBRevenue: createManualMetric({ id: "productBRevenue", label: "Product B Revenue", color: "#d39b2a" }),
+  servicesRevenue: createManualMetric({ id: "servicesRevenue", label: "Services Revenue", color: "#4b9b8e" }),
+  laborCost: createManualMetric({ id: "laborCost", label: "Labor Cost", color: "#5c8fb7" }),
+  nonLaborCost: createManualMetric({ id: "nonLaborCost", label: "Non-Labor Cost", color: "#a96c50" }),
 };
 
-export const scenario = {
+const starterScenario = {
   id: "scenario-1",
   name: "Scenario 1",
   metrics: {
@@ -80,24 +128,6 @@ export const scenario = {
   },
 };
 
-function leafMetric(id, label, color) {
-  return {
-    id,
-    label,
-    unit: "currency",
-    topDown: { type: "manualSeries", editable: true },
-    bottomUp: null,
-    reconciliation: { enabled: false, tolerance: 1 },
-    time: {
-      nativeGrain: "year",
-      supportedGrains: ["year"],
-      flowType: "flow",
-      aggregateMethod: "sum",
-      cumulativeAllowed: true,
-      growthAllowed: true,
-      seasonalityAllowed: true,
-      dailyTargetAllowed: true,
-    },
-    presentation: { color },
-  };
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }

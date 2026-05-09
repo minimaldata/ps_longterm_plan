@@ -1,0 +1,169 @@
+{
+  "name": "Customer Type Dimension Example",
+  "years": [2026, 2027, 2028, 2029],
+  "selectedMetricId": "paying-customers",
+  "dimensions": {
+    "customer_type": {
+      "id": "customer_type",
+      "label": "Customer Type",
+      "members": [
+        { "id": "enterprise", "label": "Enterprise" },
+        { "id": "mid_market", "label": "Mid-Market" },
+        { "id": "smb", "label": "SMB" }
+      ]
+    }
+  },
+  "metricDefinitions": {
+    "paying-customers": {
+      "id": "paying-customers",
+      "label": "paying customers",
+      "unit": "count",
+      "dimensions": ["customer_type"],
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": {
+        "type": "sum",
+        "inputs": ["new-paying-customers", "returning-paying-customers"]
+      },
+      "reconciliation": { "enabled": true, "tolerance": 1 },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": ["year"],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": { "color": "#2f6f73" }
+    },
+    "new-paying-customers": {
+      "id": "new-paying-customers",
+      "label": "new paying customers",
+      "unit": "count",
+      "dimensions": ["customer_type"],
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": null,
+      "reconciliation": { "enabled": false, "tolerance": 1 },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": ["year"],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": { "color": "#4f7fb8" }
+    },
+    "returning-paying-customers": {
+      "id": "returning-paying-customers",
+      "label": "returning paying customers",
+      "unit": "count",
+      "dimensions": ["customer_type"],
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": {
+        "type": "product",
+        "inputs": ["prior-paying-customers", "retention-rate"]
+      },
+      "reconciliation": { "enabled": true, "tolerance": 1 },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": ["year"],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": { "color": "#7b6fb8" }
+    },
+    "prior-paying-customers": {
+      "id": "prior-paying-customers",
+      "label": "prior paying customers",
+      "unit": "count",
+      "dimensions": ["customer_type"],
+      "topDown": { "type": "derivedLaggedSeries", "editable": false },
+      "bottomUp": {
+        "type": "laggedMetric",
+        "inputs": ["paying-customers"],
+        "lag": 1
+      },
+      "reconciliation": { "enabled": true, "tolerance": 1 },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": ["year"],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": false,
+        "dailyTargetAllowed": false
+      },
+      "presentation": { "color": "#98a2b3" }
+    },
+    "retention-rate": {
+      "id": "retention-rate",
+      "label": "retention rate",
+      "unit": "percent",
+      "dimensions": ["customer_type"],
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": null,
+      "reconciliation": { "enabled": false, "tolerance": 1 },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": ["year"],
+        "flowType": "rate",
+        "aggregateMethod": "weightedAverage",
+        "cumulativeAllowed": false,
+        "growthAllowed": true,
+        "seasonalityAllowed": false,
+        "dailyTargetAllowed": false
+      },
+      "presentation": { "color": "#d97b59" }
+    }
+  },
+  "scenario": {
+    "id": "scenario-1",
+    "name": "Scenario 1",
+    "metrics": {
+      "paying-customers": {
+        "topDown": {
+          "enterprise": [530, 582.3, 655.716, 749.81588],
+          "mid_market": [918, 981.94, 1084.8296, 1222.10516],
+          "smb": [1520, 1554.4, 1670.256, 1849.39456]
+        }
+      },
+      "new-paying-customers": {
+        "topDown": {
+          "enterprise": [80, 100, 120, 140],
+          "mid_market": [180, 220, 260, 300],
+          "smb": [400, 460, 520, 580]
+        }
+      },
+      "returning-paying-customers": {
+        "topDown": {
+          "enterprise": [450, 482.3, 535.716, 609.81588],
+          "mid_market": [738, 761.94, 824.8296, 922.10516],
+          "smb": [1120, 1094.4, 1150.256, 1269.39456]
+        }
+      },
+      "prior-paying-customers": {
+        "openingValue": {
+          "enterprise": 500,
+          "mid_market": 900,
+          "smb": 1600
+        }
+      },
+      "retention-rate": {
+        "topDown": {
+          "enterprise": [0.9, 0.91, 0.92, 0.93],
+          "mid_market": [0.82, 0.83, 0.84, 0.85],
+          "smb": [0.7, 0.72, 0.74, 0.76]
+        }
+      }
+    }
+  }
+}
