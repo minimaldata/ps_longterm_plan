@@ -1,24 +1,32 @@
 export const YEARS = [2026, 2027, 2028, 2029];
 
 export function createBlankModel() {
+  const scenario = {
+    id: "scenario-1",
+    name: "Scenario 1",
+    metrics: {},
+  };
   return {
     name: "Blank Model",
     dimensions: {},
     metricDefinitions: {},
-    scenario: {
-      id: "scenario-1",
-      name: "Scenario 1",
-      metrics: {},
+    activeScenarioId: scenario.id,
+    scenarios: {
+      [scenario.id]: scenario,
     },
   };
 }
 
 export function createStarterModel() {
+  const scenario = clone(starterScenario);
   return {
     name: "Starter Example",
     dimensions: {},
     metricDefinitions: clone(starterMetricDefinitions),
-    scenario: clone(starterScenario),
+    activeScenarioId: scenario.id,
+    scenarios: {
+      [scenario.id]: scenario,
+    },
   };
 }
 
@@ -46,6 +54,10 @@ export function createManualMetric({ id, label, unit = "currency", color = "#4f7
 
 export function defaultSeries() {
   return YEARS.map(() => 0);
+}
+
+function topDown(series) {
+  return { topDown: { "": series } };
 }
 
 const starterMetricDefinitions = {
@@ -117,14 +129,14 @@ const starterScenario = {
   id: "scenario-1",
   name: "Scenario 1",
   metrics: {
-    profit: { topDown: [14000000, 22000000, 33000000, 45000000] },
-    revenue: { topDown: [68000000, 85000000, 105000000, 130000000] },
-    cost: { topDown: [54000000, 63000000, 72000000, 85000000] },
-    productARevenue: { topDown: [36000000, 44000000, 53000000, 64000000] },
-    productBRevenue: { topDown: [18000000, 24000000, 31000000, 39000000] },
-    servicesRevenue: { topDown: [11000000, 15000000, 19000000, 24000000] },
-    laborCost: { topDown: [32000000, 37000000, 43000000, 50000000] },
-    nonLaborCost: { topDown: [20000000, 24000000, 29000000, 34000000] },
+    profit: topDown([14000000, 22000000, 33000000, 45000000]),
+    revenue: topDown([68000000, 85000000, 105000000, 130000000]),
+    cost: topDown([54000000, 63000000, 72000000, 85000000]),
+    productARevenue: topDown([36000000, 44000000, 53000000, 64000000]),
+    productBRevenue: topDown([18000000, 24000000, 31000000, 39000000]),
+    servicesRevenue: topDown([11000000, 15000000, 19000000, 24000000]),
+    laborCost: topDown([32000000, 37000000, 43000000, 50000000]),
+    nonLaborCost: topDown([20000000, 24000000, 29000000, 34000000]),
   },
 };
 

@@ -16,6 +16,12 @@
         <h1>Metric Operating Model Canvas</h1>
       </div>
       <div class="header-actions">
+        <label class="scenario-picker">
+          <span>Scenario</span>
+          <select id="scenario-select"></select>
+        </label>
+        <button id="save-scenario" type="button">Save</button>
+        <button id="save-scenario-as-new" type="button">Save as New</button>
         <button id="new-blank-model" type="button">New Blank Model</button>
         <button id="load-starter-model" type="button">Load Starter Example</button>
       </div>
@@ -43,6 +49,23 @@
           </div>
           <button type="submit">Create Metric</button>
         </form>
+        <section class="dimension-catalog">
+          <div class="panel-heading compact-heading">
+            <div>
+              <h2>Dimension Catalog</h2>
+              <p>Reusable segments for metric values.</p>
+            </div>
+            <button id="new-dimension" type="button">New</button>
+          </div>
+          <div id="dimension-list" class="dimension-list"></div>
+          <form id="dimension-form" class="dimension-form">
+            <label for="dimension-name-input">Dimension</label>
+            <input id="dimension-name-input" type="text" placeholder="Customer Type">
+            <label for="dimension-members-input">Members</label>
+            <textarea id="dimension-members-input" rows="3" placeholder="Enterprise, Mid-Market, SMB"></textarea>
+            <button type="submit">Save Dimension</button>
+          </form>
+        </section>
       </aside>
 
       <section class="canvas-panel">
@@ -89,6 +112,19 @@
           </div>
           <div id="dimension-member-list" class="dimension-member-list"></div>
         </section>
+        <section id="metric-dimension-section" class="metric-dimension-section is-hidden">
+          <div class="panel-heading">
+            <div>
+              <h2>Metric Dimension</h2>
+              <p>Assign a primary dimension to the selected metric.</p>
+            </div>
+          </div>
+          <div class="metric-dimension-row">
+            <div id="metric-dimension-input" class="metric-dimension-input"></div>
+            <button id="assign-metric-dimension" type="button">Apply</button>
+          </div>
+          <p id="metric-dimension-note" class="metric-dimension-note"></p>
+        </section>
         <form id="bottom-up-form" class="bottom-up-form">
           <div class="panel-heading">
             <div>
@@ -124,8 +160,13 @@
               <h2>Top-Down Napkin Chart</h2>
               <p>Define the selected metric's independent top-down series.</p>
             </div>
+            <div class="view-toggle" aria-label="Top-down editor view">
+              <button class="view-toggle-button active" data-top-down-view="chart" type="button">Chart</button>
+              <button class="view-toggle-button" data-top-down-view="sheet" type="button">Sheet</button>
+            </div>
           </div>
           <div id="top-down-napkin-chart" class="top-down-napkin-chart"></div>
+          <div id="top-down-spreadsheet" class="top-down-spreadsheet is-hidden"></div>
         </section>
         <form id="lagged-opening-form" class="lagged-opening-form">
           <div class="panel-heading">

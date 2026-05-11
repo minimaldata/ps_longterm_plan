@@ -10,6 +10,9 @@ const state = {
   model: createBlankModel(),
   selectedMetricId: null,
   selectedDimensionContext: null,
+  selectedDimensionId: null,
+  topDownEditorView: "chart",
+  topDownSheetExpandedKeys: new Set(),
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -25,6 +28,8 @@ const preciseCurrencyFormatter = new Intl.NumberFormat("en-US", {
 });
 
 const dimensionPalette = ["#2f6f73", "#4f7fb8", "#7b6fb8", "#d39b2a", "#a96c50", "#6fa76b"];
+const TOTAL_COORDINATE_KEY = "";
+const UNASSIGNED_MEMBER_ID = "unassigned";
 
 const chartElement = document.getElementById("metric-detail-chart");
 const chart = window.echarts
@@ -73,8 +78,44 @@ function dimensionDefinitions() {
   return state.model.dimensions;
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function scenarioCollection() {
+  if (!state.model.scenarios || typeof state.model.scenarios !== "object") {
+    const fallback = state.model.scenario && typeof state.model.scenario === "object"
+      ? state.model.scenario
+      : { id: "scenario-1", name: "Scenario 1", metrics: {} };
+    const scenarioId = fallback.id || "scenario-1";
+    state.model.scenarios = {
+      [scenarioId]: {
+        ...fallback,
+        id: scenarioId,
+        name: fallback.name || "Scenario 1",
+        metrics: fallback.metrics || {},
+      },
+    };
+    state.model.activeScenarioId = scenarioId;
+    delete state.model.scenario;
+  }
+  if (!Object.keys(state.model.scenarios).length) {
+    state.model.scenarios["scenario-1"] = { id: "scenario-1", name: "Scenario 1", metrics: {} };
+    state.model.activeScenarioId = "scenario-1";
+  }
+  return state.model.scenarios;
+}
+
+function activeScenarioId() {
+  const scenarios = scenarioCollection();
+  if (!state.model.activeScenarioId || !scenarios[state.model.activeScenarioId]) {
+    state.model.activeScenarioId = Object.keys(scenarios)[0];
+  }
+  return state.model.activeScenarioId;
+}
+
 function scenario() {
-  return state.model.scenario;
+  return scenarioCollection()[activeScenarioId()];
 }
 
 function selectedDefinition() {
@@ -84,14 +125,37 @@ function selectedDefinition() {
 function selectedDimensionContextForMetric(metricId = state.selectedMetricId) {
   const context = state.selectedDimensionContext;
   if (!context || context.metricId !== metricId) return null;
-  if (!metricUsesDimension(metricId, context.dimensionId)) return null;
-  const member = dimensionMembers(context.dimensionId).find(item => item.id === context.memberId);
-  return member ? { ...context, member } : null;
+  const rawCoordinate = context.coordinate || (
+    context.dimensionId && context.memberId
+      ? { [context.dimensionId]: context.memberId }
+      : {}
+  );
+  const coordinate = {};
+  metricDimensionIds(metricId).forEach(dimensionId => {
+    const memberId = rawCoordinate[dimensionId];
+    if (!memberId) return;
+    const member = dimensionMembers(dimensionId).find(item => item.id === memberId);
+    if (member) coordinate[dimensionId] = memberId;
+  });
+  if (!Object.keys(coordinate).length) return null;
+  const key = coordinateKey(coordinate);
+  const entries = Object.entries(coordinate).map(([dimensionId, memberId]) => {
+    const member = dimensionMembers(dimensionId).find(item => item.id === memberId);
+    return { dimensionId, memberId, member };
+  });
+  return {
+    metricId,
+    coordinate,
+    coordinateKey: key,
+    entries,
+    label: coordinateLabelForMetric(metricId, key),
+    ...(entries.length === 1 ? entries[0] : {}),
+  };
 }
 
 function selectedNodeKey() {
   const context = selectedDimensionContextForMetric();
-  return context
+  return context?.entries?.length === 1 && context.dimensionId === primaryDimensionId(context.metricId)
     ? memberNodeKey(context.metricId, context.dimensionId, context.memberId)
     : state.selectedMetricId;
 }
@@ -105,7 +169,7 @@ function selectNodeKey(nodeKey) {
   const parsed = parseNodeKey(nodeKey);
   state.selectedMetricId = parsed.metricId;
   state.selectedDimensionContext = parsed.memberId
-    ? { metricId: parsed.metricId, dimensionId: parsed.dimensionId, memberId: parsed.memberId }
+    ? { metricId: parsed.metricId, coordinate: { [parsed.dimensionId]: parsed.memberId } }
     : null;
 }
 
@@ -116,6 +180,12 @@ function metricScenario(metricId) {
 function metricDimensionIds(metricId) {
   const dimensions = metricDefinitions()[metricId]?.dimensions;
   return Array.isArray(dimensions) ? dimensions : [];
+}
+
+function metricDimensionLevelLabel(metricId, dimensionId) {
+  const index = metricDimensionIds(metricId).indexOf(dimensionId);
+  const dimensionLabel = dimensionDefinitions()[dimensionId]?.label || dimensionId;
+  return index >= 0 ? `Level ${index + 1}: ${dimensionLabel}` : dimensionLabel;
 }
 
 function primaryDimensionId(metricId) {
@@ -129,6 +199,84 @@ function dimensionMembers(dimensionId) {
     if (typeof member === "string") return { id: member, label: member };
     return { id: member.id, label: member.label || member.id };
   }).filter(member => member.id);
+}
+
+function normalizeDimensionMembersFromText(text) {
+  const usedIds = new Set();
+  return String(text || "")
+    .split(/[\n,]+/)
+    .map(value => value.trim())
+    .filter(Boolean)
+    .map(label => {
+      let id = metricSlug(label);
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `${metricSlug(label)}-${suffix}`;
+        suffix += 1;
+      }
+      usedIds.add(id);
+      return { id, label };
+    });
+}
+
+function dimensionMembersText(dimensionId) {
+  return dimensionMembers(dimensionId).map(member => member.label).join(", ");
+}
+
+function uniqueDimensionId(label, existingId = null) {
+  const base = metricSlug(label);
+  let id = base;
+  let suffix = 2;
+  while (dimensionDefinitions()[id] && id !== existingId) {
+    id = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return id;
+}
+
+function uniqueMemberId(label, members) {
+  const existingIds = new Set(members.map(member => member.id));
+  const base = metricSlug(label) || "member";
+  let id = base;
+  let suffix = 2;
+  while (existingIds.has(id)) {
+    id = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return id;
+}
+
+function normalizeLabel(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function mergeDimensionMembers(existingMembers, labels) {
+  const usedExistingIds = new Set();
+  const existingByLabel = new Map(existingMembers.map(member => [normalizeLabel(member.label), member]));
+  return labels.reduce((nextMembers, label, index) => {
+    const labelMatch = existingByLabel.get(normalizeLabel(label));
+    const sameIndexMatch = labels.length === existingMembers.length ? existingMembers[index] : null;
+    const existing = labelMatch && !usedExistingIds.has(labelMatch.id)
+      ? labelMatch
+      : sameIndexMatch && !usedExistingIds.has(sameIndexMatch.id)
+        ? sameIndexMatch
+        : null;
+    const member = existing
+      ? { ...existing, label }
+      : { id: uniqueMemberId(label, [...existingMembers, ...nextMembers]), label };
+    if (member.id === UNASSIGNED_MEMBER_ID) member.system = true;
+    usedExistingIds.add(member.id);
+    nextMembers.push(member);
+    return nextMembers;
+  }, []);
+}
+
+function ensureUnassignedMember(members) {
+  if (members.some(member => member.id === UNASSIGNED_MEMBER_ID)) return members;
+  return [
+    ...members,
+    { id: UNASSIGNED_MEMBER_ID, label: "Unassigned", system: true },
+  ];
 }
 
 function memberNodeKey(metricId, dimensionId, memberId) {
@@ -158,6 +306,113 @@ function metricUsesDimension(metricId, dimensionId) {
   return Boolean(dimensionId && metricDimensionIds(metricId).includes(dimensionId));
 }
 
+function coordinateKey(coordinate = {}) {
+  return Object.entries(coordinate)
+    .filter(([_dimensionId, memberId]) => memberId !== undefined && memberId !== null && memberId !== "")
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([dimensionId, memberId]) => `${encodeURIComponent(dimensionId)}=${encodeURIComponent(memberId)}`)
+    .join("|");
+}
+
+function parseCoordinateKey(key) {
+  if (!key) return {};
+  return String(key).split("|").reduce((coordinate, part) => {
+    const [dimensionId, memberId] = part.split("=");
+    if (!dimensionId || memberId === undefined) return coordinate;
+    coordinate[decodeURIComponent(dimensionId)] = decodeURIComponent(memberId);
+    return coordinate;
+  }, {});
+}
+
+function memberCoordinateKey(dimensionId, memberId) {
+  return coordinateKey({ [dimensionId]: memberId });
+}
+
+function coordinateMatches(key, filters = {}) {
+  const coordinate = parseCoordinateKey(key);
+  return Object.entries(filters).every(([dimensionId, memberId]) => coordinate[dimensionId] === memberId);
+}
+
+function metricCoordinateKeys(metricId) {
+  const dimensions = metricDimensionIds(metricId);
+  if (!dimensions.length) return [TOTAL_COORDINATE_KEY];
+
+  let coordinates = [{}];
+  dimensions.forEach(dimensionId => {
+    const members = dimensionMembers(dimensionId);
+    const memberIds = members.length ? members.map(member => member.id) : [UNASSIGNED_MEMBER_ID];
+    coordinates = coordinates.flatMap(coordinate => memberIds.map(memberId => ({
+      ...coordinate,
+      [dimensionId]: memberId,
+    })));
+  });
+  return coordinates.map(coordinateKey);
+}
+
+function normalizeRawCoordinateKey(definition, rawKey) {
+  if (!rawKey) return TOTAL_COORDINATE_KEY;
+  if (String(rawKey).includes("=")) return coordinateKey(parseCoordinateKey(rawKey));
+  const [dimensionId] = Array.isArray(definition.dimensions) ? definition.dimensions : [];
+  return dimensionId ? memberCoordinateKey(dimensionId, rawKey) : TOTAL_COORDINATE_KEY;
+}
+
+function sumSeries(left = defaultSeries(), right = defaultSeries()) {
+  return YEARS.map((_year, index) => Number(left[index] || 0) + Number(right[index] || 0));
+}
+
+function normalizeSeriesMap(definition, rawTopDown) {
+  const map = {};
+  if (Array.isArray(rawTopDown)) {
+    map[TOTAL_COORDINATE_KEY] = [...rawTopDown];
+  } else if (rawTopDown && typeof rawTopDown === "object") {
+    Object.entries(rawTopDown).forEach(([rawKey, series]) => {
+      if (!Array.isArray(series)) return;
+      const key = normalizeRawCoordinateKey(definition, rawKey);
+      map[key] = map[key] ? sumSeries(map[key], series) : [...series];
+    });
+  }
+
+  if (!Object.keys(map).length) {
+    map[TOTAL_COORDINATE_KEY] = defaultSeries();
+  }
+  return map;
+}
+
+function normalizeControlPointMap(definition, rawMetric = {}) {
+  const map = {};
+  if (rawMetric.controlPoints && typeof rawMetric.controlPoints === "object") {
+    Object.entries(rawMetric.controlPoints).forEach(([rawKey, points]) => {
+      if (!Array.isArray(points)) return;
+      map[normalizeRawCoordinateKey(definition, rawKey)] = normalizeNapkinPoints(points);
+    });
+  }
+  if (Array.isArray(rawMetric.manualControlPoints)) {
+    map[TOTAL_COORDINATE_KEY] = normalizeNapkinPoints(rawMetric.manualControlPoints);
+  }
+  if (rawMetric.memberManualControlPoints && typeof rawMetric.memberManualControlPoints === "object") {
+    Object.entries(rawMetric.memberManualControlPoints).forEach(([memberId, points]) => {
+      if (!Array.isArray(points)) return;
+      map[normalizeRawCoordinateKey(definition, memberId)] = normalizeNapkinPoints(points);
+    });
+  }
+  return map;
+}
+
+function metricSeriesMap(metricId) {
+  const topDown = metricScenario(metricId).topDown;
+  return topDown && typeof topDown === "object" && !Array.isArray(topDown)
+    ? topDown
+    : normalizeSeriesMap(metricDefinitions()[metricId] || {}, topDown);
+}
+
+function aggregateSeriesMap(metricId, filters = {}) {
+  const definition = metricDefinitions()[metricId];
+  const entries = Object.entries(metricSeriesMap(metricId))
+    .filter(([key]) => coordinateMatches(key, filters));
+  if (!entries.length) return defaultSeries();
+  return aggregateMemberSeries(metricId, Object.fromEntries(entries));
+}
+
 function aggregateMemberSeries(metricId, seriesByMember) {
   const definition = metricDefinitions()[metricId];
   const values = Object.values(seriesByMember || {});
@@ -184,101 +439,208 @@ function laggedTopDownDefinition() {
 
 function metricTopDownMemberSeries(metricId, memberId) {
   return cachedCalculation(`topDownMember:${metricId}:${memberId}`, () => {
-    const topDown = metricScenario(metricId).topDown;
-    if (Array.isArray(topDown)) return metricDimensionIds(metricId).length ? defaultSeries() : topDown;
-    if (topDown && typeof topDown === "object" && Array.isArray(topDown[memberId])) {
-      return topDown[memberId];
-    }
-    return defaultSeries();
+    const dimensionId = primaryDimensionId(metricId);
+    if (!dimensionId) return defaultSeries();
+    return aggregateSeriesMap(metricId, { [dimensionId]: memberId });
   });
 }
 
+function metricTopDownFilteredSeries(metricId, filters = {}) {
+  return cachedCalculation(
+    `topDownFiltered:${metricId}:${coordinateKey(filters)}`,
+    () => aggregateSeriesMap(metricId, filters)
+  );
+}
+
 function metricMemberControlPoints(metricId, memberId) {
-  const stored = metricScenario(metricId).memberManualControlPoints?.[memberId];
+  const dimensionId = primaryDimensionId(metricId);
+  const coordinate = memberCoordinateKey(dimensionId, memberId);
+  const stored = metricScenario(metricId).controlPoints?.[coordinate];
   if (Array.isArray(stored) && stored.length) return normalizeNapkinPoints(stored);
   return YEARS.map((year, index) => [year, Number(metricTopDownMemberSeries(metricId, memberId)[index] || 0)]);
 }
 
-function setMetricTopDownMemberSeries(metricId, memberId, series) {
+function setMetricTopDownCoordinateSeries(metricId, coordinate, series) {
   const metric = ensureMetricScenario(metricId);
-  const dimensionId = primaryDimensionId(metricId);
-  const members = dimensionMembers(dimensionId);
-  const existingTopDown = metric.topDown;
-
-  if (!existingTopDown || Array.isArray(existingTopDown)) {
-    const totalSeries = Array.isArray(existingTopDown) ? existingTopDown : metricTopDownSeries(metricId);
-    const evenShare = members.length ? 1 / members.length : 1;
-    metric.topDown = Object.fromEntries(members.map(member => [
-      member.id,
-      YEARS.map((_year, index) => Number(totalSeries[index] || 0) * evenShare),
-    ]));
-  }
-
-  if (!metric.topDown || Array.isArray(metric.topDown)) metric.topDown = {};
-  metric.topDown[memberId] = [...series];
-  delete metric.topDownTotal;
-  delete metric.manualControlPoints;
+  metric.topDown = normalizeSeriesMap(metricDefinitions()[metricId] || {}, metric.topDown);
+  metric.topDown[coordinate] = [...series];
+  delete metric.controlPoints?.[TOTAL_COORDINATE_KEY];
   delete metric.dimensionShareControlPoints;
   clearCalculationCache();
 }
 
-function metricTopDownSeries(metricId) {
-  return cachedCalculation(`topDown:${metricId}`, () => {
-    const override = metricScenario(metricId).topDownTotal;
-    if (Array.isArray(override)) return override;
-    const topDown = metricScenario(metricId).topDown;
-    if (Array.isArray(topDown)) return topDown;
-    if (topDown && typeof topDown === "object") return aggregateMemberSeries(metricId, topDown);
-    return defaultSeries();
+function setMetricTopDownMemberSeries(metricId, memberId, series) {
+  const dimensionId = primaryDimensionId(metricId);
+  setMetricTopDownCoordinateSeries(metricId, memberCoordinateKey(dimensionId, memberId), series);
+}
+
+function setMetricTopDownCoordinateControlPoints(metricId, coordinate, series) {
+  const metric = ensureMetricScenario(metricId);
+  if (!metric.controlPoints) metric.controlPoints = {};
+  metric.controlPoints[coordinate] = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+  setMetricTopDownCoordinateSeries(metricId, coordinate, series);
+}
+
+function setMetricTopDownFilteredSeries(metricId, filters = {}, series) {
+  const metric = ensureMetricScenario(metricId);
+  const filterKey = coordinateKey(filters);
+  const coordinateKeys = metricCoordinateKeys(metricId)
+    .filter(key => coordinateMatches(key, filters));
+
+  if (!filterKey || !Object.keys(filters).length) {
+    if (!metric.controlPoints) metric.controlPoints = {};
+    metric.controlPoints[TOTAL_COORDINATE_KEY] = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+    setMetricTopDownSeries(metricId, series);
+    return;
+  }
+
+  if (coordinateKeys.length === 1 && coordinateKeys[0] === filterKey) {
+    setMetricTopDownCoordinateControlPoints(metricId, filterKey, series);
+    return;
+  }
+
+  const existingByCoordinate = Object.fromEntries(coordinateKeys.map(key => [
+    key,
+    metricTopDownCoordinateSeries(metricId, key),
+  ]));
+  const sharesByYear = YEARS.map((_year, index) => {
+    const directShare = sharesForKeys(coordinateKeys, existingByCoordinate, index);
+    if (directShare) return directShare;
+    const nearestIndex = nearestIndexWithCoordinateMix(coordinateKeys, existingByCoordinate, index);
+    if (nearestIndex !== null) return sharesForKeys(coordinateKeys, existingByCoordinate, nearestIndex);
+    const evenShare = coordinateKeys.length ? 1 / coordinateKeys.length : 1;
+    return Object.fromEntries(coordinateKeys.map(key => [key, evenShare]));
   });
+
+  metric.topDown = normalizeSeriesMap(metricDefinitions()[metricId] || {}, metric.topDown);
+  const definition = metricDefinitions()[metricId];
+  coordinateKeys.forEach(key => {
+    metric.topDown[key] = metricIsRate(definition)
+      ? [...series]
+      : YEARS.map((_year, index) => Number(series[index] || 0) * Number(sharesByYear[index]?.[key] || 0));
+  });
+  if (!metric.controlPoints) metric.controlPoints = {};
+  metric.controlPoints[filterKey] = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+  delete metric.dimensionShareControlPoints;
+  clearCalculationCache();
+}
+
+function preserveTotalControlPoints(metric) {
+  const totalControlPoints = metric.controlPoints?.[TOTAL_COORDINATE_KEY];
+  if (Array.isArray(totalControlPoints)) {
+    metric.controlPoints = { [TOTAL_COORDINATE_KEY]: normalizeNapkinPoints(totalControlPoints) };
+  } else {
+    delete metric.controlPoints;
+  }
+}
+
+function metricTopDownSeries(metricId) {
+  return cachedCalculation(`topDown:${metricId}`, () => aggregateSeriesMap(metricId));
 }
 
 function setMetricTopDownSeries(metricId, series) {
   if (allocateDimensionTopDownSeries(metricId, series)) return;
   const metric = ensureMetricScenario(metricId);
-  if (metric.topDown && typeof metric.topDown === "object" && !Array.isArray(metric.topDown)) {
-    metric.topDownTotal = [...series];
-    clearCalculationCache();
-    return;
-  }
-  metric.topDown = [...series];
+  metric.topDown = { [TOTAL_COORDINATE_KEY]: [...series] };
   clearCalculationCache();
 }
 
 function allocateDimensionTopDownSeries(metricId, series) {
   const definition = metricDefinitions()[metricId];
-  if (metricIsRate(definition)) return false;
+  if (!metricDimensionIds(metricId).length) return false;
 
-  const dimensionId = primaryDimensionId(metricId);
-  const members = dimensionMembers(dimensionId);
-  if (!dimensionId || !members.length) return false;
-
-  const existingSeriesByMember = Object.fromEntries(members.map(member => [
-    member.id,
-    metricTopDownMemberSeries(metricId, member.id),
+  const coordinateKeys = metricCoordinateKeys(metricId);
+  if (!coordinateKeys.length) return false;
+  const existingSeriesByCoordinate = Object.fromEntries(coordinateKeys.map(key => [
+    key,
+    metricTopDownCoordinateSeries(metricId, key),
   ]));
-  const memberSharesByYear = YEARS.map((_year, index) => {
-    const directShare = sharesForIndex(members, existingSeriesByMember, index);
+  const coordinateSharesByYear = YEARS.map((_year, index) => {
+    const directShare = sharesForKeys(coordinateKeys, existingSeriesByCoordinate, index);
     if (directShare) return directShare;
 
-    const nearestIndex = nearestIndexWithMemberMix(members, existingSeriesByMember, index);
-    if (nearestIndex !== null) return sharesForIndex(members, existingSeriesByMember, nearestIndex);
+    const nearestIndex = nearestIndexWithCoordinateMix(coordinateKeys, existingSeriesByCoordinate, index);
+    if (nearestIndex !== null) return sharesForKeys(coordinateKeys, existingSeriesByCoordinate, nearestIndex);
 
-    const evenShare = 1 / members.length;
-    return Object.fromEntries(members.map(member => [member.id, evenShare]));
+    const evenShare = coordinateKeys.length ? 1 / coordinateKeys.length : 1;
+    return Object.fromEntries(coordinateKeys.map(key => [key, evenShare]));
   });
 
-  const allocatedTopDown = Object.fromEntries(members.map(member => [
-    member.id,
-    YEARS.map((_year, index) => Number(series[index] || 0) * Number(memberSharesByYear[index]?.[member.id] || 0)),
+  const allocatedTopDown = Object.fromEntries(coordinateKeys.map(key => [
+    key,
+    metricIsRate(definition)
+      ? [...series]
+      : YEARS.map((_year, index) => Number(series[index] || 0) * Number(coordinateSharesByYear[index]?.[key] || 0)),
   ]));
 
   const metric = ensureMetricScenario(metricId);
   metric.topDown = allocatedTopDown;
-  delete metric.topDownTotal;
-  delete metric.memberManualControlPoints;
+  preserveTotalControlPoints(metric);
   clearCalculationCache();
   return true;
+}
+
+function metricTopDownCoordinateSeries(metricId, coordinate) {
+  const map = metricSeriesMap(metricId);
+  return Array.isArray(map[coordinate]) ? map[coordinate] : defaultSeries();
+}
+
+function coordinateLabel(key) {
+  if (!key) return "Total";
+  const coordinate = parseCoordinateKey(key);
+  const orderedDimensionIds = Object.keys(dimensionDefinitions());
+  return Object.entries(coordinate)
+    .sort(([leftDimensionId], [rightDimensionId]) => {
+      const leftIndex = orderedDimensionIds.indexOf(leftDimensionId);
+      const rightIndex = orderedDimensionIds.indexOf(rightDimensionId);
+      return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
+    })
+    .map(([dimensionId, memberId]) => {
+      const dimension = dimensionDefinitions()[dimensionId];
+      const member = dimensionMembers(dimensionId).find(item => item.id === memberId);
+      return `${dimension?.label || dimensionId}: ${member?.label || memberId}`;
+    })
+    .join(" | ");
+}
+
+function coordinateLabelForMetric(metricId, key) {
+  if (!key) return "Total";
+  const coordinate = parseCoordinateKey(key);
+  const orderedDimensionIds = [
+    ...metricDimensionIds(metricId),
+    ...Object.keys(coordinate).filter(dimensionId => !metricDimensionIds(metricId).includes(dimensionId)),
+  ];
+  return orderedDimensionIds
+    .filter(dimensionId => coordinate[dimensionId])
+    .map(dimensionId => {
+      const memberId = coordinate[dimensionId];
+      const member = dimensionMembers(dimensionId).find(item => item.id === memberId);
+      const levelIndex = metricDimensionIds(metricId).indexOf(dimensionId);
+      const levelPrefix = levelIndex >= 0 ? `L${levelIndex + 1} ` : "";
+      return `${levelPrefix}${dimensionDefinitions()[dimensionId]?.label || dimensionId}: ${member?.label || memberId}`;
+    })
+    .join(" | ");
+}
+
+function sharesForKeys(keys, seriesByKey, index) {
+  const values = keys.map(key => Number(seriesByKey[key]?.[index] || 0));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!Number.isFinite(total) || total === 0) return null;
+  return Object.fromEntries(keys.map((key, keyIndex) => [key, values[keyIndex] / total]));
+}
+
+function nearestIndexWithCoordinateMix(keys, seriesByKey, targetIndex) {
+  let bestIndex = null;
+  let bestDistance = Infinity;
+  YEARS.forEach((_year, index) => {
+    if (!sharesForKeys(keys, seriesByKey, index)) return;
+    const distance = Math.abs(index - targetIndex);
+    if (distance < bestDistance || (distance === bestDistance && index < targetIndex)) {
+      bestIndex = index;
+      bestDistance = distance;
+    }
+  });
+  return bestIndex;
 }
 
 function sharesForIndex(members, seriesByMember, index) {
@@ -394,20 +756,191 @@ function applyDimensionShares(metricId, members, lines) {
   metric.dimensionShareControlPoints = [...lines]
     .sort((left, right) => Number(left.boundaryIndex || 0) - Number(right.boundaryIndex || 0))
     .map(line => normalizeNapkinPoints(line.data));
+  const dimensionId = primaryDimensionId(metricId);
   metric.topDown = Object.fromEntries(members.map(member => [
-    member.id,
+    memberCoordinateKey(dimensionId, member.id),
     YEARS.map((_year, index) => Number(totals[index] || 0) * Number(sharesByYear[index]?.[member.id] || 0)),
   ]));
-  delete metric.topDownTotal;
-  delete metric.memberManualControlPoints;
+  preserveTotalControlPoints(metric);
   clearCalculationCache();
 }
 
 function ensureMetricScenario(metricId) {
   if (!scenario().metrics[metricId]) {
-    scenario().metrics[metricId] = { topDown: defaultSeries() };
+    scenario().metrics[metricId] = { topDown: { [TOTAL_COORDINATE_KEY]: defaultSeries() } };
   }
   return scenario().metrics[metricId];
+}
+
+function ensureMetricScenarioFor(sourceScenario, metricId) {
+  if (!sourceScenario.metrics) sourceScenario.metrics = {};
+  if (!sourceScenario.metrics[metricId]) {
+    sourceScenario.metrics[metricId] = { topDown: { [TOTAL_COORDINATE_KEY]: defaultSeries() } };
+  }
+  return sourceScenario.metrics[metricId];
+}
+
+function assignPrimaryDimension(metricId, dimensionId) {
+  assignMetricDimensions(metricId, dimensionId ? [dimensionId] : []);
+}
+
+function assignMetricDimensions(metricId, dimensionIds) {
+  const definition = metricDefinitions()[metricId];
+  if (!definition) return;
+  const totalSeries = metricTopDownSeries(metricId);
+  const metric = ensureMetricScenario(metricId);
+  const nextDimensionIds = [...new Set(dimensionIds)].filter(dimensionId => dimensionDefinitions()[dimensionId]);
+
+  if (!nextDimensionIds.length) {
+    definition.dimensions = [];
+    metric.topDown = { [TOTAL_COORDINATE_KEY]: [...totalSeries] };
+    metric.controlPoints = {
+      [TOTAL_COORDINATE_KEY]: YEARS.map((year, index) => [year, Number(totalSeries[index] || 0)]),
+    };
+    delete metric.dimensionShareControlPoints;
+    if (state.selectedMetricId === metricId) state.selectedDimensionContext = null;
+    clearCalculationCache();
+    return;
+  }
+
+  definition.dimensions = nextDimensionIds;
+  allocateDimensionValuesFromTotal(metricId, totalSeries);
+  if (state.selectedMetricId === metricId) state.selectedDimensionContext = null;
+}
+
+function allocateDimensionValuesFromTotal(metricId, totalSeries) {
+  const coordinateKeys = metricCoordinateKeys(metricId);
+  const metric = ensureMetricScenario(metricId);
+  const existingSeriesByCoordinate = Object.fromEntries(coordinateKeys.map(key => [
+    key,
+    metricTopDownCoordinateSeries(metricId, key),
+  ]));
+  const definition = metricDefinitions()[metricId];
+  const coordinateSharesByYear = YEARS.map((_year, index) => {
+    const directShare = sharesForKeys(coordinateKeys, existingSeriesByCoordinate, index);
+    if (directShare) return directShare;
+
+    const nearestIndex = nearestIndexWithCoordinateMix(coordinateKeys, existingSeriesByCoordinate, index);
+    if (nearestIndex !== null) return sharesForKeys(coordinateKeys, existingSeriesByCoordinate, nearestIndex);
+
+    const evenShare = coordinateKeys.length ? 1 / coordinateKeys.length : 1;
+    return Object.fromEntries(coordinateKeys.map(key => [key, evenShare]));
+  });
+
+  metric.topDown = Object.fromEntries(coordinateKeys.map(key => [
+    key,
+    metricIsRate(definition)
+      ? [...totalSeries]
+      : YEARS.map((_year, index) => Number(totalSeries[index] || 0) * Number(coordinateSharesByYear[index]?.[key] || 0)),
+  ]));
+  delete metric.controlPoints;
+  delete metric.dimensionShareControlPoints;
+  clearCalculationCache();
+}
+
+function reconcileMetricsForDimensionChange(dimensionId) {
+  Object.values(metricDefinitions()).forEach(definition => {
+    if (!metricUsesDimension(definition.id, dimensionId)) return;
+    ensureMetricCoordinateCoverage(definition.id);
+  });
+}
+
+function ensureMetricCoordinateCoverage(metricId) {
+  const keys = metricCoordinateKeys(metricId);
+  Object.values(scenarioCollection()).forEach(sourceScenario => {
+    const metric = ensureMetricScenarioFor(sourceScenario, metricId);
+    const existing = normalizeSeriesMap(metricDefinitions()[metricId] || {}, metric.topDown);
+    metric.topDown = Object.fromEntries(keys.map(key => [
+      key,
+      Array.isArray(existing[key])
+        ? existing[key]
+        : defaultSeries(),
+    ]));
+  });
+  clearCalculationCache();
+}
+
+function remapDeletedDimensionMembers(dimensionId, deletedMemberIds) {
+  if (!deletedMemberIds.length) return;
+  const deletedSet = new Set(deletedMemberIds);
+  Object.values(metricDefinitions()).forEach(definition => {
+    if (!metricUsesDimension(definition.id, dimensionId)) return;
+    Object.values(scenarioCollection()).forEach(sourceScenario => {
+      const metric = ensureMetricScenarioFor(sourceScenario, definition.id);
+      metric.topDown = remapSeriesCoordinates(normalizeSeriesMap(definition, metric.topDown), dimensionId, deletedSet);
+      if (metric.openingValue && typeof metric.openingValue === "object" && !Array.isArray(metric.openingValue)) {
+        const openingValue = { ...metric.openingValue };
+        deletedSet.forEach(memberId => {
+          if (!Object.prototype.hasOwnProperty.call(openingValue, memberId)) return;
+          openingValue[UNASSIGNED_MEMBER_ID] = Number(openingValue[UNASSIGNED_MEMBER_ID] || 0) + Number(openingValue[memberId] || 0);
+          delete openingValue[memberId];
+        });
+        metric.openingValue = openingValue;
+      }
+      delete metric.controlPoints;
+      delete metric.dimensionShareControlPoints;
+    });
+  });
+  clearCalculationCache();
+}
+
+function remapSeriesCoordinates(seriesMap, dimensionId, deletedSet) {
+  return Object.entries(seriesMap).reduce((nextMap, [key, series]) => {
+    const coordinate = parseCoordinateKey(key);
+    if (deletedSet.has(coordinate[dimensionId])) {
+      coordinate[dimensionId] = UNASSIGNED_MEMBER_ID;
+    }
+    const nextKey = coordinateKey(coordinate);
+    nextMap[nextKey] = nextMap[nextKey] ? sumSeries(nextMap[nextKey], series) : [...series];
+    return nextMap;
+  }, {});
+}
+
+function saveDimensionDefinition() {
+  const nameInput = document.getElementById("dimension-name-input");
+  const membersInput = document.getElementById("dimension-members-input");
+  const label = nameInput.value.trim();
+  const members = normalizeDimensionMembersFromText(membersInput.value);
+  if (!label) {
+    setSourceStatus("Dimension name is required.", "error");
+    return;
+  }
+  if (!members.length) {
+    setSourceStatus("Add at least one dimension member.", "error");
+    return;
+  }
+
+  const existingId = state.selectedDimensionId && dimensionDefinitions()[state.selectedDimensionId]
+    ? state.selectedDimensionId
+    : null;
+  const dimensionId = existingId || uniqueDimensionId(label);
+  const existingMembers = existingId ? dimensionMembers(existingId) : [];
+  const mergedMembers = existingId
+    ? mergeDimensionMembers(existingMembers, members.map(member => member.label))
+    : members;
+  const nextMemberIds = new Set(mergedMembers.map(member => member.id));
+  const deletedMemberIds = existingMembers
+    .map(member => member.id)
+    .filter(memberId => memberId !== UNASSIGNED_MEMBER_ID && !nextMemberIds.has(memberId));
+  const nextMembers = deletedMemberIds.length
+    ? ensureUnassignedMember(mergedMembers)
+    : mergedMembers;
+
+  dimensionDefinitions()[dimensionId] = { id: dimensionId, label, members: nextMembers };
+  state.selectedDimensionId = dimensionId;
+  remapDeletedDimensionMembers(dimensionId, deletedMemberIds);
+  reconcileMetricsForDimensionChange(dimensionId);
+  catalogSourceIsDirty = false;
+  setSourceStatus(`Saved dimension ${label}.`, "success");
+  render();
+}
+
+function newDimensionDraft() {
+  state.selectedDimensionId = null;
+  document.getElementById("dimension-name-input").value = "";
+  document.getElementById("dimension-members-input").value = "";
+  document.getElementById("dimension-name-input").focus();
+  renderDimensionCatalog();
 }
 
 function sanitizeLaggedMetricScenario(metricId) {
@@ -462,29 +995,30 @@ function metricHasOpeningValue(metricId, memberId = null) {
 }
 
 function manualControlPoints(metricId) {
-  const stored = metricScenario(metricId).manualControlPoints;
+  const stored = metricScenario(metricId).controlPoints?.[TOTAL_COORDINATE_KEY];
   if (Array.isArray(stored) && stored.length) return normalizeNapkinPoints(stored);
   return YEARS.map((year, index) => [year, Number(metricTopDownSeries(metricId)[index] || 0)]);
 }
 
 function activeTopDownControlPoints(definition) {
   const context = selectedDimensionContextForMetric(definition?.id);
-  return context
-    ? metricMemberControlPoints(definition.id, context.memberId)
-    : manualControlPoints(definition.id);
+  if (!context) return manualControlPoints(definition.id);
+  const stored = metricScenario(definition.id).controlPoints?.[context.coordinateKey];
+  if (Array.isArray(stored) && stored.length) return normalizeNapkinPoints(stored);
+  return YEARS.map((year, index) => [year, Number(metricTopDownFilteredSeries(definition.id, context.coordinate)[index] || 0)]);
 }
 
 function activeTopDownSeries(definition) {
   const context = selectedDimensionContextForMetric(definition?.id);
   return context
-    ? metricTopDownMemberSeries(definition.id, context.memberId)
+    ? metricTopDownFilteredSeries(definition.id, context.coordinate)
     : metricTopDownSeries(definition.id);
 }
 
 function activeBottomUpSeries(definition) {
   const context = selectedDimensionContextForMetric(definition?.id);
   return context
-    ? metricBottomUpMemberSeries(definition.id, context.dimensionId, context.memberId)
+    ? metricBottomUpFilteredSeries(definition.id, context.coordinate)
     : metricBottomUpSeries(definition.id);
 }
 
@@ -494,13 +1028,12 @@ function setActiveTopDownSeries(definition, points) {
   const context = selectedDimensionContextForMetric(definition.id);
 
   if (context) {
-    if (!metric.memberManualControlPoints) metric.memberManualControlPoints = {};
-    metric.memberManualControlPoints[context.memberId] = points;
-    setMetricTopDownMemberSeries(definition.id, context.memberId, series);
+    setMetricTopDownFilteredSeries(definition.id, context.coordinate, series);
     return;
   }
 
-  metric.manualControlPoints = points;
+  if (!metric.controlPoints) metric.controlPoints = {};
+  metric.controlPoints[TOTAL_COORDINATE_KEY] = points;
   setMetricTopDownSeries(definition.id, series);
 }
 
@@ -625,14 +1158,16 @@ function laggedSeriesFromSource(definition, sourceMetricId, sourceSeries, member
 }
 
 function topDownSeriesForContext(metricId, context = null) {
-  return context && metricUsesDimension(metricId, context.dimensionId)
-    ? metricTopDownMemberSeries(metricId, context.memberId)
+  const filters = relevantCoordinateFilters(metricId, context);
+  return Object.keys(filters).length
+    ? metricTopDownFilteredSeries(metricId, filters)
     : metricTopDownSeries(metricId);
 }
 
 function bottomUpSeriesForContext(metricId, context = null) {
-  return context && metricUsesDimension(metricId, context.dimensionId)
-    ? metricBottomUpMemberSeries(metricId, context.dimensionId, context.memberId)
+  const filters = relevantCoordinateFilters(metricId, context);
+  return Object.keys(filters).length
+    ? metricBottomUpFilteredSeries(metricId, filters)
     : metricBottomUpSeries(metricId);
 }
 
@@ -640,10 +1175,9 @@ function laggedComparisonLines(definition, context = null) {
   const [sourceMetricId] = metricInputIds(definition);
   if (!sourceMetricId || !metricDefinitions()[sourceMetricId]) return null;
   const sourceDefinition = metricDefinitions()[sourceMetricId];
-  const sourceContext = context && metricUsesDimension(sourceMetricId, context.dimensionId)
-    ? context
-    : null;
-  const memberId = sourceContext?.memberId || null;
+  const sourceFilters = relevantCoordinateFilters(sourceMetricId, context);
+  const sourceContext = Object.keys(sourceFilters).length ? { coordinate: sourceFilters } : null;
+  const memberId = Object.keys(sourceFilters).length === 1 ? Object.values(sourceFilters)[0] : null;
   const topDown = laggedSeriesFromSource(
     definition,
     sourceMetricId,
@@ -656,6 +1190,8 @@ function laggedComparisonLines(definition, context = null) {
     : null;
   const sourceLabel = context?.member
     ? `${sourceDefinition.label}: ${context.member.label}`
+    : context?.label
+      ? `${sourceDefinition.label}: ${context.label}`
     : sourceDefinition.label;
   return { sourceLabel, topDown, bottomUp };
 }
@@ -667,6 +1203,7 @@ function canvasNodeSeries(nodeKey) {
   const context = parsed.memberId
     ? {
       metricId: parsed.metricId,
+      coordinate: { [parsed.dimensionId]: parsed.memberId },
       dimensionId: parsed.dimensionId,
       memberId: parsed.memberId,
       member: dimensionMembers(parsed.dimensionId).find(item => item.id === parsed.memberId),
@@ -677,21 +1214,34 @@ function canvasNodeSeries(nodeKey) {
     if (laggedLines?.topDown) return laggedLines.topDown;
   }
   return context
-    ? metricTopDownMemberSeries(parsed.metricId, parsed.memberId)
+    ? metricTopDownFilteredSeries(parsed.metricId, context.coordinate)
     : metricTopDownSeries(parsed.metricId);
+}
+
+function relevantCoordinateFilters(metricId, context = null) {
+  const coordinate = context?.coordinate || (
+    context?.dimensionId && context?.memberId
+      ? { [context.dimensionId]: context.memberId }
+      : {}
+  );
+  return Object.fromEntries(
+    Object.entries(coordinate).filter(([dimensionId]) => metricUsesDimension(metricId, dimensionId))
+  );
 }
 
 function metricValueAtIndex(metricId, index, stack = new Set(), memberContext = null) {
   const definition = metricDefinitions()[metricId];
-  const memberId = metricUsesDimension(metricId, memberContext?.dimensionId) ? memberContext.memberId : null;
+  const filters = relevantCoordinateFilters(metricId, memberContext);
+  const filterKey = coordinateKey(filters);
+  const memberId = Object.keys(filters).length === 1 ? Object.values(filters)[0] : null;
   if (!definition?.bottomUp) {
-    const series = memberId ? metricTopDownMemberSeries(metricId, memberId) : metricTopDownSeries(metricId);
+    const series = filterKey ? metricTopDownFilteredSeries(metricId, filters) : metricTopDownSeries(metricId);
     return Number(series[index] || 0);
   }
 
-  const stackKey = `${metricId}:${memberId || "total"}:${index}`;
+  const stackKey = `${metricId}:${filterKey || "total"}:${index}`;
   if (stack.has(stackKey)) {
-    const series = memberId ? metricTopDownMemberSeries(metricId, memberId) : metricTopDownSeries(metricId);
+    const series = filterKey ? metricTopDownFilteredSeries(metricId, filters) : metricTopDownSeries(metricId);
     return Number(series[index] || 0);
   }
 
@@ -763,14 +1313,13 @@ function metricBottomUpSeries(metricId) {
       return generatedCohortMatrixTotalSeries(metricId);
     }
 
-    const dimensionId = primaryDimensionId(metricId);
-    const members = dimensionMembers(dimensionId);
-    if (members.length) {
-      const seriesByMember = Object.fromEntries(members.map(member => [
-        member.id,
-        YEARS.map((_year, index) => metricValueAtIndex(metricId, index, new Set(), { dimensionId, memberId: member.id })),
+    const coordinateKeys = metricCoordinateKeys(metricId);
+    if (metricDimensionIds(metricId).length && coordinateKeys.length) {
+      const seriesByCoordinate = Object.fromEntries(coordinateKeys.map(key => [
+        key,
+        YEARS.map((_year, index) => metricValueAtIndex(metricId, index, new Set(), { coordinate: parseCoordinateKey(key) })),
       ]));
-      return aggregateMemberSeries(metricId, seriesByMember);
+      return aggregateMemberSeries(metricId, seriesByCoordinate);
     }
 
     return YEARS.map((_year, index) => metricValueAtIndex(metricId, index));
@@ -781,7 +1330,15 @@ function metricBottomUpMemberSeries(metricId, dimensionId, memberId) {
   return cachedCalculation(`bottomUpMember:${metricId}:${dimensionId}:${memberId}`, () => {
     const definition = metricDefinitions()[metricId];
     if (!definition?.bottomUp || !metricUsesDimension(metricId, dimensionId)) return null;
-    return YEARS.map((_year, index) => metricValueAtIndex(metricId, index, new Set(), { dimensionId, memberId }));
+    return YEARS.map((_year, index) => metricValueAtIndex(metricId, index, new Set(), { coordinate: { [dimensionId]: memberId } }));
+  });
+}
+
+function metricBottomUpFilteredSeries(metricId, filters = {}) {
+  return cachedCalculation(`bottomUpFiltered:${metricId}:${coordinateKey(filters)}`, () => {
+    const definition = metricDefinitions()[metricId];
+    if (!definition?.bottomUp) return null;
+    return YEARS.map((_year, index) => metricValueAtIndex(metricId, index, new Set(), { coordinate: filters }));
   });
 }
 
@@ -821,6 +1378,23 @@ function metricMemberReconciliation(metricId, dimensionId, memberId) {
   const laggedLines = metricIsLagged(definition) ? laggedComparisonLines(definition, context) : null;
   const topDown = laggedLines?.topDown || metricTopDownMemberSeries(metricId, memberId);
   const bottomUp = laggedLines ? laggedLines.bottomUp : metricBottomUpMemberSeries(metricId, dimensionId, memberId);
+  if (!bottomUp) return { enabled: false, matched: true, maxDelta: 0 };
+  const maxDelta = Math.max(...YEARS.map((_year, index) => Math.abs(Number(topDown[index] || 0) - Number(bottomUp[index] || 0))));
+  return {
+    enabled: true,
+    matched: maxDelta <= Number(definition.reconciliation.tolerance || 0),
+    maxDelta,
+  };
+}
+
+function metricFilteredReconciliation(metricId, context) {
+  const definition = metricDefinitions()[metricId];
+  if (!definition?.reconciliation?.enabled || !context) {
+    return { enabled: false, matched: true, maxDelta: 0 };
+  }
+  const laggedLines = metricIsLagged(definition) ? laggedComparisonLines(definition, context) : null;
+  const topDown = laggedLines?.topDown || metricTopDownFilteredSeries(metricId, context.coordinate);
+  const bottomUp = laggedLines ? laggedLines.bottomUp : metricBottomUpFilteredSeries(metricId, context.coordinate);
   if (!bottomUp) return { enabled: false, matched: true, maxDelta: 0 };
   const maxDelta = Math.max(...YEARS.map((_year, index) => Math.abs(Number(topDown[index] || 0) - Number(bottomUp[index] || 0))));
   return {
@@ -877,7 +1451,7 @@ function canvasLevels() {
   const visited = new Set();
   let current = roots.length ? roots : Object.keys(metricDefinitions());
   while (current.length) {
-    const level = current.filter(nodeKey => {
+    const level = Array.from(new Set(current)).filter(nodeKey => {
       const parsed = parseNodeKey(nodeKey);
       return metricDefinitions()[parsed.metricId] && !visited.has(nodeKey);
     });
@@ -933,6 +1507,15 @@ function compactCurrencyTooltip(value) {
   return formatCurrencyPrecise(numericValue);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function formulaText(metricId) {
   const definition = metricDefinitions()[metricId];
   if (!definition?.bottomUp) return "No bottom-up definition";
@@ -983,15 +1566,37 @@ function uniqueMetricId(label) {
   return id;
 }
 
+function uniqueScenarioId() {
+  let index = Object.keys(scenarioCollection()).length + 1;
+  let id = `scenario-${index}`;
+  while (scenarioCollection()[id]) {
+    index += 1;
+    id = `scenario-${index}`;
+  }
+  return id;
+}
+
+function uniqueScenarioName() {
+  const usedNames = new Set(Object.values(scenarioCollection()).map(item => item.name));
+  let index = Object.keys(scenarioCollection()).length + 1;
+  let name = `Scenario ${index}`;
+  while (usedNames.has(name)) {
+    index += 1;
+    name = `Scenario ${index}`;
+  }
+  return name;
+}
+
 function sourceSnapshot() {
   return JSON.stringify({
     name: state.model.name,
     years: YEARS,
     selectedMetricId: state.selectedMetricId,
     selectedDimensionContext: state.selectedDimensionContext,
+    activeScenarioId: activeScenarioId(),
     dimensions: dimensionDefinitions(),
     metricDefinitions: metricDefinitions(),
-    scenario: scenarioSnapshot(),
+    scenarios: scenariosSnapshot(),
   }, null, 2);
 }
 
@@ -1005,25 +1610,38 @@ function laggedMetricScenarioSnapshot(metric = {}) {
 
 function normalizeScenarioMetric(definition, rawMetric = {}) {
   if (metricIsLagged(definition)) return laggedMetricScenarioSnapshot(rawMetric);
-  return {
+  const controlPoints = normalizeControlPointMap(definition, rawMetric);
+  const normalized = {
     ...rawMetric,
-    topDown: rawMetric.topDown || defaultSeries(),
+    topDown: normalizeSeriesMap(definition, rawMetric.topDown),
+    ...(Object.keys(controlPoints).length ? { controlPoints } : {}),
   };
+  delete normalized.manualControlPoints;
+  delete normalized.memberManualControlPoints;
+  delete normalized.topDownTotal;
+  return normalized;
 }
 
-function scenarioSnapshot() {
+function scenarioSnapshot(sourceScenario = scenario()) {
   const metrics = {};
-  Object.entries(scenario().metrics || {}).forEach(([id, metric]) => {
+  Object.entries(sourceScenario.metrics || {}).forEach(([id, metric]) => {
     const definition = metricDefinitions()[id];
     metrics[id] = metricIsLagged(definition)
       ? laggedMetricScenarioSnapshot(metric)
-      : metric;
+      : normalizeScenarioMetric(definition || {}, metric);
   });
 
   return {
-    ...scenario(),
+    ...sourceScenario,
     metrics,
   };
+}
+
+function scenariosSnapshot() {
+  return Object.fromEntries(Object.entries(scenarioCollection()).map(([id, item]) => [
+    id,
+    scenarioSnapshot(item),
+  ]));
 }
 
 function setSourceStatus(message, tone = "") {
@@ -1046,8 +1664,13 @@ function normalizeImportedModel(rawModel) {
   if (!rawModel.metricDefinitions || typeof rawModel.metricDefinitions !== "object") {
     throw new Error("Catalog source must include a metricDefinitions object.");
   }
-  if (!rawModel.scenario || typeof rawModel.scenario !== "object") {
-    throw new Error("Catalog source must include a scenario object.");
+  const rawScenarios = rawModel.scenarios && typeof rawModel.scenarios === "object"
+    ? rawModel.scenarios
+    : rawModel.scenario && typeof rawModel.scenario === "object"
+      ? { [rawModel.scenario.id || "scenario-1"]: rawModel.scenario }
+      : null;
+  if (!rawScenarios) {
+    throw new Error("Catalog source must include a scenarios object.");
   }
 
   const definitions = {};
@@ -1073,20 +1696,34 @@ function normalizeImportedModel(rawModel) {
     definitions[id] = normalizedDefinition;
   });
 
-  const metrics = {};
-  Object.keys(definitions).forEach(id => {
-    metrics[id] = normalizeScenarioMetric(definitions[id], rawModel.scenario.metrics?.[id] || {});
+  const scenarios = {};
+  Object.entries(rawScenarios).forEach(([rawScenarioId, rawScenario]) => {
+    const scenarioId = rawScenario?.id || rawScenarioId || "scenario-1";
+    const metrics = {};
+    Object.keys(definitions).forEach(id => {
+      metrics[id] = normalizeScenarioMetric(definitions[id], rawScenario?.metrics?.[id] || {});
+    });
+    scenarios[scenarioId] = {
+      ...rawScenario,
+      id: scenarioId,
+      name: rawScenario?.name || scenarioId,
+      metrics,
+    };
   });
+  const firstScenarioId = Object.keys(scenarios)[0] || "scenario-1";
+  if (!scenarios[firstScenarioId]) {
+    scenarios[firstScenarioId] = { id: firstScenarioId, name: "Scenario 1", metrics: {} };
+  }
+  const activeId = rawModel.activeScenarioId && scenarios[rawModel.activeScenarioId]
+    ? rawModel.activeScenarioId
+    : firstScenarioId;
 
   return {
     name: rawModel.name || "Custom Model",
     dimensions: rawModel.dimensions || {},
     metricDefinitions: definitions,
-    scenario: {
-      id: rawModel.scenario.id || "scenario-1",
-      name: rawModel.scenario.name || "Scenario 1",
-      metrics,
-    },
+    activeScenarioId: activeId,
+    scenarios,
   };
 }
 
@@ -1112,6 +1749,81 @@ function renderMetricList() {
       </button>
     `;
   }).join("");
+}
+
+function renderDimensionCatalog() {
+  const list = document.getElementById("dimension-list");
+  const nameInput = document.getElementById("dimension-name-input");
+  const membersInput = document.getElementById("dimension-members-input");
+  const dimensions = Object.values(dimensionDefinitions());
+
+  if (!dimensions.length) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <strong>No dimensions yet</strong>
+        <span>Create one to segment metric values.</span>
+      </div>
+    `;
+  } else {
+    list.innerHTML = dimensions.map(dimension => {
+      const members = dimensionMembers(dimension.id);
+      const assignedCount = Object.values(metricDefinitions()).filter(definition => metricDimensionIds(definition.id).includes(dimension.id)).length;
+      return `
+        <button class="dimension-list-item ${dimension.id === state.selectedDimensionId ? "active" : ""}" data-catalog-dimension-id="${dimension.id}" type="button">
+          <span>${dimension.label}</span>
+          <small>${members.length} members${assignedCount ? ` | ${assignedCount} metrics` : ""}</small>
+        </button>
+      `;
+    }).join("");
+  }
+
+  const selectedDimension = state.selectedDimensionId ? dimensionDefinitions()[state.selectedDimensionId] : null;
+  nameInput.value = selectedDimension?.label || "";
+  membersInput.value = selectedDimension ? dimensionMembersText(selectedDimension.id) : "";
+}
+
+function renderMetricDimensionAssignment(definition) {
+  const section = document.getElementById("metric-dimension-section");
+  const input = document.getElementById("metric-dimension-input");
+  const note = document.getElementById("metric-dimension-note");
+  if (!definition || metricIsLagged(definition) || selectedDimensionContextForMetric(definition.id)) {
+    section.classList.add("is-hidden");
+    input.innerHTML = "";
+    note.textContent = "";
+    return;
+  }
+
+  const dimensions = Object.values(dimensionDefinitions());
+  section.classList.remove("is-hidden");
+  const assignedDimensions = metricDimensionIds(definition.id);
+  const maxLevels = Math.min(dimensions.length, Math.max(1, assignedDimensions.length + 1));
+  input.innerHTML = dimensions.length
+    ? Array.from({ length: maxLevels }, (_item, index) => {
+      const selectedId = assignedDimensions[index] || "";
+      return `
+        <label class="metric-dimension-level">
+          <span>Level ${index + 1}</span>
+          <select data-metric-dimension-level="${index}">
+            <option value="">None</option>
+            ${dimensions.map(dimension => `
+              <option value="${escapeHtml(dimension.id)}" ${dimension.id === selectedId ? "selected" : ""}>
+                ${escapeHtml(dimension.label)}
+              </option>
+            `).join("")}
+          </select>
+        </label>
+      `;
+    }).join("")
+    : `<div class="empty-state">Create a dimension in the catalog before assigning one to this metric.</div>`;
+
+  if (assignedDimensions.length) {
+    const coordinateCount = metricCoordinateKeys(definition.id).length;
+    note.textContent = `Current hierarchy: ${assignedDimensions.map((dimensionId, index) => `Level ${index + 1} ${dimensionDefinitions()[dimensionId]?.label || dimensionId}`).join(" -> ")} (${coordinateCount} coordinate${coordinateCount === 1 ? "" : "s"}). Editing total reallocates values across the current coordinate mix.`;
+  } else if (dimensions.length) {
+    note.textContent = "Level 1 is the first way you want to break the metric down; Level 2 is the next drilldown inside Level 1. Applying preserves the current total and splits it evenly across new coordinates.";
+  } else {
+    note.textContent = "Create a dimension in the catalog before assigning one to this metric.";
+  }
 }
 
 function renderCanvas() {
@@ -1150,8 +1862,8 @@ function renderNode(nodeKey) {
     : metricReconciliation(parsed.metricId);
   const isSelected = nodeKey === selectedNodeKey();
   const children = nodeChildKeys(nodeKey);
-  const dimensionId = isMember ? null : primaryDimensionId(parsed.metricId);
-  const memberCount = isMember ? 0 : dimensionMembers(dimensionId).length;
+  const dimensionIds = isMember ? [] : metricDimensionIds(parsed.metricId);
+  const coordinateCount = isMember || !dimensionIds.length ? 0 : metricCoordinateKeys(parsed.metricId).length;
   const nodeCaption = isMember
     ? definition.bottomUp ? "Member top-down" : "Member series"
     : [
@@ -1162,7 +1874,7 @@ function renderNode(nodeKey) {
           : definition.bottomUp
             ? "Top-down + bottom-up"
             : "Manual series",
-      memberCount ? `${memberCount} members` : "",
+      dimensionIds.length ? `${dimensionIds.map((_dimensionId, index) => `L${index + 1}`).join("/")} | ${coordinateCount} coordinates` : "",
     ].filter(Boolean).join(" | ");
   return `
     <button class="metric-node ${isMember ? "member-node" : ""} ${isSelected ? "active" : ""} ${reconciliation.enabled && !reconciliation.matched ? "mismatch" : ""}" data-node-key="${nodeKey}" type="button">
@@ -1221,6 +1933,7 @@ function renderEmptyDetail() {
   document.getElementById("time-definition").textContent = "-";
   document.getElementById("dimension-definition").textContent = "-";
   renderDimensionMemberControls(null);
+  renderMetricDimensionAssignment(null);
   const badge = document.getElementById("reconciliation-badge");
   badge.textContent = "-";
   badge.className = "reconciliation-badge";
@@ -1266,8 +1979,9 @@ function renderDetail() {
   document.getElementById("bottom-up-definition").textContent = formulaText(metricId);
   document.getElementById("time-definition").textContent = `${definition.time.flowType}, ${definition.time.aggregateMethod}`;
   document.getElementById("dimension-definition").textContent = metricDimensionIds(metricId)
-    .map(dimensionId => dimensionDefinitions()[dimensionId]?.label || dimensionId)
-    .join(", ") || "None";
+    .map((dimensionId, index) => `L${index + 1} ${dimensionDefinitions()[dimensionId]?.label || dimensionId}`)
+    .join(" -> ") || "None";
+  renderMetricDimensionAssignment(definition);
   renderDimensionMemberControls(definition);
 
   renderReconciliationBadge(metricId);
@@ -1282,17 +1996,17 @@ function renderDetail() {
 }
 
 function renderMemberDetail(definition, context) {
-  const dimensionLabel = dimensionDefinitions()[context.dimensionId]?.label || context.dimensionId;
-  document.getElementById("detail-title").textContent = `${definition.label}: ${context.member.label}`;
-  document.getElementById("detail-subtitle").textContent = `Member of ${dimensionLabel}`;
+  document.getElementById("detail-title").textContent = `${definition.label}: ${context.label}`;
+  document.getElementById("detail-subtitle").textContent = `Filtered coordinate view`;
   document.getElementById("top-down-definition").textContent = definition.topDown
     ? `${definition.topDown.type}${definition.topDown.editable ? " (editable)" : ""}`
     : "None";
   document.getElementById("bottom-up-definition").textContent = definition.bottomUp
-    ? `${formulaText(definition.id)} in ${context.member.label} context`
+    ? `${formulaText(definition.id)} in ${context.label} context`
     : "No member-specific bottom-up definition";
   document.getElementById("time-definition").textContent = `${definition.time.flowType}, ${definition.time.aggregateMethod}`;
-  document.getElementById("dimension-definition").textContent = `${dimensionLabel}: ${context.member.label}`;
+  document.getElementById("dimension-definition").textContent = context.label;
+  renderMetricDimensionAssignment(null);
   renderDimensionMemberControls(definition);
 
   renderReconciliationBadge(definition.id);
@@ -1321,25 +2035,32 @@ function renderDimensionMemberControls(definition) {
     return;
   }
 
-  const dimensionId = primaryDimensionId(definition.id);
-  const members = dimensionMembers(dimensionId);
-  if (!dimensionId || !members.length) {
+  const dimensionIds = metricDimensionIds(definition.id);
+  if (!dimensionIds.length) {
     section.classList.add("is-hidden");
     list.innerHTML = "";
     return;
   }
 
-  const dimensionLabel = dimensionDefinitions()[dimensionId]?.label || dimensionId;
-  const selectedMember = selectedDimensionContextForMetric(definition.id);
+  const selectedContext = selectedDimensionContextForMetric(definition.id);
   section.classList.remove("is-hidden");
-  document.getElementById("dimension-member-title").textContent = `${dimensionLabel} Members`;
+  document.getElementById("dimension-member-title").textContent = "Coordinate Filters";
   list.innerHTML = [
-    `<button class="dimension-member-chip ${selectedMember ? "" : "active"}" data-member-total="${definition.id}" type="button">Total</button>`,
-    ...members.map(member => `
-      <button class="dimension-member-chip ${selectedMember?.memberId === member.id ? "active" : ""}" data-member-context="${definition.id}" data-dimension-id="${dimensionId}" data-member-id="${member.id}" type="button">
-        ${member.label}
-      </button>
-    `),
+    `<button class="dimension-member-chip ${selectedContext ? "" : "active"}" data-member-total="${definition.id}" type="button">Total</button>`,
+    ...dimensionIds.map(dimensionId => {
+      const selectedMemberId = selectedContext?.coordinate?.[dimensionId] || "";
+      return `
+        <label class="dimension-filter-field">
+          <span>${escapeHtml(metricDimensionLevelLabel(definition.id, dimensionId))}</span>
+          <select data-coordinate-filter="${escapeHtml(definition.id)}" data-dimension-id="${escapeHtml(dimensionId)}">
+            <option value="">All</option>
+            ${dimensionMembers(dimensionId).map(member => `
+              <option value="${escapeHtml(member.id)}" ${member.id === selectedMemberId ? "selected" : ""}>${escapeHtml(member.label)}</option>
+            `).join("")}
+          </select>
+        </label>
+      `;
+    }),
   ].join("");
 }
 
@@ -1352,15 +2073,16 @@ function renderDimensionBreakdown(definition) {
   }
 
   const dimensionId = primaryDimensionId(definition.id);
-  const members = dimensionMembers(dimensionId);
-  if (!dimensionId || !members.length) {
+  const dimensionIds = metricDimensionIds(definition.id);
+  const coordinateKeys = metricCoordinateKeys(definition.id);
+  if (!dimensionIds.length || !coordinateKeys.length) {
     section.classList.add("is-hidden");
     dimensionBreakdownChart.clear();
     return;
   }
 
   section.classList.remove("is-hidden");
-  document.getElementById("dimension-breakdown-title").textContent = `${dimensionDefinitions()[dimensionId]?.label || dimensionId} Top-Down Breakdown`;
+  document.getElementById("dimension-breakdown-title").textContent = `${dimensionIds.map((id, index) => `Level ${index + 1}: ${dimensionDefinitions()[id]?.label || id}`).join(" -> ")} Top-Down Breakdown`;
   if (!window.echarts) return;
 
   dimensionBreakdownChart.setOption({
@@ -1373,10 +2095,10 @@ function renderDimensionBreakdown(definition) {
     grid: { left: 12, right: 18, top: 42, bottom: 34, containLabel: true },
     xAxis: { type: "category", data: YEARS.map(String) },
     yAxis: { type: "value", axisLabel: { formatter: compactCurrency } },
-    series: members.map(member => ({
-      name: member.label,
+    series: coordinateKeys.map(key => ({
+      name: coordinateLabelForMetric(definition.id, key),
       type: "line",
-      data: metricTopDownMemberSeries(definition.id, member.id),
+      data: metricTopDownCoordinateSeries(definition.id, key),
       symbolSize: 6,
       lineStyle: { width: 2.5 },
     })),
@@ -1420,7 +2142,7 @@ function renderDimensionMixEditor(definition) {
   const container = document.getElementById("dimension-mix-chart");
   const dimensionId = definition ? primaryDimensionId(definition.id) : null;
   const members = dimensionMembers(dimensionId);
-  const shouldShow = Boolean(definition && !metricIsLagged(definition) && !metricIsRate(definition) && dimensionId && members.length >= 2);
+  const shouldShow = Boolean(definition && metricDimensionIds(definition.id).length === 1 && !metricIsLagged(definition) && !metricIsRate(definition) && dimensionId && members.length >= 2);
   section.classList.toggle("is-hidden", !shouldShow);
 
   if (!shouldShow) {
@@ -1507,7 +2229,7 @@ function commitDimensionMixEdit(definition) {
 function renderReconciliationBadge(metricId) {
   const context = selectedDimensionContextForMetric(metricId);
   const reconciliation = context
-    ? metricMemberReconciliation(metricId, context.dimensionId, context.memberId)
+    ? metricFilteredReconciliation(metricId, context)
     : metricReconciliation(metricId);
   const badge = document.getElementById("reconciliation-badge");
   badge.textContent = reconciliation.enabled
@@ -1702,12 +2424,20 @@ function renderLaggedOpeningEditor(definition) {
   }
 
   form.classList.remove("disabled");
-  if (context) {
+  if (context?.entries?.length === 1) {
     inputList.innerHTML = `
       <label>
         ${context.member.label}
         <input type="number" step="1" data-lagged-opening-member-id="${context.memberId}" value="${metricOpeningValue(definition.id, context.memberId)}">
       </label>
+    `;
+    return;
+  } else if (context) {
+    inputList.innerHTML = `
+      <div class="empty-state">
+        <strong>Filtered opening value</strong>
+        <span>Opening values are currently editable by individual dimension member. Clear this filter or select a single-member slice.</span>
+      </div>
     `;
     return;
   }
@@ -1738,7 +2468,10 @@ function syncTopDownNapkinChart() {
   const definition = metricDefinitions()[parsed.metricId];
   if (!definition) return;
   const points = activeTopDownControlPoints(definition);
-  const label = parsed.memberId
+  const context = selectedDimensionContextForMetric(definition.id);
+  const label = context
+    ? `${definition.label}: ${context.label}`
+    : parsed.memberId
     ? `${definition.label}: ${dimensionMembers(parsed.dimensionId).find(member => member.id === parsed.memberId)?.label || parsed.memberId}`
     : definition.label;
   topDownNapkinIsSyncing = true;
@@ -1755,17 +2488,152 @@ function syncTopDownNapkinChart() {
   topDownNapkinIsSyncing = false;
 }
 
+function setTopDownEditorView(view) {
+  state.topDownEditorView = view === "sheet" ? "sheet" : "chart";
+}
+
+function renderTopDownViewToggle() {
+  document.querySelectorAll("[data-top-down-view]").forEach(button => {
+    button.classList.toggle("active", button.dataset.topDownView === state.topDownEditorView);
+  });
+}
+
+function sheetRowKey(metricId, filters) {
+  return `${metricId}:${coordinateKey(filters) || "total"}`;
+}
+
+function isSheetRowExpanded(metricId, filters) {
+  return state.topDownSheetExpandedKeys.has(sheetRowKey(metricId, filters));
+}
+
+function toggleSheetRow(metricId, filters) {
+  const key = sheetRowKey(metricId, filters);
+  if (state.topDownSheetExpandedKeys.has(key)) {
+    state.topDownSheetExpandedKeys.delete(key);
+  } else {
+    state.topDownSheetExpandedKeys.add(key);
+  }
+}
+
+function seriesForSheetFilters(metricId, filters = {}) {
+  return Object.keys(filters).length
+    ? metricTopDownFilteredSeries(metricId, filters)
+    : metricTopDownSeries(metricId);
+}
+
+function buildSheetRollupRows(definition, filters = {}, rows = []) {
+  const metricId = definition.id;
+  const dimensionIds = metricDimensionIds(metricId);
+  const depth = Object.keys(filters).length;
+  const nextDimensionId = dimensionIds.find(dimensionId => !filters[dimensionId]);
+  const hasChildren = Boolean(nextDimensionId);
+  const rowKey = sheetRowKey(metricId, filters);
+
+  rows.push({
+    key: rowKey,
+    filters: { ...filters },
+    depth,
+    hasChildren,
+    isExpanded: hasChildren && isSheetRowExpanded(metricId, filters),
+    series: seriesForSheetFilters(metricId, filters),
+  });
+
+  if (!hasChildren || !isSheetRowExpanded(metricId, filters)) return rows;
+
+  dimensionMembers(nextDimensionId).forEach(member => {
+    buildSheetRollupRows(definition, { ...filters, [nextDimensionId]: member.id }, rows);
+  });
+  return rows;
+}
+
+function sheetCellLabel(metricId, filters, dimensionId, depth) {
+  const memberId = filters[dimensionId];
+  if (memberId) {
+    return dimensionMembers(dimensionId).find(member => member.id === memberId)?.label || memberId;
+  }
+  const dimensionIndex = metricDimensionIds(metricId).indexOf(dimensionId);
+  if (depth === 0 && dimensionIndex === 0) return "Total";
+  return "";
+}
+
+function renderTopDownSpreadsheetEditor(definition) {
+  const container = document.getElementById("top-down-spreadsheet");
+  const context = selectedDimensionContextForMetric(definition.id);
+  const baseFilters = context?.coordinate || {};
+  const rows = metricDimensionIds(definition.id).length
+    ? buildSheetRollupRows(definition, baseFilters)
+    : [{
+      key: sheetRowKey(definition.id, {}),
+      filters: {},
+      depth: 0,
+      hasChildren: false,
+      isExpanded: false,
+      series: metricTopDownSeries(definition.id),
+    }];
+  const dimensionIds = metricDimensionIds(definition.id);
+  container.classList.remove("is-hidden");
+  container.innerHTML = `
+    <div class="top-down-spreadsheet-scroll">
+      <table class="top-down-table">
+        <thead>
+          <tr>
+            ${dimensionIds.length
+              ? dimensionIds.map((dimensionId, index) => `<th>Level ${index + 1}<br><span>${escapeHtml(dimensionDefinitions()[dimensionId]?.label || dimensionId)}</span></th>`).join("")
+              : "<th>Series</th>"}
+            ${YEARS.map(year => `<th>${year}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr class="${row.hasChildren ? "rollup-row" : "leaf-row"}" style="--depth: ${row.depth}">
+              ${dimensionIds.length
+                ? dimensionIds.map((dimensionId, index) => `
+                  <th class="${index === Math.max(0, row.depth - 1) || (row.depth === 0 && index === 0) ? "active-level-cell" : ""}">
+                    ${index === Math.max(0, row.depth - 1) || (row.depth === 0 && index === 0)
+                      ? row.hasChildren
+                        ? `<button class="sheet-expand-button" data-sheet-rollup="${definition.id}" data-rollup-key="${escapeHtml(coordinateKey(row.filters))}" type="button" aria-label="${row.isExpanded ? "Collapse" : "Expand"} rollup">${row.isExpanded ? "-" : "+"}</button>`
+                        : `<span class="sheet-leaf-spacer"></span>`
+                      : ""}
+                    <span>${escapeHtml(sheetCellLabel(definition.id, row.filters, dimensionId, row.depth))}</span>
+                  </th>
+                `).join("")
+                : `<th><span>Top-Down</span></th>`}
+              ${YEARS.map((_year, index) => `<td>${compactCurrencyTooltip(row.series[index])}</td>`).join("")}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderTopDownNapkinEditor(definition) {
   const section = document.getElementById("top-down-napkin-section");
   const container = document.getElementById("top-down-napkin-chart");
+  const spreadsheet = document.getElementById("top-down-spreadsheet");
   const shouldShow = Boolean(definition && !metricIsLagged(definition));
   section.classList.toggle("is-hidden", !shouldShow);
+  renderTopDownViewToggle();
 
   if (!shouldShow) {
     disposeTopDownNapkinChart();
     container.innerHTML = "";
+    spreadsheet.innerHTML = "";
+    spreadsheet.classList.add("is-hidden");
     return;
   }
+
+  if (state.topDownEditorView === "sheet") {
+    disposeTopDownNapkinChart();
+    container.classList.add("is-hidden");
+    container.innerHTML = "";
+    renderTopDownSpreadsheetEditor(definition);
+    return;
+  }
+
+  spreadsheet.innerHTML = "";
+  spreadsheet.classList.add("is-hidden");
+  container.classList.remove("is-hidden");
 
   if (typeof NapkinChart !== "function" || !window.echarts) {
     disposeTopDownNapkinChart();
@@ -1784,7 +2652,7 @@ function renderTopDownNapkinEditor(definition) {
   const points = activeTopDownControlPoints(definition);
   const yMax = Math.max(10, ...points.map(point => Number(point[1] || 0))) * 1.25;
   const context = selectedDimensionContextForMetric(definition.id);
-  const lineName = context ? `${definition.label}: ${context.member.label}` : definition.label;
+  const lineName = context ? `${definition.label}: ${context.label}` : definition.label;
   topDownNapkinMetricId = currentSelectionKey;
   topDownNapkinChart = new NapkinChart(
     "top-down-napkin-chart",
@@ -1954,18 +2822,17 @@ function setTopToBottom(metricId) {
   if (!metricId) return;
   const context = selectedDimensionContextForMetric(metricId);
   const bottomUp = context
-    ? metricBottomUpMemberSeries(metricId, context.dimensionId, context.memberId)
+    ? metricBottomUpFilteredSeries(metricId, context.coordinate)
     : metricBottomUpSeries(metricId);
   if (!bottomUp) return;
   const metric = ensureMetricScenario(metricId);
   const points = YEARS.map((year, index) => [year, Number(bottomUp[index] || 0)]);
   if (context) {
-    if (!metric.memberManualControlPoints) metric.memberManualControlPoints = {};
-    metric.memberManualControlPoints[context.memberId] = points;
-    setMetricTopDownMemberSeries(metricId, context.memberId, bottomUp);
+    setMetricTopDownFilteredSeries(metricId, context.coordinate, bottomUp);
   } else {
     setMetricTopDownSeries(metricId, bottomUp);
-    metric.manualControlPoints = points;
+    if (!metric.controlPoints) metric.controlPoints = {};
+    metric.controlPoints[TOTAL_COORDINATE_KEY] = points;
   }
   render();
 }
@@ -1974,6 +2841,8 @@ function newBlankModel() {
   state.model = createBlankModel();
   state.selectedMetricId = null;
   state.selectedDimensionContext = null;
+  state.selectedDimensionId = null;
+  state.topDownSheetExpandedKeys.clear();
   catalogSourceIsDirty = false;
   render();
 }
@@ -1982,6 +2851,8 @@ function loadStarterModel() {
   state.model = createStarterModel();
   state.selectedMetricId = "profit";
   state.selectedDimensionContext = null;
+  state.selectedDimensionId = Object.keys(dimensionDefinitions())[0] || null;
+  state.topDownSheetExpandedKeys.clear();
   catalogSourceIsDirty = false;
   render();
 }
@@ -1998,7 +2869,9 @@ function addMetric() {
     unit: unitInput.value,
     color: "#4f7fb8",
   });
-  scenario().metrics[id] = { topDown: defaultSeries() };
+  Object.values(scenarioCollection()).forEach(sourceScenario => {
+    ensureMetricScenarioFor(sourceScenario, id);
+  });
   state.selectedMetricId = id;
   state.selectedDimensionContext = null;
   labelInput.value = "";
@@ -2072,7 +2945,9 @@ function applyBottomUpFormula() {
   if (type === "laggedMetric") {
     sanitizeLaggedMetricScenario(definition.id);
   } else {
-    ensureMetricScenario(definition.id).manualControlPoints = manualControlPoints(definition.id);
+    const metric = ensureMetricScenario(definition.id);
+    if (!metric.controlPoints) metric.controlPoints = {};
+    metric.controlPoints[TOTAL_COORDINATE_KEY] = manualControlPoints(definition.id);
   }
   setSourceStatus(`${definition.label} formula updated: ${formulaText(definition.id)}.`, "success");
   catalogSourceIsDirty = false;
@@ -2183,6 +3058,8 @@ function applyCatalogSource() {
         ? state.selectedMetricId
         : Object.keys(metricDefinitions())[0] || null;
     state.selectedDimensionContext = parsed.selectedDimensionContext || null;
+    state.selectedDimensionId = Object.keys(dimensionDefinitions())[0] || null;
+    state.topDownSheetExpandedKeys.clear();
     catalogSourceIsDirty = false;
     setSourceStatus("Applied catalog JSON.", "success");
     render();
@@ -2202,9 +3079,62 @@ async function copyCatalogSource() {
   }
 }
 
+function renderScenarioControls() {
+  const select = document.getElementById("scenario-select");
+  if (!select) return;
+  const activeId = activeScenarioId();
+  select.innerHTML = Object.values(scenarioCollection()).map(item => `
+    <option value="${escapeHtml(item.id)}" ${item.id === activeId ? "selected" : ""}>
+      ${escapeHtml(item.name || item.id)}
+    </option>
+  `).join("");
+}
+
+function switchScenario(scenarioId) {
+  if (!scenarioCollection()[scenarioId]) return;
+  state.model.activeScenarioId = scenarioId;
+  state.selectedDimensionContext = null;
+  state.topDownSheetExpandedKeys.clear();
+  catalogSourceIsDirty = false;
+  setSourceStatus(`Switched to ${scenario().name || scenario().id}.`, "success");
+  render();
+}
+
+function saveScenario() {
+  const active = scenario();
+  scenarioCollection()[active.id] = {
+    ...scenarioSnapshot(active),
+    updatedAt: new Date().toISOString(),
+  };
+  catalogSourceIsDirty = false;
+  setSourceStatus(`Saved ${scenario().name || scenario().id}.`, "success");
+  render();
+}
+
+function saveScenarioAsNew() {
+  const source = scenarioSnapshot();
+  const id = uniqueScenarioId();
+  const timestamp = new Date().toISOString();
+  scenarioCollection()[id] = {
+    ...clone(source),
+    id,
+    name: uniqueScenarioName(),
+    sourceScenarioId: source.id,
+    sourceScenarioName: source.name || source.id,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  state.model.activeScenarioId = id;
+  catalogSourceIsDirty = false;
+  setSourceStatus(`Saved as ${scenario().name}.`, "success");
+  render();
+}
+
 function render() {
   clearCalculationCache();
+  renderScenarioControls();
   renderMetricList();
+  renderDimensionCatalog();
   renderCanvas();
   renderDetail();
   renderCatalogSource();
@@ -2214,6 +3144,13 @@ function render() {
 }
 
 document.body.addEventListener("click", event => {
+  const dimensionButton = event.target.closest("[data-catalog-dimension-id]");
+  if (dimensionButton) {
+    state.selectedDimensionId = dimensionButton.dataset.catalogDimensionId;
+    renderDimensionCatalog();
+    return;
+  }
+
   const memberTotalButton = event.target.closest("[data-member-total]");
   if (memberTotalButton) {
     state.selectedMetricId = memberTotalButton.dataset.memberTotal;
@@ -2227,8 +3164,7 @@ document.body.addEventListener("click", event => {
     state.selectedMetricId = memberContextButton.dataset.memberContext;
     state.selectedDimensionContext = {
       metricId: memberContextButton.dataset.memberContext,
-      dimensionId: memberContextButton.dataset.dimensionId,
-      memberId: memberContextButton.dataset.memberId,
+      coordinate: { [memberContextButton.dataset.dimensionId]: memberContextButton.dataset.memberId },
     };
     render();
     return;
@@ -2259,8 +3195,45 @@ document.body.addEventListener("click", event => {
     loadStarterModel();
     return;
   }
+  if (event.target.closest("#save-scenario")) {
+    saveScenario();
+    return;
+  }
+  if (event.target.closest("#save-scenario-as-new")) {
+    saveScenarioAsNew();
+    return;
+  }
   if (event.target.closest("#add-metric")) {
     document.getElementById("metric-name-input").focus();
+    return;
+  }
+  if (event.target.closest("#new-dimension")) {
+    newDimensionDraft();
+    return;
+  }
+  const sheetRollupButton = event.target.closest("[data-sheet-rollup]");
+  if (sheetRollupButton) {
+    toggleSheetRow(sheetRollupButton.dataset.sheetRollup, parseCoordinateKey(sheetRollupButton.dataset.rollupKey || ""));
+    render();
+    return;
+  }
+  const topDownViewButton = event.target.closest("[data-top-down-view]");
+  if (topDownViewButton) {
+    setTopDownEditorView(topDownViewButton.dataset.topDownView);
+    render();
+    return;
+  }
+  if (event.target.closest("#assign-metric-dimension")) {
+    const definition = selectedDefinition();
+    if (!definition) return;
+    const dimensionIds = [...document.querySelectorAll("[data-metric-dimension-level]")]
+      .sort((left, right) => Number(left.dataset.metricDimensionLevel || 0) - Number(right.dataset.metricDimensionLevel || 0))
+      .map(input => input.value)
+      .filter(Boolean);
+    assignMetricDimensions(definition.id, dimensionIds);
+    catalogSourceIsDirty = false;
+    setSourceStatus(`${definition.label} dimension assignment updated.`, "success");
+    render();
     return;
   }
   if (event.target.closest("#apply-catalog-source")) {
@@ -2275,6 +3248,11 @@ document.body.addEventListener("click", event => {
 document.getElementById("metric-create-form").addEventListener("submit", event => {
   event.preventDefault();
   addMetric();
+});
+
+document.getElementById("dimension-form").addEventListener("submit", event => {
+  event.preventDefault();
+  saveDimensionDefinition();
 });
 
 document.getElementById("bottom-up-form").addEventListener("submit", event => {
@@ -2300,6 +3278,29 @@ document.getElementById("lagged-opening-form").addEventListener("submit", event 
 document.getElementById("catalog-source").addEventListener("input", () => {
   catalogSourceIsDirty = true;
   setSourceStatus("Catalog JSON has unapplied edits.");
+});
+
+document.body.addEventListener("change", event => {
+  const scenarioSelect = event.target.closest("#scenario-select");
+  if (scenarioSelect) {
+    switchScenario(scenarioSelect.value);
+    return;
+  }
+
+  const coordinateFilter = event.target.closest("[data-coordinate-filter]");
+  if (coordinateFilter) {
+    const metricId = coordinateFilter.dataset.coordinateFilter;
+    const coordinate = {};
+    document.querySelectorAll("[data-coordinate-filter]").forEach(select => {
+      if (select.dataset.coordinateFilter !== metricId) return;
+      if (select.value) coordinate[select.dataset.dimensionId] = select.value;
+    });
+    state.selectedMetricId = metricId;
+    state.selectedDimensionContext = Object.keys(coordinate).length
+      ? { metricId, coordinate }
+      : null;
+    render();
+  }
 });
 
 document.getElementById("formula-type-input").addEventListener("change", () => {

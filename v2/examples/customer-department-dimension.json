@@ -1,0 +1,939 @@
+{
+  "name": "Customer + Department Dimension Example",
+  "years": [
+    2026,
+    2027,
+    2028,
+    2029
+  ],
+  "selectedMetricId": "customer-acquisition-spend",
+  "selectedDimensionContext": null,
+  "dimensions": {
+    "customer_type": {
+      "id": "customer_type",
+      "label": "Customer Type",
+      "members": [
+        {
+          "id": "enterprise",
+          "label": "Enterprise"
+        },
+        {
+          "id": "mid_market",
+          "label": "Mid-Market"
+        },
+        {
+          "id": "smb",
+          "label": "SMB"
+        }
+      ]
+    },
+    "department": {
+      "id": "department",
+      "label": "Department",
+      "members": [
+        {
+          "id": "sales",
+          "label": "Sales"
+        },
+        {
+          "id": "marketing",
+          "label": "Marketing"
+        },
+        {
+          "id": "product",
+          "label": "Product"
+        },
+        {
+          "id": "engineering",
+          "label": "Engineering"
+        },
+        {
+          "id": "admin",
+          "label": "Admin"
+        },
+        {
+          "id": "client-success",
+          "label": "Client Success"
+        }
+      ]
+    }
+  },
+  "metricDefinitions": {
+    "paying-customers": {
+      "id": "paying-customers",
+      "label": "paying customers",
+      "unit": "count",
+      "dimensions": [
+        "customer_type"
+      ],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": {
+        "type": "sum",
+        "inputs": [
+          "new-paying-customers",
+          "returning-paying-customers"
+        ]
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#2f6f73"
+      }
+    },
+    "new-paying-customers": {
+      "id": "new-paying-customers",
+      "label": "new paying customers",
+      "unit": "count",
+      "dimensions": [
+        "customer_type"
+      ],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": null,
+      "reconciliation": {
+        "enabled": false,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    },
+    "returning-paying-customers": {
+      "id": "returning-paying-customers",
+      "label": "returning paying customers",
+      "unit": "count",
+      "dimensions": [
+        "customer_type"
+      ],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": {
+        "type": "product",
+        "inputs": [
+          "prior-paying-customers",
+          "retention-rate"
+        ]
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#7b6fb8"
+      }
+    },
+    "prior-paying-customers": {
+      "id": "prior-paying-customers",
+      "label": "prior paying customers",
+      "unit": "count",
+      "dimensions": [
+        "customer_type"
+      ],
+      "topDown": {
+        "type": "derivedLaggedSeries",
+        "editable": false
+      },
+      "bottomUp": {
+        "type": "laggedMetric",
+        "inputs": [
+          "paying-customers"
+        ],
+        "lag": 1
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": false,
+        "dailyTargetAllowed": false
+      },
+      "presentation": {
+        "color": "#98a2b3"
+      }
+    },
+    "retention-rate": {
+      "id": "retention-rate",
+      "label": "retention rate",
+      "unit": "percent",
+      "dimensions": [
+        "customer_type"
+      ],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": null,
+      "reconciliation": {
+        "enabled": false,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "rate",
+        "aggregateMethod": "weightedAverage",
+        "cumulativeAllowed": false,
+        "growthAllowed": true,
+        "seasonalityAllowed": false,
+        "dailyTargetAllowed": false
+      },
+      "presentation": {
+        "color": "#d97b59"
+      }
+    },
+    "revenue": {
+      "id": "revenue",
+      "label": "revenue",
+      "unit": "currency",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": {
+        "type": "product",
+        "inputs": [
+          "paying-customers",
+          "rev-per-paying-customer"
+        ]
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    },
+    "rev-per-paying-customer": {
+      "id": "rev-per-paying-customer",
+      "label": "rev per paying customer",
+      "unit": "currency",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": null,
+      "reconciliation": {
+        "enabled": false,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    },
+    "cost": {
+      "id": "cost",
+      "label": "cost",
+      "unit": "currency",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": {
+        "type": "sum",
+        "inputs": [
+          "customer-acquisition-spend",
+          "other-spend"
+        ]
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    },
+    "customer-acquisition-spend": {
+      "id": "customer-acquisition-spend",
+      "label": "customer acquisition spend",
+      "unit": "currency",
+      "dimensions": [
+        "department",
+        "customer_type"
+      ],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": {
+        "type": "product",
+        "inputs": [
+          "new-paying-customers",
+          "customer-acquisition-cost"
+        ]
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    },
+    "customer-acquisition-cost": {
+      "id": "customer-acquisition-cost",
+      "label": "customer acquisition cost",
+      "unit": "currency",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": null,
+      "reconciliation": {
+        "enabled": false,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    },
+    "other-spend": {
+      "id": "other-spend",
+      "label": "other spend",
+      "unit": "currency",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": null,
+      "reconciliation": {
+        "enabled": false,
+        "tolerance": 1
+      },
+      "time": {
+        "nativeGrain": "year",
+        "supportedGrains": [
+          "year"
+        ],
+        "flowType": "flow",
+        "aggregateMethod": "sum",
+        "cumulativeAllowed": true,
+        "growthAllowed": true,
+        "seasonalityAllowed": true,
+        "dailyTargetAllowed": true
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    }
+  },
+  "scenario": {
+    "id": "scenario-1",
+    "name": "Scenario 1",
+    "metrics": {
+      "paying-customers": {
+        "topDown": {
+          "customer_type=enterprise": [
+            530,
+            582.3,
+            655.716,
+            749.81588
+          ],
+          "customer_type=mid_market": [
+            918,
+            981.94,
+            1084.8296,
+            1222.10516
+          ],
+          "customer_type=smb": [
+            1520,
+            1554.4,
+            1670.256,
+            1849.39456
+          ]
+        }
+      },
+      "new-paying-customers": {
+        "topDown": {
+          "customer_type=enterprise": [
+            80,
+            100,
+            120,
+            140
+          ],
+          "customer_type=mid_market": [
+            180,
+            220,
+            260,
+            300
+          ],
+          "customer_type=smb": [
+            400,
+            460,
+            520,
+            580
+          ]
+        },
+        "controlPoints": {
+          "": [
+            [
+              2026,
+              660
+            ],
+            [
+              2027,
+              780
+            ],
+            [
+              2028,
+              900
+            ],
+            [
+              2029,
+              1020
+            ]
+          ]
+        },
+        "dimensionShareControlPoints": [
+          [
+            [
+              2026,
+              12.121212121212121
+            ],
+            [
+              2027,
+              12.82051282051282
+            ],
+            [
+              2028,
+              13.333333333333334
+            ],
+            [
+              2029,
+              13.72549019607843
+            ]
+          ],
+          [
+            [
+              2026,
+              39.39393939393939
+            ],
+            [
+              2027,
+              41.02564102564102
+            ],
+            [
+              2028,
+              42.22222222222222
+            ],
+            [
+              2029,
+              43.13725490196079
+            ]
+          ]
+        ]
+      },
+      "returning-paying-customers": {
+        "topDown": {
+          "customer_type=enterprise": [
+            450,
+            482.3,
+            535.716,
+            609.81588
+          ],
+          "customer_type=mid_market": [
+            738,
+            761.94,
+            824.8296,
+            922.10516
+          ],
+          "customer_type=smb": [
+            1120,
+            1094.4,
+            1150.256,
+            1269.39456
+          ]
+        }
+      },
+      "prior-paying-customers": {
+        "openingValue": {
+          "enterprise": 500,
+          "mid_market": 900,
+          "smb": 1600
+        }
+      },
+      "retention-rate": {
+        "topDown": {
+          "customer_type=enterprise": [
+            0.9,
+            0.91,
+            0.92,
+            0.93
+          ],
+          "customer_type=mid_market": [
+            0.82,
+            0.83,
+            0.84,
+            0.85
+          ],
+          "customer_type=smb": [
+            0.7,
+            0.72,
+            0.74,
+            0.76
+          ]
+        },
+        "controlPoints": {
+          "customer_type=enterprise": [
+            [
+              2026,
+              0.9
+            ],
+            [
+              2027,
+              0.91
+            ],
+            [
+              2028,
+              0.92
+            ],
+            [
+              2029,
+              0.93
+            ]
+          ],
+          "customer_type=mid_market": [
+            [
+              2026,
+              0.82
+            ],
+            [
+              2027,
+              0.83
+            ],
+            [
+              2028,
+              0.84
+            ],
+            [
+              2029,
+              0.85
+            ]
+          ],
+          "customer_type=smb": [
+            [
+              2026,
+              0.7
+            ],
+            [
+              2027,
+              0.72
+            ],
+            [
+              2028,
+              0.74
+            ],
+            [
+              2029,
+              0.76
+            ]
+          ]
+        }
+      },
+      "revenue": {
+        "topDown": {
+          "": [
+            890400,
+            1135164,
+            1452461.906,
+            1881526.28
+          ]
+        },
+        "controlPoints": {
+          "": [
+            [
+              2026,
+              890400
+            ],
+            [
+              2027,
+              1135164
+            ],
+            [
+              2028,
+              1452461.906
+            ],
+            [
+              2029,
+              1881526.28
+            ]
+          ]
+        }
+      },
+      "rev-per-paying-customer": {
+        "topDown": {
+          "": [
+            300,
+            320,
+            340,
+            360
+          ]
+        },
+        "controlPoints": {
+          "": [
+            [
+              2026,
+              300
+            ],
+            [
+              2027,
+              320
+            ],
+            [
+              2028,
+              340
+            ],
+            [
+              2029,
+              360
+            ]
+          ]
+        }
+      },
+      "cost": {
+        "topDown": {
+          "": [
+            475000,
+            559000,
+            639000,
+            735000
+          ]
+        },
+        "controlPoints": {
+          "": [
+            [
+              2026,
+              475000
+            ],
+            [
+              2027,
+              559000
+            ],
+            [
+              2028,
+              639000
+            ],
+            [
+              2029,
+              735000
+            ]
+          ]
+        }
+      },
+      "customer-acquisition-spend": {
+        "topDown": {
+          "customer_type=enterprise|department=sales": [
+            29090.909091,
+            36538.461538,
+            42666.666667,
+            50098.039216
+          ],
+          "customer_type=mid_market|department=sales": [
+            65454.545455,
+            80384.615385,
+            92444.444444,
+            107352.941176
+          ],
+          "customer_type=smb|department=sales": [
+            145454.545455,
+            168076.923077,
+            184888.888889,
+            207549.019608
+          ],
+          "customer_type=enterprise|department=marketing": [
+            14545.454545,
+            19230.769231,
+            23333.333333,
+            28823.529412
+          ],
+          "customer_type=mid_market|department=marketing": [
+            32727.272727,
+            42307.692308,
+            50555.555556,
+            61764.705882
+          ],
+          "customer_type=smb|department=marketing": [
+            72727.272727,
+            88461.538462,
+            101111.111111,
+            119411.764706
+          ],
+          "customer_type=enterprise|department=product": [
+            3030.30303,
+            3717.948718,
+            4266.666667,
+            4803.921569
+          ],
+          "customer_type=mid_market|department=product": [
+            6818.181818,
+            8179.487179,
+            9244.444444,
+            10294.117647
+          ],
+          "customer_type=smb|department=product": [
+            15151.515152,
+            17102.564103,
+            18488.888889,
+            19901.960784
+          ],
+          "customer_type=enterprise|department=engineering": [
+            1818.181818,
+            2307.692308,
+            2933.333333,
+            3431.372549
+          ],
+          "customer_type=mid_market|department=engineering": [
+            4090.909091,
+            5076.923077,
+            6355.555556,
+            7352.941176
+          ],
+          "customer_type=smb|department=engineering": [
+            9090.909091,
+            10615.384615,
+            12711.111111,
+            14215.686275
+          ],
+          "customer_type=enterprise|department=admin": [
+            1212.121212,
+            1538.461538,
+            1866.666667,
+            2058.823529
+          ],
+          "customer_type=mid_market|department=admin": [
+            2727.272727,
+            3384.615385,
+            4044.444444,
+            4411.764706
+          ],
+          "customer_type=smb|department=admin": [
+            6060.606061,
+            7076.923077,
+            8088.888889,
+            8529.411765
+          ],
+          "customer_type=enterprise|department=client-success": [
+            4848.484848,
+            5769.230769,
+            6800,
+            8235.294118
+          ],
+          "customer_type=mid_market|department=client-success": [
+            10909.090909,
+            12692.307692,
+            14733.333333,
+            17647.058824
+          ],
+          "customer_type=smb|department=client-success": [
+            24242.424242,
+            26538.461538,
+            29466.666667,
+            34117.647059
+          ]
+        },
+        "controlPoints": {
+          "": [
+            [
+              2026,
+              450000
+            ],
+            [
+              2027,
+              539000
+            ],
+            [
+              2028,
+              614000
+            ],
+            [
+              2029,
+              710000
+            ]
+          ]
+        }
+      },
+      "customer-acquisition-cost": {
+        "topDown": {
+          "": [
+            681.8181818181819,
+            691.025641025641,
+            682.2222222222222,
+            696.0784313725491
+          ]
+        },
+        "controlPoints": {
+          "": [
+            [
+              2026,
+              681.8181818181819
+            ],
+            [
+              2027,
+              691.025641025641
+            ],
+            [
+              2028,
+              682.2222222222222
+            ],
+            [
+              2029,
+              696.0784313725491
+            ]
+          ]
+        }
+      },
+      "other-spend": {
+        "topDown": {
+          "": [
+            25000,
+            20000,
+            25000,
+            25000
+          ]
+        },
+        "controlPoints": {
+          "": [
+            [
+              2026,
+              25000
+            ],
+            [
+              2027,
+              20000
+            ],
+            [
+              2028,
+              25000
+            ],
+            [
+              2029,
+              25000
+            ]
+          ]
+        }
+      }
+    }
+  }
+}
