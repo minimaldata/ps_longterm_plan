@@ -1,0 +1,191 @@
+{
+  "name": "Cohorted Retention Example",
+  "years": [
+    2026,
+    2027,
+    2028,
+    2029
+  ],
+  "selectedMetricId": "returning-paying-customers",
+  "selectedDimensionContext": null,
+  "dimensions": {},
+  "metricDefinitions": {
+    "paying-customers": {
+      "id": "paying-customers",
+      "label": "Paying Customers",
+      "unit": "count",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": {
+        "type": "sum",
+        "inputs": [
+          "new-paying-customers",
+          "returning-paying-customers"
+        ]
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "presentation": {
+        "color": "#2f6f73"
+      }
+    },
+    "new-paying-customers": {
+      "id": "new-paying-customers",
+      "label": "New Paying Customers",
+      "unit": "count",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": null,
+      "reconciliation": {
+        "enabled": false,
+        "tolerance": 1
+      },
+      "presentation": {
+        "color": "#4f7fb8"
+      }
+    },
+    "returning-paying-customers": {
+      "id": "returning-paying-customers",
+      "label": "Returning Paying Customers",
+      "unit": "count",
+      "dimensions": [],
+      "topDown": {
+        "type": "manualSeries",
+        "editable": true
+      },
+      "bottomUp": {
+        "type": "cohortMatrix",
+        "inputs": [
+          "new-paying-customers"
+        ],
+        "curveType": "survivalRate",
+        "startTiming": "nextPeriod",
+        "rollup": "calendarYear"
+      },
+      "reconciliation": {
+        "enabled": true,
+        "tolerance": 1
+      },
+      "presentation": {
+        "color": "#7b6fb8"
+      }
+    }
+  },
+  "activeScenarioId": "scenario-1",
+  "scenarios": {
+    "scenario-1": {
+      "id": "scenario-1",
+      "name": "Scenario 1",
+      "metrics": {
+        "new-paying-customers": {
+          "topDown": {
+            "": [
+              1000,
+              1200,
+              1500,
+              1800
+            ]
+          },
+          "controlPoints": {
+            "": [
+              [
+                2026,
+                1000
+              ],
+              [
+                2027,
+                1200
+              ],
+              [
+                2028,
+                1500
+              ],
+              [
+                2029,
+                1800
+              ]
+            ]
+          }
+        },
+        "returning-paying-customers": {
+          "topDown": {
+            "": [
+              1900,
+              2108,
+              2399.28,
+              2841.1248
+            ]
+          },
+          "controlPoints": {
+            "": [
+              [
+                2026,
+                1900
+              ],
+              [
+                2027,
+                2108
+              ],
+              [
+                2028,
+                2399.28
+              ],
+              [
+                2029,
+                2841.1248
+              ]
+            ]
+          },
+          "openingCohorts": {
+            "age_1": 900,
+            "age_2": 600,
+            "age_3": 400
+          },
+          "cohortAgeCurve": {
+            "0": 0.8,
+            "1": 0.72,
+            "2": 0.66
+          }
+        },
+        "paying-customers": {
+          "topDown": {
+            "": [
+              2900,
+              3308,
+              3899.28,
+              4641.1248
+            ]
+          },
+          "controlPoints": {
+            "": [
+              [
+                2026,
+                2900
+              ],
+              [
+                2027,
+                3308
+              ],
+              [
+                2028,
+                3899.28
+              ],
+              [
+                2029,
+                4641.1248
+              ]
+            ]
+          }
+        }
+      }
+    }
+  }
+}

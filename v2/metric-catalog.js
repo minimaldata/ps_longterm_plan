@@ -8,9 +8,20 @@ export function createBlankModel() {
   };
   return {
     name: "Blank Model",
+    years: [...YEARS],
     dimensions: {},
     metricDefinitions: {},
     activeScenarioId: scenario.id,
+    scenarioRoles: {
+      working: scenario.id,
+      bau: null,
+      target: null,
+    },
+    referenceScenarios: {
+      bau: null,
+      target: null,
+    },
+    assumptions: [],
     scenarios: {
       [scenario.id]: scenario,
     },
@@ -21,9 +32,20 @@ export function createStarterModel() {
   const scenario = clone(starterScenario);
   return {
     name: "Starter Example",
+    years: [...YEARS],
     dimensions: {},
     metricDefinitions: clone(starterMetricDefinitions),
     activeScenarioId: scenario.id,
+    scenarioRoles: {
+      working: scenario.id,
+      bau: null,
+      target: null,
+    },
+    referenceScenarios: {
+      bau: null,
+      target: null,
+    },
+    assumptions: [],
     scenarios: {
       [scenario.id]: scenario,
     },

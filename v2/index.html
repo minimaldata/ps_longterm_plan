@@ -20,12 +20,28 @@
           <span>Scenario</span>
           <select id="scenario-select"></select>
         </label>
+        <form id="time-range-form" class="time-range-form">
+          <label>
+            <span>Start Year</span>
+            <input id="start-year-input" type="number" step="1">
+          </label>
+          <label>
+            <span>End Year</span>
+            <input id="end-year-input" type="number" step="1">
+          </label>
+          <button type="submit">Apply Years</button>
+        </form>
         <button id="save-scenario" type="button">Save</button>
         <button id="save-scenario-as-new" type="button">Save as New</button>
         <button id="new-blank-model" type="button">New Blank Model</button>
         <button id="load-starter-model" type="button">Load Starter Example</button>
+        <div id="scenario-role-controls" class="scenario-role-controls"></div>
       </div>
     </header>
+
+    <section id="delta-review-panel" class="delta-review-panel"></section>
+
+    <section id="metric-workspace-panel" class="metric-workspace-panel"></section>
 
     <section class="workspace">
       <aside class="metric-sidebar">
@@ -74,7 +90,10 @@
             <h2>Canvas</h2>
             <p>Click a node to inspect top-down and bottom-up definitions.</p>
           </div>
-          <button id="set-top-to-bottom" type="button">Set Top -> Bottom</button>
+          <div class="canvas-panel-actions">
+            <div id="canvas-view-toggle" class="view-toggle" aria-label="Canvas view mode"></div>
+            <button id="set-top-to-bottom" type="button">Set Top -> Bottom</button>
+          </div>
         </div>
         <div id="metric-canvas" class="metric-canvas"></div>
       </section>
@@ -105,6 +124,42 @@
             <strong id="dimension-definition">-</strong>
           </div>
         </div>
+        <section id="assumption-panel" class="assumption-panel is-hidden">
+          <div class="panel-heading">
+            <div>
+              <h2>Assumptions</h2>
+              <p id="assumption-summary">Explain the difference between working, BAU, and Target.</p>
+            </div>
+          </div>
+          <div id="assumption-delta-grid" class="assumption-delta-grid"></div>
+          <div id="assumption-list" class="assumption-list"></div>
+          <form id="assumption-form" class="assumption-form">
+            <label>
+              Claim
+              <textarea id="assumption-claim-input" rows="2" placeholder="What needs to be true for this assumption?"></textarea>
+            </label>
+            <label>
+              Driver
+              <select id="assumption-driver-input">
+                <option value="initiative">Initiative</option>
+                <option value="market">Market</option>
+                <option value="pricing">Pricing</option>
+                <option value="productivity">Productivity</option>
+                <option value="mix">Mix</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>
+              Owner
+              <input id="assumption-owner-input" type="text" placeholder="Optional">
+            </label>
+            <label>
+              % of Delta
+              <input id="assumption-impact-input" type="number" min="-999" max="999" step="1" placeholder="0">
+            </label>
+            <button type="submit">Add Assumption</button>
+          </form>
+        </section>
         <section id="dimension-member-section" class="dimension-member-section is-hidden">
           <div>
             <span id="dimension-member-title">Dimension Members</span>
@@ -129,7 +184,7 @@
           <div class="panel-heading">
             <div>
               <h2>Bottom-Up Formula</h2>
-              <p>Define the selected metric from other metrics.</p>
+              <p>Apply changes to update the canvas and Delta Review.</p>
             </div>
             <button type="submit">Apply Formula</button>
           </div>
@@ -140,8 +195,11 @@
                 <option value="">No bottom-up definition</option>
                 <option value="sum">Sum</option>
                 <option value="product">Product</option>
+                <option value="ratio">Ratio</option>
+                <option value="weightedAverage">Weighted Average</option>
                 <option value="difference">Difference</option>
                 <option value="cohortAgeProduct">Cohort Age Product</option>
+                <option value="cohortMatrix">Cohort Matrix</option>
                 <option value="cohortMatrixFromStartsAndAgeYoy">Cohort Matrix Sum</option>
                 <option value="cumulativeNetFlow">Cumulative Net Flow</option>
                 <option value="laggedMetric">Lagged Metric</option>
@@ -200,7 +258,7 @@
           <div class="panel-heading">
             <div>
               <h2>Cohort Matrix Builder</h2>
-              <p>Generate a cohort matrix from starting values and YoY change by age.</p>
+              <p>Generate a cohort matrix from starting cohorts and an age-based curve.</p>
             </div>
             <button type="submit">Apply Matrix Inputs</button>
           </div>
@@ -211,15 +269,42 @@
                 Source
                 <select id="cohort-start-source-input"></select>
               </label>
+              <label class="cohort-source-field">
+                Curve Type
+                <select id="cohort-curve-type-input">
+                  <option value="survivalRate">Survival / Retention</option>
+                  <option value="yoyGrowth">YoY Growth</option>
+                </select>
+              </label>
+              <label class="cohort-source-field">
+                Start Timing
+                <select id="cohort-start-timing-input">
+                  <option value="currentPeriod">Current Year</option>
+                  <option value="nextPeriod">Next Year</option>
+                </select>
+              </label>
               <div id="cohort-starts-chart" class="cohort-builder-chart"></div>
               <div id="cohort-starts-inputs" class="cohort-builder-inputs"></div>
             </section>
             <section class="cohort-builder-card">
-              <h3>YoY % Change By Cohort Age</h3>
+              <h3 id="cohort-curve-title">YoY % Change By Cohort Age</h3>
               <div id="cohort-yoy-chart" class="cohort-builder-chart"></div>
               <div id="cohort-yoy-inputs" class="cohort-builder-inputs"></div>
             </section>
+            <section id="cohort-opening-card" class="cohort-builder-card">
+              <h3>Opening Cohorts</h3>
+              <div id="cohort-opening-inputs" class="cohort-builder-inputs"></div>
+            </section>
           </div>
+          <section id="cohort-matrix-preview-card" class="cohort-matrix-preview-card">
+            <div class="panel-heading compact-heading">
+              <div>
+                <h2>Cohort Matrix Preview</h2>
+                <p>Read-only view of the generated cohort-year cells and annual rollup.</p>
+              </div>
+            </div>
+            <div id="cohort-matrix-preview" class="cohort-matrix-preview"></div>
+          </section>
         </form>
         <form id="stock-flow-builder-form" class="stock-flow-builder-form">
           <div class="panel-heading">
@@ -259,7 +344,16 @@
           <button id="apply-catalog-source" type="button">Apply JSON</button>
         </div>
       </div>
-      <textarea id="catalog-source" spellcheck="false"></textarea>
+      <div class="catalog-source-workspace">
+        <div class="catalog-source-editor">
+          <div class="source-pane-label">Raw JSON</div>
+          <textarea id="catalog-source" spellcheck="false"></textarea>
+        </div>
+        <div class="catalog-source-explorer">
+          <div class="source-pane-label">JSON Explorer</div>
+          <div id="catalog-json-explorer" class="json-explorer"></div>
+        </div>
+      </div>
       <p id="catalog-source-status" class="source-status"></p>
     </section>
   </main>
