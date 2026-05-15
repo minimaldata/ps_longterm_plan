@@ -25,6 +25,7 @@ import {
 } from "./engine.js";
 
 let YEARS = [...DEFAULT_YEARS];
+const DEFAULT_ANCHOR_YEAR = 2027;
 
 function defaultSeries() {
   return YEARS.map(() => 0);
@@ -35,14 +36,30 @@ const state = {
   selectedMetricId: null,
   selectedDimensionContext: null,
   selectedDimensionId: null,
+  activeScreen: "brief",
   topDownEditorView: "chart",
   canvasViewMode: "number",
+  anchorYear: DEFAULT_ANCHOR_YEAR,
+  workspaceDrawerHeight: "collapsed",
   metricWorkspaceMode: "total",
   dimensionGroupTool: "red",
   dimensionMixView: "pctTotal",
   dimensionGroupLinesShowGrouped: true,
   dimensionGroupLinesShowUngrouped: true,
   dimensionGroupLinesChartType: "line",
+  drawerChartSettingsView: "total",
+  drawerDimensionChartView: "total",
+  drawerDimensionMemberModes: {},
+  drawerDimensionFilters: {},
+  homeNapkinYMax: null,
+  drawerNapkinYMax: null,
+  homeEditableLine: "bau",
+  homeDriverSetupOpen: false,
+  canvasFocusMode: false,
+  expandedNodeKey: null,
+  flippedNodeKey: null,
+  selectedCanvasBackPanel: "drivers",
+  collapsedPanels: new Set(),
   topDownSheetExpandedKeys: new Set(),
   workspaceLockedKeys: new Set(),
   cohortBuilderIsDirty: false,
@@ -116,6 +133,19 @@ let topDownNapkinChart = null;
 let topDownNapkinMetricId = null;
 let topDownNapkinIsSyncing = false;
 let topDownNapkinHasPendingCommit = false;
+let homeNapkinChart = null;
+let homeNapkinMetricId = null;
+let homeNapkinIsSyncing = false;
+let homeNapkinHasPendingCommit = false;
+let drawerNapkinChart = null;
+let drawerNapkinMetricId = null;
+let drawerNapkinChartKey = null;
+let drawerNapkinIsSyncing = false;
+let drawerNapkinHasPendingCommit = false;
+let drawerAreaChart = null;
+let drawerAreaChartKey = null;
+let drawerAreaIsSyncing = false;
+let drawerAreaHasPendingCommit = false;
 let workspaceNapkinChart = null;
 let workspaceNapkinMetricId = null;
 let workspaceNapkinIsSyncing = false;
@@ -369,9 +399,38 @@ function referenceScenarios() {
   return state.model.referenceScenarios;
 }
 
+function metricReferences() {
+  if (!state.model.metricReferences || typeof state.model.metricReferences !== "object") {
+    state.model.metricReferences = {};
+  }
+  return state.model.metricReferences;
+}
+
+function metricReference(metricId, role) {
+  if (!metricId || !["bau", "target"].includes(role)) return null;
+  const references = metricReferences()[metricId];
+  return references && typeof references === "object" ? references[role] || null : null;
+}
+
 function assumptions() {
   if (!Array.isArray(state.model.assumptions)) state.model.assumptions = [];
   return state.model.assumptions;
+}
+
+function modelBrief() {
+  if (!state.model.modelBrief || typeof state.model.modelBrief !== "object") {
+    state.model.modelBrief = {
+      decisionQuestion: "",
+      primaryOutcomeMetricId: "",
+    };
+  }
+  if (!Object.prototype.hasOwnProperty.call(state.model.modelBrief, "decisionQuestion")) {
+    state.model.modelBrief.decisionQuestion = "";
+  }
+  if (!Object.prototype.hasOwnProperty.call(state.model.modelBrief, "primaryOutcomeMetricId")) {
+    state.model.modelBrief.primaryOutcomeMetricId = "";
+  }
+  return state.model.modelBrief;
 }
 
 function filterValueList(value) {
@@ -451,6 +510,9 @@ function selectedNodeKey() {
 function selectMetric(metricId) {
   state.selectedMetricId = metricId;
   state.selectedDimensionContext = null;
+  state.expandedNodeKey = null;
+  state.flippedNodeKey = null;
+  state.selectedCanvasBackPanel = "drivers";
 }
 
 function selectNodeKey(nodeKey) {
@@ -459,6 +521,19 @@ function selectNodeKey(nodeKey) {
   state.selectedDimensionContext = parsed.memberId
     ? { metricId: parsed.metricId, coordinate: { [parsed.dimensionId]: parsed.memberId } }
     : null;
+}
+
+function toggleCanvasNodeFlip(nodeKey) {
+  state.flippedNodeKey = state.flippedNodeKey === nodeKey ? null : nodeKey;
+}
+
+function expandCanvasNode(nodeKey) {
+  state.expandedNodeKey = nodeKey;
+  state.flippedNodeKey = null;
+}
+
+function selectCanvasBackPanel(panelId) {
+  state.selectedCanvasBackPanel = ["drivers", "dimensions", "assumptions"].includes(panelId) ? panelId : "drivers";
 }
 
 function metricScenario(metricId) {
@@ -683,11 +758,29 @@ function aggregateMemberSeries(metricId, seriesByMember) {
 }
 
 function metricIsRate(definition) {
-  return definition?.unit === "percent" || definition?.time?.flowType === "rate";
+  return metricFlowType(definition) === "rate";
 }
 
 function metricIsLagged(definition) {
   return definition?.bottomUp?.type === "laggedMetric";
+}
+
+function metricFlowType(definition) {
+  if (!definition) return "flow";
+  if (definition.bottomUp?.type === "weightedAverage") return "rate";
+  if (definition.bottomUp?.type === "laggedMetric") {
+    const [sourceId] = metricInputIds(definition);
+    const sourceDefinition = metricDefinitions()[sourceId];
+    return sourceDefinition ? metricFlowType(sourceDefinition) : definition.time?.flowType || "flow";
+  }
+  if (["flow", "rate"].includes(definition.time?.flowType)) return definition.time.flowType;
+  return definition.unit === "percent" ? "rate" : "flow";
+}
+
+function metricFlowTypeLockedReason(definition) {
+  if (definition?.bottomUp?.type === "weightedAverage") return "Weighted average metrics are always treated as rates.";
+  if (definition?.bottomUp?.type === "laggedMetric") return "Lagged metrics inherit flow/rate behavior from their source metric.";
+  return "";
 }
 
 function laggedTopDownDefinition() {
@@ -2041,13 +2134,29 @@ function metricResult(metricId, context = null) {
 }
 
 function metricInputIds(definition) {
-  const rawInputs = (definition?.bottomUp?.type === "ratio" || definition?.bottomUp?.type === "weightedAverage") && (!definition.bottomUp.inputs || !definition.bottomUp.inputs.length)
+  const rawInputs = definition?.bottomUp?.type === "weightedAverage" && (!definition.bottomUp.inputs || !definition.bottomUp.inputs.length)
     ? [definition.bottomUp.numerator || definition.bottomUp.valueMetricId, definition.bottomUp.denominator || definition.bottomUp.weightMetricId]
     : definition?.bottomUp?.inputs || [];
   return rawInputs.map(input => {
     if (typeof input === "string") return input;
     return input?.metricId;
   }).filter(Boolean);
+}
+
+function arithmeticOperators(definition) {
+  const inputCount = metricInputIds(definition).length;
+  const fallbackOperator = definition?.bottomUp?.type === "product"
+    ? "*"
+    : definition?.bottomUp?.type === "difference"
+      ? "-"
+      : "+";
+  const rawOperators = definition?.bottomUp?.type === "arithmetic" && Array.isArray(definition.bottomUp.operators)
+    ? definition.bottomUp.operators
+    : [];
+  return Array.from({ length: Math.max(0, inputCount - 1) }, (_item, index) => {
+    const operator = rawOperators[index] || fallbackOperator;
+    return ["+", "-", "*", "/"].includes(operator) ? operator : "+";
+  });
 }
 
 function weightedAverageConfig(definition) {
@@ -2297,6 +2406,33 @@ function metricValueAtIndex(metricId, index, stack = new Set(), memberContext = 
       const value = inputs.reduce((product, inputId) => product * inputValue(inputId, index, coordinate), 1);
       return sum + value;
     }, 0);
+  }
+
+  if (definition.bottomUp.type === "arithmetic") {
+    const operators = arithmeticOperators(definition);
+    const hasMultiplicativeOperator = operators.some(operator => operator === "*" || operator === "/");
+    const evaluate = coordinate => {
+      if (!inputs.length) return null;
+      return inputs.reduce((value, inputId, inputIndex) => {
+        const input = inputValue(inputId, index, coordinate);
+        if (inputIndex === 0) return input;
+        const operator = operators[inputIndex - 1] || "+";
+        if (operator === "-") return value - input;
+        if (operator === "*") return value * input;
+        if (operator === "/") return input ? value / input : null;
+        return value + input;
+      }, 0);
+    };
+    if (hasMultiplicativeOperator) {
+      const coordinateKeys = formulaCoordinateKeys(definition, filters);
+      if (!coordinateKeys) return null;
+      return coordinateKeys.reduce((sum, key) => {
+        const value = evaluate(parseCoordinateKey(key));
+        return value === null ? sum : sum + value;
+      }, 0);
+    }
+    if (!inputs.every(inputId => inputCanUseFilters(inputId, filters))) return null;
+    return evaluate(filters);
   }
 
   if (definition.bottomUp.type === "ratio") {
@@ -2624,15 +2760,30 @@ function compactCurrencyTooltip(value) {
 
 function formatMetricValue(definition, value, { precise = false } = {}) {
   const numericValue = Number(value || 0);
-  if (definition?.unit === "percent") {
+  const displayFormat = metricDisplayFormat(definition);
+  if (displayFormat === "percent") {
     return `${trimFixed(numericValue * 100, precise ? 2 : 1)}%`;
   }
-  if (definition?.unit === "count") {
+  if (displayFormat === "count") {
     return new Intl.NumberFormat("en-US", {
       maximumFractionDigits: precise ? 2 : 0,
     }).format(numericValue);
   }
   return precise ? compactCurrencyTooltip(numericValue) : compactCurrency(numericValue);
+}
+
+function metricDisplayFormat(definition) {
+  const format = definition?.presentation?.valueFormat;
+  if (["currency", "count", "percent"].includes(format)) return format;
+  if (definition?.unit === "percent") return "percent";
+  if (definition?.unit === "count") return "count";
+  return "currency";
+}
+
+function formatButtonLabel(format) {
+  if (format === "percent") return "%";
+  if (format === "count") return "#";
+  return "$";
 }
 
 function napkinSnapStep(maxY) {
@@ -2660,6 +2811,10 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function domSafeId(value) {
+  return String(value ?? "").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 function formulaText(metricId) {
   const definition = metricDefinitions()[metricId];
   if (!definition?.bottomUp) return "No bottom-up definition";
@@ -2667,6 +2822,14 @@ function formulaText(metricId) {
   const labels = inputIds.map(inputId => metricDefinitions()[inputId]?.label || inputId);
   if (definition.bottomUp.type === "sum") return labels.length ? labels.join(" + ") : "Empty sum";
   if (definition.bottomUp.type === "product") return labels.length ? labels.join(" × ") : "Empty product";
+  if (definition.bottomUp.type === "arithmetic") {
+    if (!labels.length) return "Empty arithmetic";
+    const operators = arithmeticOperators(definition);
+    return labels.reduce((text, label, index) => {
+      if (index === 0) return label;
+      return `${text} ${arithmeticOperatorLabel(operators[index - 1])} ${label}`;
+    }, "");
+  }
   if (definition.bottomUp.type === "ratio") return labels.length === 2 ? `${labels[0]} / ${labels[1]}` : "Empty ratio";
   if (definition.bottomUp.type === "weightedAverage") {
     const { valueMetricId, weightMetricId } = weightedAverageConfig(definition);
@@ -2702,6 +2865,13 @@ function formulaText(metricId) {
     return labels.length === 1 ? `${labels[0]} t-${lagForDefinition(definition)}` : "source metric t-1";
   }
   return definition.bottomUp.type;
+}
+
+function arithmeticOperatorLabel(operator) {
+  if (operator === "*") return "×";
+  if (operator === "/") return "/";
+  if (operator === "-") return "-";
+  return "+";
 }
 
 function metricSlug(label) {
@@ -2752,8 +2922,10 @@ function sourceSnapshot() {
     selectedMetricId: state.selectedMetricId,
     selectedDimensionContext: state.selectedDimensionContext,
     activeScenarioId: activeScenarioId(),
+    modelBrief: modelBrief(),
     scenarioRoles: scenarioRoles(),
     referenceScenarios: referenceScenarios(),
+    metricReferences: metricReferences(),
     dimensions: dimensionDefinitions(),
     metricDefinitions: metricDefinitions(),
     assumptions: assumptions(),
@@ -2927,7 +3099,7 @@ function assumptionsForSelection(metricId = state.selectedMetricId) {
   ));
 }
 
-function referenceMetricSeries(role, metricId, filters = {}) {
+function referenceMetricSeriesFromLegacyScenario(role, metricId, filters = {}) {
   const reference = referenceScenarios()[role];
   const definition = metricDefinitions()[metricId];
   const metric = reference?.snapshot?.metrics?.[metricId];
@@ -2936,6 +3108,20 @@ function referenceMetricSeries(role, metricId, filters = {}) {
   const entries = Object.entries(seriesMap).filter(([key]) => coordinateMatchesFilters(key, filters));
   if (!entries.length) return null;
   return aggregateMemberSeries(metricId, Object.fromEntries(entries));
+}
+
+function referenceMetricSeries(role, metricId, filters = {}) {
+  const definition = metricDefinitions()[metricId];
+  const reference = metricReference(metricId, role);
+  if (!definition || !reference) return referenceMetricSeriesFromLegacyScenario(role, metricId, filters);
+  if (filters && Object.keys(filters).length) {
+    if (!reference.topDown || typeof reference.topDown !== "object") return null;
+    const seriesMap = normalizeSeriesMap(definition, reference.topDown);
+    const entries = Object.entries(seriesMap).filter(([key]) => coordinateMatchesFilters(key, filters));
+    if (entries.length) return aggregateMemberSeries(metricId, Object.fromEntries(entries));
+    return null;
+  }
+  return Array.isArray(reference.series) ? [...reference.series] : null;
 }
 
 function seriesDeltaSummary(left = [], right = []) {
@@ -3010,8 +3196,11 @@ function comparisonMetricSummary(role, metricId) {
 }
 
 function comparisonSummaryForRole(role) {
-  const reference = referenceScenarios()[role];
-  if (!reference?.snapshot) {
+  const referencedMetricIds = Object.entries(metricReferences())
+    .filter(([_metricId, roles]) => roles && typeof roles === "object" && roles[role])
+    .map(([metricId]) => metricId)
+    .filter(metricId => metricDefinitions()[metricId]);
+  if (!referencedMetricIds.length) {
     return {
       available: false,
       role,
@@ -3022,7 +3211,7 @@ function comparisonSummaryForRole(role) {
     };
   }
 
-  const metricSummaries = Object.fromEntries(Object.keys(metricDefinitions())
+  const metricSummaries = Object.fromEntries(referencedMetricIds
     .map(metricId => [metricId, comparisonMetricSummary(role, metricId)])
     .filter(([_metricId, summary]) => summary));
   const sortedDeltas = Object.values(metricSummaries)
@@ -3036,10 +3225,7 @@ function comparisonSummaryForRole(role) {
   return {
     available: true,
     role,
-    referenceId: reference.id,
-    sourceScenarioId: reference.sourceScenarioId,
-    sourceScenarioName: reference.sourceScenarioName,
-    assignedAt: reference.assignedAt,
+    referenceId: `${role}-metric-references`,
     metrics: metricSummaries,
     largestDeltas: sortedDeltas.slice(0, 10).map(summary => ({
       metricId: summary.metricId,
@@ -3076,7 +3262,7 @@ function deltaReviewRows(summary) {
     return `
       <div class="delta-review-empty">
         <strong>${summary.role.toUpperCase()} not set</strong>
-        <span>Set ${summary.role.toUpperCase()} from a reconciled scenario to review deltas.</span>
+        <span>Set ${summary.role.toUpperCase()} on individual reconciled metrics to review deltas.</span>
       </div>
     `;
   }
@@ -3112,7 +3298,7 @@ function renderDeltaReviewPanel() {
     <div class="delta-review-heading">
       <div>
         <h2>Delta Review</h2>
-        <p>Largest changes from reference scenarios and assumptions attached to them.</p>
+        <p>Largest changes from metric-level BAU and Target references and assumptions attached to them.</p>
       </div>
       <span class="scenario-role-status ${reconciliation.matched ? "matched" : "open"}">
         ${reconciliation.matched ? "Top-down / bottom-up matched" : `${reconciliation.openMetricCount} reconciliation mismatch${reconciliation.openMetricCount === 1 ? "" : "es"}`}
@@ -3135,6 +3321,772 @@ function renderDeltaReviewPanel() {
       </section>
     </div>
   `;
+}
+
+function modelBriefPrimaryMetricOptions() {
+  const brief = modelBrief();
+  const metricIds = Object.keys(metricDefinitions());
+  const selectedId = metricDefinitions()[brief.primaryOutcomeMetricId]
+    ? brief.primaryOutcomeMetricId
+    : metricDefinitions()[state.selectedMetricId]
+      ? state.selectedMetricId
+      : metricIds[0] || "";
+  return {
+    selectedId,
+    options: metricIds.map(metricId => {
+      const definition = metricDefinitions()[metricId];
+      return `<option value="${escapeHtml(metricId)}" ${metricId === selectedId ? "selected" : ""}>${escapeHtml(definition.label)}</option>`;
+    }).join(""),
+  };
+}
+
+function homeMetricId() {
+  const brief = modelBrief();
+  if (brief.primaryOutcomeMetricId && metricDefinitions()[brief.primaryOutcomeMetricId]) {
+    return brief.primaryOutcomeMetricId;
+  }
+  if (state.selectedMetricId && metricDefinitions()[state.selectedMetricId]) {
+    brief.primaryOutcomeMetricId = state.selectedMetricId;
+    return state.selectedMetricId;
+  }
+  return null;
+}
+
+function createOrUpdateHomeMetric(title) {
+  const label = String(title || "").trim();
+  if (!label) return null;
+  const existingId = homeMetricId();
+  if (existingId) {
+    metricDefinitions()[existingId].label = label;
+    state.selectedMetricId = existingId;
+    modelBrief().primaryOutcomeMetricId = existingId;
+    return existingId;
+  }
+
+  const id = uniqueMetricId(label);
+  metricDefinitions()[id] = createManualMetric({
+    id,
+    label,
+    unit: "currency",
+    color: "#111827",
+  });
+  Object.values(scenarioCollection()).forEach(sourceScenario => {
+    ensureMetricScenarioFor(sourceScenario, id);
+  });
+  state.selectedMetricId = id;
+  state.selectedDimensionContext = null;
+  modelBrief().primaryOutcomeMetricId = id;
+  return id;
+}
+
+function metricIdByLabel(label) {
+  const normalized = String(label || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return Object.entries(metricDefinitions())
+    .find(([_metricId, definition]) => String(definition.label || "").trim().toLowerCase() === normalized)?.[0] || null;
+}
+
+function createMetricFromFlowLabel(label, { unit = "currency", color = "#4f7fb8" } = {}) {
+  const trimmedLabel = String(label || "").trim();
+  if (!trimmedLabel) return null;
+  const existingId = metricIdByLabel(trimmedLabel);
+  if (existingId) return existingId;
+  const id = uniqueMetricId(trimmedLabel);
+  metricDefinitions()[id] = createManualMetric({
+    id,
+    label: trimmedLabel,
+    unit,
+    color,
+  });
+  Object.values(scenarioCollection()).forEach(sourceScenario => {
+    ensureMetricScenarioFor(sourceScenario, id);
+  });
+  return id;
+}
+
+function ensureNamedDimension(label, members) {
+  const existingId = resolveDimensionSearchValue(label);
+  if (existingId) return existingId;
+  const id = uniqueDimensionId(label);
+  dimensionDefinitions()[id] = {
+    id,
+    label,
+    members: members.map(memberLabel => ({
+      id: metricSlug(memberLabel),
+      label: memberLabel,
+    })),
+  };
+  return id;
+}
+
+function ensureRevenueExampleDimensions(metricId) {
+  const definition = metricDefinitions()[metricId];
+  if (!definition || String(definition.label || "").trim().toLowerCase() !== "revenue") return;
+  const sizeDimensionId = ensureNamedDimension("Size", ["XS", "S", "M", "L"]);
+  const regionDimensionId = ensureNamedDimension("Region", ["US", "RoW"]);
+  assignMetricDimensions(metricId, [sizeDimensionId, regionDimensionId]);
+}
+
+function stepYAxisLeadingDigit(value, direction) {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const place = Math.pow(10, Math.floor(Math.log10(value)));
+  const normalized = value / place;
+  const lead = direction === "up"
+    ? Math.floor(normalized + 0.000001)
+    : Math.ceil(normalized - 0.000001);
+  if (direction === "up") {
+    return lead >= 9 ? 10 * place : (lead + 1) * place;
+  }
+  if (direction === "down") {
+    if (lead > 1) return (lead - 1) * place;
+    return 9 * (place / 10);
+  }
+  return null;
+}
+
+function applyHomeNapkinYAxisMax(nextYMax) {
+  if (!homeNapkinChart?.baseOption?.yAxis || !Number.isFinite(nextYMax)) return;
+  const yMin = Number(homeNapkinChart.baseOption.yAxis.min ?? 0);
+  if (Number.isFinite(yMin) && nextYMax <= yMin) return;
+  state.homeNapkinYMax = nextYMax;
+  homeNapkinIsSyncing = true;
+  homeNapkinChart.baseOption.yAxis.max = nextYMax;
+  homeNapkinChart.chart.setOption({ yAxis: { max: nextYMax } }, false);
+  homeNapkinChart._refreshChart();
+  styleHomeReferenceLines(homeNapkinChart);
+  homeNapkinIsSyncing = false;
+}
+
+function handleHomeNapkinYAxisAction(action) {
+  const yMax = Number(homeNapkinChart?.baseOption?.yAxis?.max);
+  if (!Number.isFinite(yMax)) return;
+  if (action === "large-up") {
+    applyHomeNapkinYAxisMax(yMax * 10);
+  } else if (action === "large-down") {
+    applyHomeNapkinYAxisMax(yMax / 10);
+  } else if (action === "small-up") {
+    applyHomeNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "up"));
+  } else if (action === "small-down") {
+    applyHomeNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "down"));
+  }
+}
+
+function yAxisButtonRow(key, label) {
+  return `
+    <div class="axis-button-row" data-napkin-y-axis-controls="${escapeHtml(key)}" aria-label="${escapeHtml(label)}">
+      <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
+      <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
+      <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
+      <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
+    </div>
+  `;
+}
+
+function disposeHomeNapkinChart() {
+  if (homeNapkinChart?.chart) {
+    homeNapkinChart.chart.dispose();
+  }
+  homeNapkinChart = null;
+  homeNapkinMetricId = null;
+  homeNapkinIsSyncing = false;
+  homeNapkinHasPendingCommit = false;
+}
+
+function homeMetricControlPoints(metricId) {
+  if (!metricId) return YEARS.map(year => [year, 0]);
+  return manualControlPoints(metricId);
+}
+
+function homeTargetControlPoints(metricId, bauPoints = []) {
+  const reference = metricReference(metricId, "target");
+  if (Array.isArray(reference?.controlPoints) && reference.controlPoints.length) {
+    return normalizeNapkinPoints(reference.controlPoints);
+  }
+  if (Array.isArray(reference?.series)) {
+    return YEARS.map((year, index) => [year, Number(reference.series[index] || 0)]);
+  }
+  return normalizeNapkinPoints(bauPoints);
+}
+
+function setHomeTargetReferenceFromPoints(metricId, points) {
+  const definition = metricDefinitions()[metricId];
+  if (!definition) return;
+  const normalizedPoints = normalizeNapkinPoints(points);
+  const series = seriesFromControlPoints(normalizedPoints).map(value => Number(value || 0));
+  const timestamp = new Date().toISOString();
+  if (!metricReferences()[metricId]) metricReferences()[metricId] = {};
+  metricReferences()[metricId].target = {
+    role: "target",
+    metricId,
+    metricLabel: definition.label,
+    setAt: timestamp,
+    sourceScenarioId: activeScenarioId(),
+    sourceScenarioName: "Home Target",
+    sourceScenarioUpdatedAt: scenario().updatedAt || null,
+    series,
+    topDown: { [TOTAL_COORDINATE_KEY]: series },
+    controlPoints: normalizedPoints,
+  };
+}
+
+function homeTargetMatchesBau(metricId) {
+  if (!metricId || !metricReference(metricId, "target")) return false;
+  const bauSeries = seriesFromControlPoints(homeMetricControlPoints(metricId)).map(value => Number(value || 0));
+  const targetSeries = seriesFromControlPoints(homeTargetControlPoints(metricId, homeMetricControlPoints(metricId)))
+    .map(value => Number(value || 0));
+  return JSON.stringify(bauSeries) === JSON.stringify(targetSeries);
+}
+
+function matchHomeTargetToBau() {
+  const metricId = homeMetricId();
+  if (!metricId || !metricDefinitions()[metricId]) return;
+  setHomeTargetReferenceFromPoints(metricId, homeMetricControlPoints(metricId));
+  catalogSourceIsDirty = false;
+  render();
+}
+
+function updateHomeMatchButtonState() {
+  const button = document.querySelector("[data-home-action='match-target']");
+  if (!button) return;
+  const metricId = homeMetricId();
+  button.disabled = !metricId || homeTargetMatchesBau(metricId);
+}
+
+function setHomeEditableLine(lineName) {
+  if (!["bau", "target"].includes(lineName)) return;
+  state.homeEditableLine = lineName;
+  render();
+}
+
+function syncHomeNapkinChart() {
+  if (!homeNapkinChart || !homeNapkinMetricId || homeNapkinChart._isDragging) return;
+  const definition = metricDefinitions()[homeNapkinMetricId];
+  if (!definition) return;
+  const points = homeMetricControlPoints(homeNapkinMetricId);
+  homeNapkinIsSyncing = true;
+  homeNapkinChart.lines = homeNapkinLines(definition, points);
+  configureHomeNapkinDomain(homeNapkinChart);
+  homeNapkinChart._refreshChart();
+  styleHomeReferenceLines(homeNapkinChart);
+  homeNapkinIsSyncing = false;
+}
+
+function configureHomeNapkinDomain(chart) {
+  if (!chart) return;
+  chart.globalMaxX = YEARS[YEARS.length - 1];
+  chart.windowStartX = YEARS[0];
+  chart.windowEndX = YEARS[YEARS.length - 1];
+}
+
+function homeNapkinYMaxForPoints(points) {
+  const rawYMax = Math.max(10, ...points.map(point => Number(point[1] || 0))) * 1.25;
+  const snappedYMax = snapSafeNapkinYMax(rawYMax);
+  return Number.isFinite(state.homeNapkinYMax)
+    ? Math.max(state.homeNapkinYMax, snappedYMax)
+    : snappedYMax;
+}
+
+function homeNapkinLines(definition, points) {
+  const lines = [{
+    name: "BAU",
+    color: "#111827",
+    data: points,
+    editable: state.homeEditableLine === "bau",
+    editDomain: {
+      moveX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      addX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      deleteX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+    },
+  }];
+  lines.push({
+    name: "Target",
+    color: "#2f6f73",
+    data: homeTargetControlPoints(definition.id, points),
+    editable: state.homeEditableLine === "target",
+    editDomain: {
+      moveX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      addX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      deleteX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+    },
+  });
+  return lines;
+}
+
+function styleHomeReferenceLines(chart) {
+  if (!chart?.chart) return;
+  const option = chart.chart.getOption();
+  const series = (option.series || []).map(seriesItem => {
+    const name = String(seriesItem.name || "");
+    if (name === "BAU") {
+      return {
+        ...seriesItem,
+        silent: state.homeEditableLine !== "bau",
+        z: state.homeEditableLine === "bau" ? 5 : 3,
+        showSymbol: state.homeEditableLine === "bau",
+        symbolSize: state.homeEditableLine === "bau" ? 10 : 0,
+        lineStyle: {
+          ...(seriesItem.lineStyle || {}),
+          width: state.homeEditableLine === "bau" ? 3 : 2.25,
+          type: "solid",
+          opacity: state.homeEditableLine === "bau" ? 1 : 0.72,
+        },
+      };
+    }
+    if (name === "Target") {
+      return {
+        ...seriesItem,
+        silent: state.homeEditableLine !== "target",
+        showSymbol: true,
+        symbol: "diamond",
+        symbolSize: state.homeEditableLine === "target" ? 10 : 7,
+        z: state.homeEditableLine === "target" ? 5 : 3,
+        lineStyle: {
+          ...(seriesItem.lineStyle || {}),
+          width: state.homeEditableLine === "target" ? 3 : 2.5,
+          type: "solid",
+          opacity: state.homeEditableLine === "target" ? 1 : 0.78,
+        },
+      };
+    }
+    return {
+      ...seriesItem,
+      z: 5,
+      lineStyle: { ...(seriesItem.lineStyle || {}), width: 3 },
+    };
+  });
+  chart.chart.setOption({ series }, false);
+}
+
+function commitHomeNapkinEdit() {
+  if (!homeNapkinChart || !homeNapkinMetricId || !homeNapkinChart.lines?.length) return;
+  const definition = metricDefinitions()[homeNapkinMetricId];
+  if (!definition) return;
+  const lineName = state.homeEditableLine === "target" ? "Target" : "BAU";
+  const editableLine = homeNapkinChart.lines.find(line => line.name === lineName);
+  if (!editableLine) return;
+  const nextPoints = normalizeNapkinPoints(editableLine.data);
+  if (state.homeEditableLine === "target") {
+    setHomeTargetReferenceFromPoints(homeNapkinMetricId, nextPoints);
+  } else {
+    const metric = ensureMetricScenario(homeNapkinMetricId);
+    if (!metric.controlPoints) metric.controlPoints = {};
+    metric.controlPoints[TOTAL_COORDINATE_KEY] = nextPoints;
+    setMetricTopDownSeries(homeNapkinMetricId, seriesFromControlPoints(nextPoints));
+  }
+  catalogSourceIsDirty = false;
+  homeNapkinHasPendingCommit = false;
+  updateHomeMatchButtonState();
+}
+
+function renderHomeNapkinChart() {
+  const container = document.getElementById("home-napkin-chart");
+  if (!container) return;
+  const metricId = homeMetricId();
+  const definition = metricId ? metricDefinitions()[metricId] : null;
+  if (typeof NapkinChart !== "function" || !window.echarts) {
+    container.innerHTML = "";
+    return;
+  }
+
+  if (!metricId || !definition) {
+    disposeHomeNapkinChart();
+    const points = YEARS.map(year => [year, 0]);
+    homeNapkinChart = new NapkinChart(
+      "home-napkin-chart",
+      [{
+        name: "",
+        color: "#111827",
+        data: points,
+        editable: false,
+      }],
+      true,
+      {
+        animation: false,
+        xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+        yAxis: { type: "value", min: 0, max: 10, axisLabel: { formatter: compactCurrency } },
+        grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
+        tooltip: { show: false },
+      },
+      "none",
+      false
+    );
+    configureHomeNapkinDomain(homeNapkinChart);
+    homeNapkinChart._refreshChart();
+    homeNapkinChart.chart?.resize?.();
+    return;
+  }
+
+  if (homeNapkinMetricId === metricId && homeNapkinChart) {
+    syncHomeNapkinChart();
+    return;
+  }
+
+  disposeHomeNapkinChart();
+  container.innerHTML = "";
+  const points = homeMetricControlPoints(metricId);
+  const yMax = homeNapkinYMaxForPoints(points);
+  homeNapkinMetricId = metricId;
+  homeNapkinChart = new NapkinChart(
+    "home-napkin-chart",
+    homeNapkinLines(definition, points),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: compactCurrency } },
+      grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
+      tooltip: { trigger: "axis", valueFormatter: value => compactCurrencyTooltip(value) },
+    },
+    "none",
+    false
+  );
+  configureHomeNapkinDomain(homeNapkinChart);
+  homeNapkinChart._refreshChart();
+  styleHomeReferenceLines(homeNapkinChart);
+
+  homeNapkinChart.chart.getZr().on("mouseup", () => {
+    if (!homeNapkinHasPendingCommit) return;
+    requestAnimationFrame(() => commitHomeNapkinEdit());
+  });
+
+  homeNapkinChart.onDataChanged = () => {
+    if (homeNapkinIsSyncing || !homeNapkinChart?.lines?.length) return;
+    commitHomeNapkinEdit();
+    if (homeNapkinChart._isDragging) {
+      homeNapkinHasPendingCommit = true;
+    }
+  };
+}
+
+function renderModelBriefScreen() {
+  const panel = document.getElementById("model-brief-screen");
+  if (!panel) return;
+  disposeHomeNapkinChart();
+  const metricId = homeMetricId();
+  const definition = metricId ? metricDefinitions()[metricId] : null;
+  const metricTitle = definition?.label || "";
+  const matchDisabled = !metricId || homeTargetMatchesBau(metricId);
+  const activeHomeLine = state.homeEditableLine === "target" ? "target" : "bau";
+  const hasMetric = Boolean(metricId);
+  panel.innerHTML = `
+    <section class="home-blank-tile" aria-label="Home metric">
+      <input id="home-metric-title-input" class="home-metric-title-input" type="text" value="${escapeHtml(metricTitle)}" placeholder="Metric title">
+      <div class="home-chart-actions">
+        <button type="button" class="home-match-button" data-home-action="match-target" ${matchDisabled ? "disabled" : ""}>Match</button>
+        ${yAxisButtonRow("home", "Home chart Y axis controls")}
+      </div>
+      <div id="home-napkin-chart" class="home-napkin-chart"></div>
+      <form id="home-year-form" class="home-year-form">
+        <label>
+          <span>Start Year</span>
+          <div class="home-year-stepper">
+            <button type="button" data-home-year-step="start" data-year-delta="-1" aria-label="Decrease start year">−</button>
+            <input id="home-start-year-input" type="text" inputmode="numeric" value="${escapeHtml(YEARS[0] || DEFAULT_YEARS[0])}">
+            <button type="button" data-home-year-step="start" data-year-delta="1" aria-label="Increase start year">+</button>
+          </div>
+        </label>
+        <label>
+          <span>End Year</span>
+          <div class="home-year-stepper">
+            <button type="button" data-home-year-step="end" data-year-delta="-1" aria-label="Decrease end year">−</button>
+            <input id="home-end-year-input" type="text" inputmode="numeric" value="${escapeHtml(YEARS[YEARS.length - 1] || DEFAULT_YEARS[DEFAULT_YEARS.length - 1])}">
+            <button type="button" data-home-year-step="end" data-year-delta="1" aria-label="Increase end year">+</button>
+          </div>
+        </label>
+      </form>
+      <div class="home-reference-legend">
+        <button type="button" class="${activeHomeLine === "bau" ? "active" : ""}" data-home-edit-line="bau" aria-pressed="${activeHomeLine === "bau"}"><i class="bau"></i> BAU</button>
+        <button type="button" class="${activeHomeLine === "target" ? "active" : ""}" data-home-edit-line="target" aria-pressed="${activeHomeLine === "target"}"><i class="target"></i> Target</button>
+      </div>
+      <div class="home-next-actions">
+        <button type="button" data-home-action="toggle-drivers" ${hasMetric ? "" : "disabled"}>${state.homeDriverSetupOpen ? "Hide Drivers" : "Add Drivers"}</button>
+      </div>
+      ${state.homeDriverSetupOpen && definition ? driverSetupMarkup(definition) : ""}
+    </section>
+  `;
+}
+
+function renderDriverSetupScreen(panel) {
+  const metricId = homeMetricId();
+  const definition = metricId ? metricDefinitions()[metricId] : null;
+  panel.innerHTML = driverSetupMarkup(definition, { standalone: true });
+}
+
+function driverSetupMarkup(definition, { standalone = false } = {}) {
+  const metricId = homeMetricId();
+  const existingInputs = definition ? metricInputIds(definition) : [];
+  const driverLabels = existingInputs.length
+    ? existingInputs.map(inputId => metricDefinitions()[inputId]?.label || "")
+    : ["Revenue", "Cost"];
+  while (driverLabels.length < 2) driverLabels.push("");
+  const isProfitLikeMetric = /\b(profit|margin|income|earnings)\b/i.test(definition?.label || "");
+  const operators = definition?.bottomUp
+    ? arithmeticOperators(definition)
+    : [isProfitLikeMetric ? "-" : "+"];
+  return `
+    <section class="${standalone ? "driver-setup-tile" : "home-driver-setup"}" aria-label="Add drivers">
+      ${standalone ? `
+        <div class="driver-setup-heading">
+          <button type="button" data-driver-flow-action="back">Back</button>
+          <div>
+            <p class="eyebrow">Driver Setup</p>
+            <h2>${escapeHtml(definition?.label || "Outcome")}</h2>
+          </div>
+        </div>
+      ` : `
+        <div class="home-driver-heading">
+          <div>
+            <span>Drivers</span>
+            <strong>${escapeHtml(definition?.label || "Outcome")}</strong>
+          </div>
+          <button type="button" data-driver-flow-action="back">Close</button>
+        </div>
+      `}
+      <form id="driver-setup-form" class="driver-setup-form">
+        <label>
+          <span>Relationship</span>
+          <select id="driver-formula-type">
+            <option value="arithmetic" selected>Arithmetic</option>
+          </select>
+        </label>
+        <div class="driver-input-grid" data-driver-formula-operators>
+          ${driverLabels.map((label, index) => `
+            ${index ? driverOperatorSelectMarkup(operators[index - 1] || "+") : ""}
+            <label>
+              <span>Driver ${index + 1}</span>
+              <input class="driver-name-input" type="text" value="${escapeHtml(label)}" placeholder="${index === 0 ? "Revenue" : index === 1 ? "Cost" : "Optional"}">
+            </label>
+          `).join("")}
+        </div>
+        <div class="driver-setup-actions">
+          <button type="button" data-driver-flow-action="add-row">Add Driver</button>
+          <button type="submit">Create Drivers</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function driverOperatorSelectMarkup(operator = "+") {
+  const selectedOperator = ["+", "-", "*", "/"].includes(operator) ? operator : "+";
+  return `
+    <select class="driver-formula-operator" aria-label="Driver arithmetic operator">
+      <option value="+" ${selectedOperator === "+" ? "selected" : ""}>+</option>
+      <option value="-" ${selectedOperator === "-" ? "selected" : ""}>−</option>
+      <option value="*" ${selectedOperator === "*" ? "selected" : ""}>×</option>
+      <option value="/" ${selectedOperator === "/" ? "selected" : ""}>÷</option>
+    </select>
+  `;
+}
+
+function setAppScreenVisibility() {
+  const isFlow = state.activeScreen === "brief";
+  document.querySelector(".app-shell")?.classList.toggle("home-mode", isFlow);
+  document.querySelector(".app-shell")?.classList.toggle("canvas-focus-mode", !isFlow && state.canvasFocusMode);
+  document.getElementById("model-brief-screen")?.classList.toggle("is-hidden", !isFlow);
+  document.getElementById("delta-review-panel")?.classList.toggle("is-hidden", isFlow);
+  document.getElementById("metric-workspace-panel")?.classList.toggle("is-hidden", isFlow);
+  document.querySelector(".workspace")?.classList.toggle("is-hidden", isFlow);
+  document.querySelector(".developer-panel")?.classList.toggle("is-hidden", isFlow);
+}
+
+function collapsiblePanelConfigs() {
+  return [
+    { id: "delta-review", selector: "#delta-review-panel", heading: ".delta-review-heading" },
+    { id: "metric-workspace", selector: "#metric-workspace-panel", heading: ".metric-workspace-heading", host: ".metric-workspace-actions" },
+    { id: "metric-catalog", selector: ".metric-sidebar", heading: ":scope > .panel-heading" },
+    { id: "dimension-catalog", selector: ".dimension-catalog", heading: ":scope > .panel-heading" },
+    { id: "canvas", selector: ".canvas-panel", heading: ":scope > .panel-heading", host: ".canvas-panel-actions" },
+    { id: "metric-detail", selector: ".detail-panel", heading: ":scope > .panel-heading" },
+    { id: "catalog-source", selector: ".developer-panel", heading: ":scope > .panel-heading", host: ".source-actions" },
+  ];
+}
+
+function applyCollapsiblePanels() {
+  const workspace = document.querySelector(".workspace");
+  collapsiblePanelConfigs().forEach(config => {
+    const panel = document.querySelector(config.selector);
+    if (!panel) return;
+    const collapsed = state.collapsedPanels.has(config.id);
+    panel.classList.add("collapsible-panel");
+    panel.classList.toggle("is-collapsed", collapsed);
+    panel.dataset.collapsiblePanel = config.id;
+    workspace?.classList.toggle(`${config.id}-collapsed`, collapsed);
+
+    const heading = panel.querySelector(config.heading);
+    if (!heading) return;
+    heading.classList.add("collapsible-heading");
+    const host = config.host ? panel.querySelector(config.host) || heading : heading;
+    let button = host.querySelector(`:scope > [data-collapse-panel="${config.id}"]`);
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "collapse-toggle";
+      button.dataset.collapsePanel = config.id;
+      host.appendChild(button);
+    }
+    button.textContent = collapsed ? "Show" : "Hide";
+    button.setAttribute("aria-expanded", String(!collapsed));
+    button.setAttribute("aria-label", `${collapsed ? "Show" : "Hide"} ${config.id.replaceAll("-", " ")}`);
+  });
+}
+
+function refreshAfterPanelToggle() {
+  requestAnimationFrame(() => {
+    homeNapkinChart?.chart?.resize();
+    drawerNapkinChart?.chart?.resize();
+    topDownNapkinChart?.chart?.resize();
+    workspaceNapkinChart?.chart?.resize();
+    workspaceDimensionMixChart?.chart?.resize();
+    workspaceDimensionMemberCharts.forEach(item => item?.chart?.resize?.());
+    workspaceChildNapkinCharts.forEach(item => item?.chart?.resize?.());
+    metricWorkspaceCharts.forEach(item => item?.resize?.());
+    chart.resize();
+    renderCanvasLines();
+  });
+}
+
+function showCanvasFocusMode() {
+  state.canvasFocusMode = true;
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector(".canvas-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    refreshAfterPanelToggle();
+  });
+}
+
+function inspectSelectedMetricFromCanvas() {
+  state.canvasFocusMode = false;
+  state.collapsedPanels = new Set([
+    "delta-review",
+    "metric-catalog",
+    "dimension-catalog",
+    "metric-detail",
+    "catalog-source",
+  ]);
+  render();
+  requestAnimationFrame(() => {
+    document.getElementById("metric-workspace-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    refreshAfterPanelToggle();
+  });
+}
+
+function showFullWorkspace() {
+  state.canvasFocusMode = false;
+  state.collapsedPanels.clear();
+  render();
+  requestAnimationFrame(refreshAfterPanelToggle);
+}
+
+function saveModelBriefFromForm() {
+  const brief = modelBrief();
+  state.model.name = document.getElementById("model-brief-name-input")?.value.trim() || "Untitled Model";
+  brief.decisionQuestion = document.getElementById("model-brief-decision-input")?.value.trim() || "";
+  brief.primaryOutcomeMetricId = document.getElementById("model-brief-primary-outcome-input")?.value || "";
+  const startYear = document.getElementById("model-brief-start-year-input")?.value;
+  const endYear = document.getElementById("model-brief-end-year-input")?.value;
+  try {
+    migrateModelYears(yearsFromRange(startYear, endYear));
+    setSourceStatus("Model brief saved.", "success");
+  } catch (error) {
+    setSourceStatus(error.message, "error");
+  }
+  catalogSourceIsDirty = false;
+  render();
+}
+
+function enterModelScreen() {
+  state.activeScreen = "model";
+  showCanvasFocusMode();
+}
+
+function applyHomeMetricTitle() {
+  const input = document.getElementById("home-metric-title-input");
+  const label = input?.value.trim() || "";
+  if (!label) return;
+  createOrUpdateHomeMetric(label);
+  catalogSourceIsDirty = false;
+  render();
+}
+
+function applyHomeYearRange() {
+  const startYear = document.getElementById("home-start-year-input")?.value;
+  const endYear = document.getElementById("home-end-year-input")?.value;
+  try {
+    migrateModelYears(yearsFromRange(startYear, endYear));
+    catalogSourceIsDirty = false;
+    render();
+  } catch (error) {
+    setSourceStatus(error.message, "error");
+  }
+}
+
+function addDriverSetupRow() {
+  const grid = document.querySelector(".driver-input-grid");
+  if (!grid) return;
+  const index = grid.querySelectorAll(".driver-name-input").length + 1;
+  grid.insertAdjacentHTML("beforeend", `
+    ${index > 1 ? driverOperatorSelectMarkup("+") : ""}
+    <label>
+      <span>Driver ${index}</span>
+      <input class="driver-name-input" type="text" value="" placeholder="Optional">
+    </label>
+  `);
+  grid.querySelector(".driver-name-input:last-child")?.focus();
+}
+
+function updateDriverFormulaSymbols() {
+  document.querySelectorAll(".driver-formula-operator").forEach(select => {
+    if (!["+", "-", "*", "/"].includes(select.value)) select.value = "+";
+  });
+}
+
+function applyDriverSetup() {
+  const metricId = homeMetricId();
+  const definition = metricId ? metricDefinitions()[metricId] : null;
+  if (!definition) {
+    state.activeScreen = "brief";
+    render();
+    return;
+  }
+  const labels = [...document.querySelectorAll(".driver-name-input")]
+    .map(input => input.value.trim())
+    .filter(Boolean);
+  if (!labels.length) {
+    setSourceStatus("Add at least one driver.", "error");
+    return;
+  }
+  const operators = [...document.querySelectorAll(".driver-formula-operator")]
+    .slice(0, Math.max(0, labels.length - 1))
+    .map(input => ["+", "-", "*", "/"].includes(input.value) ? input.value : "+");
+  const childIds = labels.map((label, index) => createMetricFromFlowLabel(label, {
+    unit: definition.unit || "currency",
+    color: index === 0 ? "#4f7fb8" : index === 1 ? "#6fa76b" : "#7b6fb8",
+  })).filter(Boolean);
+  childIds.forEach(childId => ensureRevenueExampleDimensions(childId));
+  definition.bottomUp = {
+    type: "arithmetic",
+    inputs: childIds,
+    operators,
+  };
+  definition.reconciliation = { enabled: true, tolerance: definition.reconciliation?.tolerance || 1 };
+  state.selectedMetricId = metricId;
+  state.selectedDimensionContext = null;
+  state.metricWorkspaceMode = "children";
+  state.homeDriverSetupOpen = false;
+  state.activeScreen = "model";
+  state.canvasViewMode = "chart";
+  catalogSourceIsDirty = false;
+  setSourceStatus(`${definition.label} drivers created. Review the new driver map on the canvas.`, "success");
+  showCanvasFocusMode();
+}
+
+function stepHomeYear(which, delta) {
+  const inputId = which === "start" ? "home-start-year-input" : "home-end-year-input";
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.value = String(Number(input.value || 0) + Number(delta || 0));
+  applyHomeYearRange();
 }
 
 function disposeMetricWorkspaceCharts() {
@@ -4306,6 +5258,11 @@ function clearAncestorControlPointsForCoordinate(metricId, coordinate) {
 
 function syncWorkspaceTotalsAfterDimensionMemberEdit(definition, mixContext) {
   const metric = ensureMetricScenario(definition.id);
+  if (metric.controlPoints && typeof metric.controlPoints === "object") {
+    delete metric.controlPoints[TOTAL_COORDINATE_KEY];
+    if (!Object.keys(metric.controlPoints).length) delete metric.controlPoints;
+  }
+  delete metric.manualControlPoints;
   if (metric.dimensionShareControlPointsByContext) {
     delete metric.dimensionShareControlPointsByContext[dimensionMixControlKey(mixContext)];
     if (!Object.keys(metric.dimensionShareControlPointsByContext).length) {
@@ -4778,43 +5735,64 @@ function deleteAssumption(assumptionId) {
   render();
 }
 
-function referenceSnapshotMatchesCurrent(role) {
-  const reference = referenceScenarios()[role];
-  if (!reference?.snapshot) return false;
-  return JSON.stringify(reference.snapshot.metrics || {}) === JSON.stringify(scenarioSnapshot().metrics || {});
+function metricReferenceSnapshot(metricId) {
+  const definition = metricDefinitions()[metricId];
+  if (!definition) return null;
+  const metric = metricScenario(metricId);
+  const series = metricTopDownSeries(metricId).map(value => Number(value || 0));
+  const topDown = metricIsLagged(definition)
+    ? null
+    : normalizeSeriesMap(definition, metric.topDown);
+  return { series, topDown };
+}
+
+function metricReferenceMatchesCurrent(role, metricId = state.selectedMetricId) {
+  const reference = metricReference(metricId, role);
+  const snapshot = metricReferenceSnapshot(metricId);
+  if (!reference || !snapshot) return false;
+  return JSON.stringify({
+    series: reference.series || null,
+    topDown: reference.topDown || null,
+  }) === JSON.stringify(snapshot);
 }
 
 function setReferenceScenario(role) {
   if (!["bau", "target"].includes(role)) return;
-  const summary = activeScenarioReconciliationSummary();
+  const metricId = state.selectedMetricId;
+  const definition = metricDefinitions()[metricId];
   const label = role.toUpperCase();
+  if (!definition) {
+    setSourceStatus(`Select a metric before setting ${label}.`, "error");
+    return;
+  }
+  const summary = metricReconciliation(metricId);
   if (!summary.matched) {
     setSourceStatus(
-      `${label} can only be set when top-down and bottom-up match. Resolve ${summary.openMetricCount} open metric${summary.openMetricCount === 1 ? "" : "s"} first.`,
+      `${label} can only be set for ${definition.label} when its top-down and bottom-up match.`,
       "error"
     );
     return;
   }
-  if (referenceSnapshotMatchesCurrent(role)) {
-    setSourceStatus(`Current scenario already matches ${label}.`, "success");
+  if (metricReferenceMatchesCurrent(role, metricId)) {
+    setSourceStatus(`${definition.label} already matches ${label}.`, "success");
     return;
   }
-  const source = scenarioSnapshot();
+  const snapshot = metricReferenceSnapshot(metricId);
   const timestamp = new Date().toISOString();
-  const reference = {
-    id: `${role}-${timestamp.replace(/[^0-9]/g, "")}`,
+  if (!metricReferences()[metricId]) metricReferences()[metricId] = {};
+  metricReferences()[metricId][role] = {
     role,
-    name: label,
-    assignedAt: timestamp,
-    sourceScenarioId: source.id,
-    sourceScenarioName: source.name || source.id,
-    sourceScenarioUpdatedAt: source.updatedAt || null,
-    snapshot: source,
+    metricId,
+    metricLabel: definition.label,
+    setAt: timestamp,
+    sourceScenarioId: activeScenarioId(),
+    sourceScenarioName: scenario().name || activeScenarioId(),
+    sourceScenarioUpdatedAt: scenario().updatedAt || null,
+    series: snapshot.series,
+    topDown: snapshot.topDown,
   };
-  referenceScenarios()[role] = reference;
-  scenarioRoles()[role] = reference.id;
   catalogSourceIsDirty = false;
-  setSourceStatus(`${label} set from ${source.name || source.id}.`, "success");
+  setSourceStatus(`${label} set for ${definition.label}.`, "success");
   render();
 }
 
@@ -4909,6 +5887,9 @@ function normalizeImportedModel(rawModel) {
   const importedRoles = rawModel.scenarioRoles && typeof rawModel.scenarioRoles === "object"
     ? rawModel.scenarioRoles
     : {};
+  const importedMetricReferences = rawModel.metricReferences && typeof rawModel.metricReferences === "object"
+    ? rawModel.metricReferences
+    : {};
 
   return {
     name: rawModel.name || "Custom Model",
@@ -4919,6 +5900,8 @@ function normalizeImportedModel(rawModel) {
       target: referenceScenariosValue.target?.id || importedRoles.target || null,
     },
     referenceScenarios: referenceScenariosValue,
+    metricReferences: importedMetricReferences,
+    modelBrief: rawModel.modelBrief && typeof rawModel.modelBrief === "object" ? rawModel.modelBrief : {},
     dimensions: rawModel.dimensions || {},
     metricDefinitions: definitions,
     assumptions: Array.isArray(rawModel.assumptions) ? rawModel.assumptions.map(normalizeAssumption) : [],
@@ -5054,11 +6037,772 @@ function renderCanvas() {
 function renderCanvasViewToggle() {
   const toggle = document.getElementById("canvas-view-toggle");
   if (!toggle) return;
-  toggle.innerHTML = ["number", "chart"].map(mode => `
+  const selectedMetricExists = Boolean(selectedDefinition());
+  toggle.innerHTML = `
+    ${["number", "chart"].map(mode => `
     <button class="view-toggle-button ${state.canvasViewMode === mode ? "active" : ""}" type="button" data-canvas-view-mode="${mode}">
       ${mode === "number" ? "Numbers" : "Charts"}
     </button>
-  `).join("");
+    `).join("")}
+    <button class="view-toggle-button canvas-inspect-button" type="button" data-canvas-action="inspect" ${selectedMetricExists ? "" : "disabled"}>Inspect Metric</button>
+    <button class="view-toggle-button" type="button" data-canvas-action="${state.canvasFocusMode ? "show-workspace" : "focus"}">${state.canvasFocusMode ? "Show Workspace" : "Focus Canvas"}</button>
+  `;
+}
+
+function workspaceDrawerSelectedSummary() {
+  const definition = selectedDefinition();
+  if (!definition) {
+    return {
+      label: "No metric selected",
+      caption: "Select a tile to inspect and edit its model.",
+      value: "-",
+      status: "Idle",
+    };
+  }
+  const reconciliation = metricReconciliation(definition.id);
+  const series = metricTopDownSeries(definition.id);
+  const children = childIds(definition.id);
+  const dimensionIds = metricDimensionIds(definition.id);
+  return {
+    label: definition.label,
+    caption: [
+      children.length ? `${children.length} driver${children.length === 1 ? "" : "s"}` : "Manual series",
+      dimensionIds.length ? `${dimensionIds.length} dimension level${dimensionIds.length === 1 ? "" : "s"}` : "",
+      metricFlowType(definition),
+    ].filter(Boolean).join(" | "),
+    value: formatMetricValue(definition, series[series.length - 1], { precise: true }),
+    status: reconciliation.enabled ? reconciliation.matched ? "Matched" : "Open gap" : "Manual",
+  };
+}
+
+function renderWorkspaceDrawer() {
+  const drawer = document.getElementById("workspace-drawer");
+  if (!drawer) return;
+  const height = ["collapsed", "medium", "full"].includes(state.workspaceDrawerHeight)
+    ? state.workspaceDrawerHeight
+    : "collapsed";
+  const summary = workspaceDrawerSelectedSummary();
+  drawer.className = `workspace-drawer ${height}`;
+  const title = document.getElementById("workspace-drawer-title");
+  const caption = document.getElementById("workspace-drawer-caption");
+  const status = document.getElementById("workspace-drawer-status");
+  const value = document.getElementById("workspace-drawer-value");
+  const actions = document.getElementById("workspace-drawer-actions");
+  const body = document.getElementById("workspace-drawer-body");
+  if (title) title.textContent = summary.label;
+  if (caption) caption.textContent = summary.caption;
+  if (status) status.textContent = summary.status;
+  if (value) value.textContent = summary.value;
+  if (actions) {
+    actions.innerHTML = [
+      ["collapsed", "Bar"],
+      ["medium", "Half"],
+      ["full", "Full"],
+    ].map(([mode, label]) => `
+      <button type="button" data-workspace-drawer-height="${mode}" class="${height === mode ? "active" : ""}" aria-pressed="${height === mode}">
+        ${label}
+      </button>
+    `).join("");
+  }
+  disposeDrawerNapkinChart();
+  if (body) body.innerHTML = renderWorkspaceDrawerBody();
+  if (height !== "collapsed") {
+    renderDrawerNapkinChart();
+  }
+}
+
+function renderWorkspaceDrawerBody() {
+  const nodeKey = selectedNodeKey();
+  const parsed = nodeKey ? parseNodeKey(nodeKey) : null;
+  const definition = parsed ? metricDefinitions()[parsed.metricId] : null;
+  if (!nodeKey || !definition) {
+    return `
+      <div class="workspace-drawer-empty">
+        <strong>Select a metric tile</strong>
+        <span>The bottom shell will focus on that one metric's setup.</span>
+      </div>
+    `;
+  }
+  const chartMode = drawerPrimaryChartMode(definition);
+  const chartTitle = drawerPrimaryChartTitle(definition, chartMode);
+  const chartCaption = drawerPrimaryChartCaption(definition, chartMode);
+  const showYAxisControls = chartMode !== "dimension-pct-total";
+  return `
+    <div class="workspace-drawer-template">
+      <section class="workspace-drawer-template-header">
+        <span>Focused Metric Workspace</span>
+        <strong>${escapeHtml(definition.label)}</strong>
+        <small>Template area for a single-metric editing experience.</small>
+      </section>
+      <section class="workspace-drawer-chart-slot">
+        <div class="workspace-drawer-chart-header">
+          <strong>${escapeHtml(chartTitle)}</strong>
+          <span>${escapeHtml(chartCaption)}</span>
+          ${showYAxisControls ? yAxisButtonRow("drawer-topdown", "Drawer chart Y axis controls") : ""}
+        </div>
+        <div class="workspace-drawer-chart-body">
+          <div id="workspace-drawer-topdown-chart" class="workspace-drawer-napkin-chart"></div>
+        </div>
+      </section>
+      <section class="workspace-drawer-chart-slot">
+        <div class="workspace-drawer-chart-header">
+          <strong>Chart 1 Settings</strong>
+        </div>
+        <div class="workspace-drawer-chart-body settings">
+          ${renderDrawerChartSettings(definition)}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderDrawerChartSettings(definition) {
+  const selectedView = state.drawerChartSettingsView === "dimensioned" ? "dimensioned" : "total";
+  const selectedDimensionChartView = state.drawerDimensionChartView === "pctTotal" ? "pctTotal" : "total";
+  const dimensions = metricDimensionIds(definition.id)
+    .map((dimensionId, index) => ({
+      index,
+      dimensionId,
+      dimension: dimensionDefinitions()[dimensionId],
+    }))
+    .filter(item => item.dimension);
+  return `
+    <div class="workspace-drawer-chart-settings">
+      <div class="workspace-drawer-pill-row" aria-label="Chart 1 display mode">
+        ${[
+          ["total", "Total"],
+          ["dimensioned", "Dimensioned"],
+        ].map(([view, label]) => `
+          <button type="button" data-drawer-chart-settings-view="${view}" class="${selectedView === view ? "active" : ""}" aria-pressed="${selectedView === view}">
+            ${label}
+          </button>
+        `).join("")}
+      </div>
+      <div class="workspace-drawer-settings-placeholder ${selectedView}">
+        ${selectedView === "dimensioned" ? `
+          <div class="workspace-drawer-settings-control-row">
+            <div class="workspace-drawer-pill-row compact" aria-label="Dimensioned chart type">
+              ${[
+                ["total", "Total"],
+                ["pctTotal", "% Total"],
+              ].map(([view, label]) => `
+                <button type="button" data-drawer-dimension-chart-view="${view}" class="${selectedDimensionChartView === view ? "active" : ""}" aria-pressed="${selectedDimensionChartView === view}" ${dimensions.length ? "" : "disabled"}>
+                  ${label}
+                </button>
+              `).join("")}
+            </div>
+          </div>
+          <div class="workspace-drawer-settings-scroll">
+            ${dimensions.length ? renderDrawerDimensionHierarchy(definition, dimensions) : `<small>No dimensions assigned to this metric yet.</small>`}
+          </div>
+        ` : `
+          <div class="workspace-drawer-settings-scroll">
+            <span>Showing the selected metric as one top-down line.</span>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderDrawerDimensionHierarchy(definition, dimensions) {
+  const activeContext = drawerDimensionContext(definition);
+  const activeLevelIndex = activeContext
+    ? dimensions.findIndex(item => item.dimensionId === activeContext.dimensionId)
+    : -1;
+  const filters = drawerDimensionFiltersForMetric(definition.id);
+  return `
+    <div class="workspace-drawer-dimension-hierarchy">
+      ${renderDrawerDimensionBreadcrumb(definition, dimensions, filters)}
+      ${dimensions.map(({ index, dimensionId, dimension }) => {
+        const members = dimensionMembers(dimensionId);
+        const selectedMemberIds = filterValueList(filters[dimensionId]);
+        const isFilteredLevel = selectedMemberIds.length > 0;
+        const isActiveLevel = activeContext?.dimensionId === dimensionId;
+        const isFutureLevel = activeLevelIndex >= 0 && index > activeLevelIndex;
+        return `
+          <div class="workspace-drawer-dimension-level ${isActiveLevel ? "active" : ""} ${isFutureLevel ? "future" : ""} ${isFilteredLevel ? "filtered" : ""}">
+            <div class="workspace-drawer-dimension-level-heading">
+              <b>Level ${index + 1}</b>
+              <strong>${escapeHtml(dimension.label)}</strong>
+              <small>${isActiveLevel ? "Shown in Chart 1" : isFilteredLevel ? "Filtered" : "Next-level context"}</small>
+            </div>
+            <div class="workspace-drawer-member-pill-grid">
+              ${members.map(member => {
+                const mode = isActiveLevel ? drawerDimensionMemberMode(definition.id, dimensionId, member.id, activeContext.baseKey) : "future";
+                const memberIsSelected = isFilteredLevel && selectedMemberIds.includes(member.id);
+                const canDrill = isActiveLevel && index < dimensions.length - 1;
+                return isActiveLevel ? `
+                  <span class="workspace-drawer-member-pill ${mode}">
+                    <i style="--member-color: ${escapeHtml(dimensionMemberColor(members, member.id))}"></i>
+                    <button
+                      type="button"
+                      class="workspace-drawer-member-drill"
+                      data-drawer-dimension-drill="${escapeHtml(member.id)}"
+                      data-drawer-dimension-id="${escapeHtml(dimensionId)}"
+                      ${canDrill ? "" : "disabled"}
+                      title="${canDrill ? "Drill into this member" : "Deepest level"}"
+                    >${escapeHtml(member.label)}</button>
+                    ${canDrill ? `
+                      <button
+                        type="button"
+                        class="workspace-drawer-member-add"
+                        data-drawer-dimension-add="${escapeHtml(member.id)}"
+                        data-drawer-dimension-id="${escapeHtml(dimensionId)}"
+                        title="Add or remove this member from the drill filter"
+                      >+</button>
+                    ` : ""}
+                    <button
+                      type="button"
+                      class="workspace-drawer-member-state"
+                      data-drawer-dimension-member-toggle="${escapeHtml(member.id)}"
+                      data-drawer-dimension-id="${escapeHtml(dimensionId)}"
+                      title="Click to cycle: On, muted, off"
+                    >${escapeHtml(drawerDimensionMemberModeLabel(mode))}</button>
+                  </span>
+                ` : isFilteredLevel ? `
+                  <button
+                    type="button"
+                    class="workspace-drawer-member-pill ${memberIsSelected ? "selected" : "inactive"}"
+                    data-drawer-dimension-add="${escapeHtml(member.id)}"
+                    data-drawer-dimension-id="${escapeHtml(dimensionId)}"
+                    title="Add or remove this member from the drill filter"
+                  >
+                    <i style="--member-color: ${escapeHtml(dimensionMemberColor(members, member.id))}"></i>
+                    <span>${escapeHtml(member.label)}</span>
+                  </button>
+                ` : `
+                  <span class="workspace-drawer-member-pill future ${memberIsSelected ? "selected" : ""}">
+                    <i style="--member-color: ${escapeHtml(dimensionMemberColor(members, member.id))}"></i>
+                    <span>${escapeHtml(member.label)}</span>
+                  </span>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderDrawerDimensionBreadcrumb(definition, dimensions, filters) {
+  const crumbs = [`<button type="button" data-drawer-dimension-breadcrumb-depth="0">Total</button>`];
+  dimensions.forEach(({ index, dimensionId, dimension }) => {
+    const memberIds = filterValueList(filters[dimensionId]);
+    if (!memberIds.length) return;
+    const members = dimensionMembers(dimensionId);
+    const memberLabel = memberIds
+      .map(memberId => members.find(item => item.id === memberId)?.label || memberId)
+      .join(" + ");
+    crumbs.push(`
+      <button type="button" data-drawer-dimension-breadcrumb-depth="${index + 1}">
+        ${escapeHtml(dimension.label)}: ${escapeHtml(memberLabel)}
+      </button>
+    `);
+  });
+  const activeContext = drawerDimensionContext(definition);
+  if (activeContext) {
+    crumbs.push(`<span>${escapeHtml(activeContext.dimensionLabel)}</span>`);
+  }
+  return `<div class="workspace-drawer-dimension-breadcrumb">${crumbs.join("<i>/</i>")}</div>`;
+}
+
+function drawerDimensionFiltersForMetric(metricId) {
+  if (!metricId) return {};
+  if (!state.drawerDimensionFilters[metricId] || typeof state.drawerDimensionFilters[metricId] !== "object") {
+    state.drawerDimensionFilters[metricId] = {};
+  }
+  const filters = state.drawerDimensionFilters[metricId];
+  const dimensionIds = metricDimensionIds(metricId);
+  Object.keys(filters).forEach(dimensionId => {
+    const validIds = new Set(dimensionMembers(dimensionId).map(member => member.id));
+    const values = filterValueList(filters[dimensionId]).filter(value => validIds.has(value));
+    if (!dimensionIds.includes(dimensionId) || !values.length) {
+      delete filters[dimensionId];
+    } else {
+      filters[dimensionId] = values;
+    }
+  });
+  return filters;
+}
+
+function setDrawerDimensionFilters(metricId, filters = {}) {
+  if (!metricId) return;
+  const dimensionIds = metricDimensionIds(metricId);
+  const nextFilters = {};
+  dimensionIds.forEach(dimensionId => {
+    const validIds = new Set(dimensionMembers(dimensionId).map(member => member.id));
+    const values = filterValueList(filters[dimensionId]).filter(value => validIds.has(value));
+    if (values.length) {
+      nextFilters[dimensionId] = [...new Set(values)];
+    }
+  });
+  state.drawerDimensionFilters[metricId] = nextFilters;
+}
+
+function drawerDimensionContext(definition) {
+  const metricId = definition?.id;
+  const dimensionIds = metricDimensionIds(metricId);
+  if (!metricId || !dimensionIds.length) return null;
+  const baseFilters = drawerDimensionFiltersForMetric(metricId);
+  const dimensionId = dimensionIds.find(id => !filterValueList(baseFilters[id]).length);
+  if (!dimensionId) return null;
+  const members = dimensionMembers(dimensionId);
+  if (!members.length) return null;
+  return {
+    metricId,
+    baseFilters: { ...baseFilters },
+    baseKey: filterKey(baseFilters),
+    dimensionId,
+    dimensionLabel: metricDimensionLevelLabel(metricId, dimensionId),
+    members,
+  };
+}
+
+function drawerDimensionMemberModeKey(metricId, dimensionId, baseKey = "") {
+  return `${metricId || ""}::${baseKey || TOTAL_COORDINATE_KEY}::${dimensionId || ""}`;
+}
+
+function drawerDimensionMemberModes(metricId, dimensionId, baseKey = "") {
+  const key = drawerDimensionMemberModeKey(metricId, dimensionId, baseKey);
+  if (!state.drawerDimensionMemberModes[key] || typeof state.drawerDimensionMemberModes[key] !== "object") {
+    state.drawerDimensionMemberModes[key] = {};
+  }
+  const modes = state.drawerDimensionMemberModes[key];
+  const validMemberIds = new Set(dimensionMembers(dimensionId).map(member => member.id));
+  Object.keys(modes).forEach(memberId => {
+    if (!validMemberIds.has(memberId) || !["on", "muted", "off"].includes(modes[memberId])) {
+      delete modes[memberId];
+    }
+  });
+  return modes;
+}
+
+function drawerDimensionMemberMode(metricId, dimensionId, memberId, baseKey = "") {
+  return drawerDimensionMemberModes(metricId, dimensionId, baseKey)[memberId] || "on";
+}
+
+function drawerDimensionMemberModeLabel(mode) {
+  if (mode === "muted") return "Muted";
+  if (mode === "off") return "Off";
+  return "On";
+}
+
+function cycleDrawerDimensionMemberMode(metricId, dimensionId, memberId, baseKey = "") {
+  const modes = drawerDimensionMemberModes(metricId, dimensionId, baseKey);
+  const current = modes[memberId] || "on";
+  modes[memberId] = current === "on" ? "muted" : current === "muted" ? "off" : "on";
+}
+
+function drawerPrimaryChartMode(definition) {
+  const wantsDimensioned = state.drawerChartSettingsView === "dimensioned";
+  const dimensionContext = drawerDimensionContext(definition);
+  if (!wantsDimensioned || !dimensionContext) return "total";
+  return state.drawerDimensionChartView === "pctTotal" ? "dimension-pct-total" : "dimension-total";
+}
+
+function drawerPrimaryChartTitle(definition, chartMode) {
+  if (chartMode === "dimension-total") {
+    return `${drawerDimensionContext(definition)?.dimensionLabel || "Dimension"} Totals`;
+  }
+  if (chartMode === "dimension-pct-total") {
+    return `${drawerDimensionContext(definition)?.dimensionLabel || "Dimension"} % Total`;
+  }
+  return "Top-Down";
+}
+
+function drawerPrimaryChartCaption(definition, chartMode) {
+  if (chartMode === "dimension-total") return "Editable member lines";
+  if (chartMode === "dimension-pct-total") return "Editable mix";
+  return formatMetricValue(definition, totalSeriesValue(activeTopDownSeries(definition)), { precise: true });
+}
+
+function disposeDrawerNapkinChart() {
+  if (drawerNapkinChart?.chart) {
+    drawerNapkinChart.chart.dispose();
+  }
+  drawerNapkinChart = null;
+  drawerNapkinMetricId = null;
+  drawerNapkinChartKey = null;
+  drawerNapkinIsSyncing = false;
+  drawerNapkinHasPendingCommit = false;
+  if (drawerAreaChart?.chart) {
+    drawerAreaChart.chart.dispose();
+  }
+  drawerAreaChart = null;
+  drawerAreaChartKey = null;
+  drawerAreaIsSyncing = false;
+  drawerAreaHasPendingCommit = false;
+}
+
+function drawerNapkinLine(definition, name = "Top-Down", color = "#111827", data = activeTopDownControlPoints(definition), extra = {}) {
+  return {
+    name,
+    color,
+    data: normalizeNapkinPoints(data),
+    editable: true,
+    editDomain: {
+      moveX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      addX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      deleteX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+    },
+    ...extra,
+  };
+}
+
+function drawerNapkinLines(definition, chartMode) {
+  if (chartMode !== "dimension-total") {
+    return [drawerNapkinLine(definition)];
+  }
+  const dimensionContext = drawerDimensionContext(definition);
+  if (!dimensionContext) return [drawerNapkinLine(definition)];
+  return drawerVisibleDimensionMembers(definition, dimensionContext).flatMap(({ member, mode }) => {
+    const series = metricTopDownFilteredSeries(definition.id, { ...dimensionContext.baseFilters, [dimensionContext.dimensionId]: member.id });
+    const points = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+    return [drawerNapkinLine(
+      definition,
+      member.label,
+      dimensionMemberColor(dimensionContext.members, member.id),
+      points,
+      { memberId: member.id, dimensionId: dimensionContext.dimensionId, editable: mode === "on" }
+    )];
+  });
+}
+
+function drawerVisibleDimensionMembers(definition, dimensionContext = drawerDimensionContext(definition)) {
+  if (!definition || !dimensionContext) return [];
+  return dimensionContext.members
+    .map(member => ({
+      member,
+      mode: drawerDimensionMemberMode(definition.id, dimensionContext.dimensionId, member.id, dimensionContext.baseKey),
+    }))
+    .filter(item => item.mode !== "off");
+}
+
+function drawerDimensionPctBoundaryLines(dimensionContext, visibleMembers) {
+  const chartMembers = dimensionChartMembers(visibleMembers);
+  const sharesByYear = dimensionSharesByYearForContext(
+    dimensionContext.metricId,
+    dimensionContext.dimensionId,
+    visibleMembers,
+    dimensionContext.baseFilters
+  );
+  let cumulative = YEARS.map(() => 0);
+  return chartMembers.slice(0, -1).map((member, memberIndex) => {
+    cumulative = cumulative.map((value, yearIndex) => value + Number(sharesByYear[yearIndex]?.[member.id] || 0));
+    const points = YEARS.map((year, yearIndex) => [year, cumulative[yearIndex] * 100]);
+    return dimensionShareLineObject(member, memberIndex, points, visibleMembers);
+  }).filter(Boolean).reverse();
+}
+
+function drawerDimensionVisibleTotalSeries(dimensionContext, visibleMembers) {
+  return YEARS.map((_year, index) => visibleMembers.reduce((sum, member) => {
+    const series = metricTopDownFilteredSeries(dimensionContext.metricId, {
+      ...dimensionContext.baseFilters,
+      [dimensionContext.dimensionId]: member.id,
+    });
+    return sum + Number(series[index] || 0);
+  }, 0));
+}
+
+function clearDrawerDimensionPctControls(definition, dimensionContext) {
+  const metric = ensureMetricScenario(definition.id);
+  if (metric.dimensionShareControlPointsByContext) {
+    delete metric.dimensionShareControlPointsByContext[dimensionMixControlKey(dimensionContext)];
+    if (!Object.keys(metric.dimensionShareControlPointsByContext).length) {
+      delete metric.dimensionShareControlPointsByContext;
+    }
+  }
+  if (
+    !dimensionContext.baseKey
+    && dimensionContext.dimensionId === primaryDimensionId(dimensionContext.metricId)
+    && metricDimensionIds(dimensionContext.metricId).length === 1
+  ) {
+    delete metric.dimensionShareControlPoints;
+  }
+  if (metric.controlPoints && typeof metric.controlPoints === "object") {
+    delete metric.controlPoints[TOTAL_COORDINATE_KEY];
+    if (!Object.keys(metric.controlPoints).length) delete metric.controlPoints;
+  }
+  delete metric.manualControlPoints;
+}
+
+function syncDrawerNapkinChart() {
+  if (!drawerNapkinChart || !drawerNapkinMetricId || drawerNapkinChart._isDragging) return;
+  const definition = metricDefinitions()[drawerNapkinMetricId];
+  if (!definition) return;
+  const chartMode = drawerPrimaryChartMode(definition);
+  drawerNapkinIsSyncing = true;
+  drawerNapkinChart.lines = drawerNapkinLines(definition, chartMode);
+  drawerNapkinChart.globalMaxX = YEARS[YEARS.length - 1];
+  drawerNapkinChart.windowStartX = YEARS[0];
+  drawerNapkinChart.windowEndX = YEARS[YEARS.length - 1];
+  drawerNapkinChart._refreshChart();
+  drawerNapkinIsSyncing = false;
+}
+
+function applyDrawerNapkinYAxisMax(nextYMax) {
+  if (!drawerNapkinChart?.baseOption?.yAxis || !Number.isFinite(nextYMax)) return;
+  const yMin = Number(drawerNapkinChart.baseOption.yAxis.min ?? 0);
+  if (Number.isFinite(yMin) && nextYMax <= yMin) return;
+  state.drawerNapkinYMax = nextYMax;
+  drawerNapkinIsSyncing = true;
+  drawerNapkinChart.baseOption.yAxis.max = nextYMax;
+  drawerNapkinChart.chart.setOption({ yAxis: { max: nextYMax } }, false);
+  drawerNapkinChart._refreshChart();
+  drawerNapkinIsSyncing = false;
+}
+
+function handleDrawerNapkinYAxisAction(action) {
+  const yMax = Number(drawerNapkinChart?.baseOption?.yAxis?.max);
+  if (!Number.isFinite(yMax)) return;
+  if (action === "large-up") {
+    applyDrawerNapkinYAxisMax(yMax * 10);
+  } else if (action === "large-down") {
+    applyDrawerNapkinYAxisMax(yMax / 10);
+  } else if (action === "small-up") {
+    applyDrawerNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "up"));
+  } else if (action === "small-down") {
+    applyDrawerNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "down"));
+  }
+}
+
+function applyDrawerNapkinLines(definition) {
+  if (!drawerNapkinChart?.lines?.length || !definition) return;
+  const chartMode = drawerPrimaryChartMode(definition);
+  if (chartMode === "dimension-total") {
+    const dimensionContext = drawerDimensionContext(definition);
+    drawerNapkinChart.lines.forEach(line => {
+      if (!line.memberId || !line.dimensionId) return;
+      const nextSeries = seriesFromControlPoints(normalizeNapkinPoints(line.data));
+      setMetricTopDownFilteredSeries(definition.id, { ...(dimensionContext?.baseFilters || {}), [line.dimensionId]: line.memberId }, nextSeries);
+    });
+    if (dimensionContext) {
+      syncWorkspaceTotalsAfterDimensionMemberEdit(definition, dimensionContext);
+    }
+    return;
+  }
+  const nextPoints = normalizeNapkinPoints(drawerNapkinChart.lines[0].data);
+  setActiveTopDownSeries(definition, nextPoints);
+}
+
+function commitDrawerNapkinEdit(definition) {
+  if (!drawerNapkinChart?.lines?.length || !definition) return;
+  applyDrawerNapkinLines(definition);
+  drawerNapkinHasPendingCommit = false;
+  catalogSourceIsDirty = false;
+  renderMetricList();
+  renderCanvas();
+  renderWorkspaceDrawer();
+  renderCatalogSource();
+  requestAnimationFrame(renderCanvasLines);
+}
+
+function renderDrawerNapkinChart() {
+  const container = document.getElementById("workspace-drawer-topdown-chart");
+  const definition = selectedDefinition();
+  if (!container || !definition) return;
+  const chartMode = drawerPrimaryChartMode(definition);
+  if (chartMode === "dimension-pct-total") {
+    renderDrawerDimensionPctChart(definition);
+    return;
+  }
+  if (typeof NapkinChart !== "function" || !window.echarts) {
+    container.innerHTML = `<div class="chart-empty">NapkinChart did not load.</div>`;
+    return;
+  }
+
+  const chartContext = drawerDimensionContext(definition);
+  const chartKey = `${definition.id}:${chartMode}:${chartContext?.dimensionId || ""}:${chartContext?.baseKey || ""}`;
+  if (drawerNapkinMetricId === definition.id && drawerNapkinChartKey === chartKey && drawerNapkinChart) {
+    syncDrawerNapkinChart();
+    return;
+  }
+
+  if (drawerAreaChart?.chart) {
+    drawerAreaChart.chart.dispose();
+    drawerAreaChart = null;
+    drawerAreaChartKey = null;
+  }
+  if (drawerNapkinChart?.chart) {
+    drawerNapkinChart.chart.dispose();
+  }
+  const lines = drawerNapkinLines(definition, chartMode);
+  const allValues = lines.flatMap(line => line.data.map(point => Number(point[1] || 0)));
+  const snappedYMax = snapSafeNapkinYMax(Math.max(10, ...allValues) * 1.25);
+  const yMax = Number.isFinite(state.drawerNapkinYMax)
+    ? Math.max(state.drawerNapkinYMax, snappedYMax)
+    : snappedYMax;
+  drawerNapkinMetricId = definition.id;
+  drawerNapkinChartKey = chartKey;
+  drawerNapkinChart = new NapkinChart(
+    "workspace-drawer-topdown-chart",
+    lines,
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
+      grid: { left: 12, right: 18, top: 16, bottom: 30, containLabel: true },
+      tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
+    },
+    "none",
+    false
+  );
+  syncDrawerNapkinChart();
+
+  drawerNapkinChart.chart.getZr().on("mouseup", () => {
+    if (!drawerNapkinHasPendingCommit) return;
+    requestAnimationFrame(() => commitDrawerNapkinEdit(definition));
+  });
+
+  drawerNapkinChart.onDataChanged = () => {
+    if (drawerNapkinIsSyncing || !drawerNapkinChart?.lines?.length) return;
+    applyDrawerNapkinLines(definition);
+    if (drawerNapkinChart._isDragging) {
+      drawerNapkinHasPendingCommit = true;
+      renderCanvas();
+      requestAnimationFrame(renderCanvasLines);
+      return;
+    }
+    commitDrawerNapkinEdit(definition);
+  };
+}
+
+function syncDrawerDimensionPctChart(definition) {
+  if (!drawerAreaChart || drawerAreaChart._isDragging) return;
+  const dimensionContext = drawerDimensionContext(definition);
+  if (!dimensionContext) return;
+  const visibleMembers = drawerVisibleDimensionMembers(definition, dimensionContext).map(item => item.member);
+  const topMember = visibleMembers[0];
+  drawerAreaIsSyncing = true;
+  drawerAreaChart.lines = drawerDimensionPctBoundaryLines(dimensionContext, visibleMembers);
+  drawerAreaChart.topAreaLabel = topMember?.label || "";
+  drawerAreaChart.topAreaColor = topMember ? dimensionMemberColor(dimensionContext.members, topMember.id) : "#4f7fb8";
+  drawerAreaChart.baseOption.topAreaLabel = drawerAreaChart.topAreaLabel;
+  drawerAreaChart.baseOption.topAreaColor = drawerAreaChart.topAreaColor;
+  drawerAreaChart.globalMaxX = YEARS[YEARS.length - 1];
+  drawerAreaChart.windowStartX = YEARS[0];
+  drawerAreaChart.windowEndX = YEARS[YEARS.length - 1];
+  drawerAreaChart._refreshChart();
+  drawerAreaChart.resize();
+  drawerAreaIsSyncing = false;
+}
+
+function applyDrawerDimensionPctLines(definition) {
+  const dimensionContext = drawerDimensionContext(definition);
+  if (!definition || !dimensionContext || !drawerAreaChart?.lines) return;
+  const visibleMembers = drawerVisibleDimensionMembers(definition, dimensionContext).map(item => item.member);
+  if (visibleMembers.length < 2) return;
+  const metric = ensureMetricScenario(definition.id);
+  const visibleTotals = drawerDimensionVisibleTotalSeries(dimensionContext, visibleMembers);
+  const sharesByYear = dimensionSharesFromBoundaryLines(drawerAreaChart.lines, visibleMembers);
+  const allCoordinateKeys = metricCoordinateKeys(dimensionContext.metricId);
+  metric.topDown = normalizeSeriesMap(definition, metric.topDown);
+
+  visibleMembers.forEach(member => {
+    const memberFilters = { ...dimensionContext.baseFilters, [dimensionContext.dimensionId]: member.id };
+    const memberKeys = allCoordinateKeys.filter(key => coordinateMatchesFilters(key, memberFilters));
+    const targetKeys = memberKeys.length ? memberKeys : [coordinateKey(memberFilters)];
+    const currentByCoordinate = Object.fromEntries(targetKeys.map(key => [key, metricTopDownCoordinateSeries(dimensionContext.metricId, key)]));
+    const deeperSharesByYear = coordinateShareByYear(targetKeys, currentByCoordinate);
+    const memberTotals = YEARS.map((_year, index) => Number(visibleTotals[index] || 0) * Number(sharesByYear[index]?.[member.id] || 0));
+    targetKeys.forEach(key => {
+      metric.topDown[key] = metricIsRate(definition)
+        ? [...memberTotals]
+        : YEARS.map((_year, index) => Number(memberTotals[index] || 0) * Number(deeperSharesByYear[index]?.[key] || 0));
+    });
+  });
+  clearDrawerDimensionPctControls(definition, dimensionContext);
+  clearCalculationCache();
+}
+
+function commitDrawerDimensionPctEdit(definition) {
+  applyDrawerDimensionPctLines(definition);
+  drawerAreaHasPendingCommit = false;
+  catalogSourceIsDirty = false;
+  renderMetricList();
+  renderCanvas();
+  renderWorkspaceDrawer();
+  renderCatalogSource();
+  requestAnimationFrame(renderCanvasLines);
+}
+
+function renderDrawerDimensionPctChart(definition) {
+  const container = document.getElementById("workspace-drawer-topdown-chart");
+  const dimensionContext = drawerDimensionContext(definition);
+  if (!container || !definition || !dimensionContext) return;
+  const visibleMembers = drawerVisibleDimensionMembers(definition, dimensionContext).map(item => item.member);
+  if (visibleMembers.length < 2) {
+    container.innerHTML = `<div class="chart-empty">At least two shown members are needed for % total.</div>`;
+    return;
+  }
+  if (typeof NapkinChartArea !== "function" || !window.echarts) {
+    container.innerHTML = `<div class="chart-empty">NapkinChartArea did not load.</div>`;
+    return;
+  }
+
+  const visibleKey = visibleMembers.map(member => member.id).join("~");
+  const chartKey = `${definition.id}:dimension-pct-total:${dimensionContext.dimensionId}:${dimensionContext.baseKey || ""}:${visibleKey}`;
+  if (drawerAreaChartKey === chartKey && drawerAreaChart) {
+    syncDrawerDimensionPctChart(definition);
+    return;
+  }
+
+  if (drawerNapkinChart?.chart) {
+    drawerNapkinChart.chart.dispose();
+    drawerNapkinChart = null;
+    drawerNapkinMetricId = null;
+    drawerNapkinChartKey = null;
+  }
+  if (drawerAreaChart?.chart) {
+    drawerAreaChart.chart.dispose();
+  }
+  container.innerHTML = "";
+  const topMember = visibleMembers[0];
+  drawerAreaChartKey = chartKey;
+  drawerAreaChart = new NapkinChartArea(
+    "workspace-drawer-topdown-chart",
+    drawerDimensionPctBoundaryLines(dimensionContext, visibleMembers),
+    true,
+    {
+      animation: false,
+      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 100,
+        axisLabel: { formatter: value => `${Number(value || 0).toFixed(0)}%` },
+      },
+      topAreaLabel: topMember?.label || "",
+      topAreaColor: topMember ? dimensionMemberColor(dimensionContext.members, topMember.id) : "#4f7fb8",
+      areaTint: 0.42,
+      grid: { left: 12, right: 18, top: 16, bottom: 30, containLabel: true },
+      tooltip: { trigger: "axis", valueFormatter: value => `${Number(value || 0).toFixed(1)}%` },
+    },
+    "none",
+    false
+  );
+  drawerAreaChart.enableZoomBar = false;
+  syncDrawerDimensionPctChart(definition);
+
+  drawerAreaChart.chart.getZr().on("mouseup", () => {
+    if (!drawerAreaHasPendingCommit) return;
+    requestAnimationFrame(() => commitDrawerDimensionPctEdit(definition));
+  });
+
+  drawerAreaChart.onDataChanged = () => {
+    if (drawerAreaIsSyncing || !drawerAreaChart?.lines) return;
+    applyDrawerDimensionPctLines(definition);
+    if (drawerAreaChart._isDragging) {
+      drawerAreaHasPendingCommit = true;
+      renderCanvas();
+      requestAnimationFrame(renderCanvasLines);
+      return;
+    }
+    commitDrawerDimensionPctEdit(definition);
+  };
 }
 
 function inlineChartPath(values, minValue, maxValue, width, height, margin) {
@@ -5083,18 +6827,245 @@ function renderInlineMetricChart(definition, topDown, bottomUp = null) {
   const zeroY = margin.top + ((maxValue - 0) / (maxValue - minValue || 1)) * (height - margin.top - margin.bottom);
   const topDownPath = inlineChartPath(topDown, minValue, maxValue, width, height, margin);
   const bottomUpPath = bottomUp ? inlineChartPath(bottomUp, minValue, maxValue, width, height, margin) : "";
+  const anchorYear = Number(state.anchorYear || DEFAULT_ANCHOR_YEAR);
+  const anchorIndex = YEARS.indexOf(anchorYear);
+  const anchorValue = anchorIndex >= 0 ? Number(topDown[anchorIndex] || 0) : null;
+  const anchorX = anchorIndex >= 0
+    ? margin.left + (topDown.length === 1 ? 0 : (anchorIndex / (topDown.length - 1)) * (width - margin.left - margin.right))
+    : null;
+  const anchorY = anchorValue !== null
+    ? margin.top + ((maxValue - anchorValue) / (maxValue - minValue || 1)) * (height - margin.top - margin.bottom)
+    : null;
+  const anchorMarkup = anchorX !== null && anchorY !== null
+    ? `
+      <span class="metric-node-anchor ${anchorX > width * 0.72 ? "align-right" : ""}" style="left: ${(anchorX / width) * 100}%; top: ${(anchorY / height) * 100}%;">
+        <i></i>
+        <b>${escapeHtml(formatMetricValue(definition, anchorValue))}</b>
+      </span>
+    `
+    : "";
   return `
     <div class="metric-node-chart" aria-hidden="true">
-      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-        <line x1="${margin.left}" y1="${trimFixed(zeroY, 2)}" x2="${width - margin.right}" y2="${trimFixed(zeroY, 2)}" class="metric-node-chart-axis"></line>
-        <path d="${topDownPath}" class="metric-node-chart-line top-down"></path>
-        ${bottomUp ? `<path d="${bottomUpPath}" class="metric-node-chart-line bottom-up"></path>` : ""}
-      </svg>
+      <div class="metric-node-chart-plot">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+          <line x1="${margin.left}" y1="${trimFixed(zeroY, 2)}" x2="${width - margin.right}" y2="${trimFixed(zeroY, 2)}" class="metric-node-chart-axis"></line>
+          <path d="${topDownPath}" class="metric-node-chart-line top-down"></path>
+          ${bottomUp ? `<path d="${bottomUpPath}" class="metric-node-chart-line bottom-up"></path>` : ""}
+        </svg>
+        ${anchorMarkup}
+      </div>
       <div class="metric-node-chart-legend">
         <span><i class="legend-line top-down"></i>Top</span>
         ${bottomUp ? `<span><i class="legend-line bottom-up"></i>Bottom</span>` : ""}
       </div>
     </div>
+  `;
+}
+
+function renderCanvasNodeBackPanelButton(nodeKey, panelId, label) {
+  const selected = state.selectedCanvasBackPanel === panelId;
+  return `
+    <button class="${selected ? "active" : ""}" type="button" data-node-key="${escapeHtml(nodeKey)}" data-node-back-panel="${escapeHtml(panelId)}" aria-pressed="${selected}">
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function renderCanvasNodeFormatToggle(nodeKey, definition) {
+  const selectedFormat = metricDisplayFormat(definition);
+  const options = [
+    ["count", "#"],
+    ["currency", "$"],
+    ["percent", "%"],
+  ];
+  return `
+    <span class="metric-node-format-toggle" aria-label="Metric display format">
+      ${options.map(([format, label]) => `
+        <button type="button" data-node-format="${escapeHtml(nodeKey)}" data-format="${escapeHtml(format)}" class="${selectedFormat === format ? "active" : ""}" aria-pressed="${selectedFormat === format}">
+          ${escapeHtml(label)}
+        </button>
+      `).join("")}
+    </span>
+  `;
+}
+
+function renderCanvasNodeFlowToggle(nodeKey, definition) {
+  const selectedFlowType = metricFlowType(definition);
+  const lockedReason = metricFlowTypeLockedReason(definition);
+  const disabled = Boolean(lockedReason);
+  return `
+    <span class="metric-node-flow-toggle" aria-label="Metric flow behavior" title="${escapeHtml(lockedReason)}">
+      ${["flow", "rate"].map(flowType => `
+        <button type="button" data-node-flow-type="${escapeHtml(nodeKey)}" data-flow-type="${flowType}" class="${selectedFlowType === flowType ? "active" : ""}" aria-pressed="${selectedFlowType === flowType}" ${disabled ? "disabled" : ""}>
+          ${flowType === "flow" ? "Flow" : "Rate"}
+        </button>
+      `).join("")}
+    </span>
+  `;
+}
+
+function selectedCanvasBackPanelLabel() {
+  if (state.selectedCanvasBackPanel === "dimensions") return "Dimensions";
+  if (state.selectedCanvasBackPanel === "assumptions") return "Assumptions";
+  return "Drivers";
+}
+
+function canvasBackDriverOptions(definition) {
+  const selectedInputs = new Set(metricInputIds(definition));
+  const blockedInputs = descendantIds(definition.id);
+  blockedInputs.add(definition.id);
+  return Object.values(metricDefinitions()).filter(candidate => selectedInputs.has(candidate.id) || !blockedInputs.has(candidate.id));
+}
+
+function resolveMetricSearchValue(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+  const definitions = metricDefinitions();
+  if (definitions[trimmed]) return trimmed;
+  const normalized = trimmed.toLowerCase();
+  return Object.values(definitions).find(definition => String(definition.label || "").trim().toLowerCase() === normalized)?.id || null;
+}
+
+function resolveDimensionSearchValue(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+  const dimensions = dimensionDefinitions();
+  if (dimensions[trimmed]) return trimmed;
+  const normalized = trimmed.toLowerCase();
+  return Object.values(dimensions).find(dimension => String(dimension.label || "").trim().toLowerCase() === normalized)?.id || null;
+}
+
+function createDimensionFromTileLabel(label, membersText = "") {
+  const trimmed = String(label || "").trim();
+  if (!trimmed) return null;
+  const existingId = resolveDimensionSearchValue(trimmed);
+  if (existingId) return existingId;
+  const members = normalizeDimensionMembersFromText(membersText);
+  if (!members.length) {
+    setSourceStatus("New dimensions need comma-separated members before they can be added.", "error");
+    return null;
+  }
+  const id = uniqueDimensionId(trimmed);
+  dimensionDefinitions()[id] = {
+    id,
+    label: trimmed,
+    members,
+  };
+  state.selectedDimensionId = id;
+  return id;
+}
+
+function renderCanvasNodeDriversPanel(nodeKey, definition) {
+  const formulaType = ["sum", "product", "difference"].includes(definition.bottomUp?.type)
+    ? "arithmetic"
+    : definition.bottomUp?.type || "";
+  const selectedInputIds = metricInputIds(definition);
+  const selectedInputs = new Set(selectedInputIds);
+  const operators = arithmeticOperators(definition);
+  const selectedOptions = selectedInputIds
+    .map(inputId => metricDefinitions()[inputId])
+    .filter(Boolean);
+  const addOptions = canvasBackDriverOptions(definition).filter(candidate => !selectedInputs.has(candidate.id));
+  const datalistId = `node-driver-options-${domSafeId(nodeKey)}`;
+  return `
+    <span class="metric-node-drivers-panel">
+      <span class="metric-node-driver-settings-row">
+        <label>
+          <span>Relationship</span>
+          <select data-node-driver-type="${escapeHtml(nodeKey)}">
+            <option value="" ${!formulaType ? "selected" : ""}>Manual</option>
+            <option value="arithmetic" ${formulaType === "arithmetic" ? "selected" : ""}>Arithmetic</option>
+            <option value="weightedAverage" ${formulaType === "weightedAverage" ? "selected" : ""}>Weighted Average</option>
+            <option value="laggedMetric" ${formulaType === "laggedMetric" ? "selected" : ""}>Lagged Metric</option>
+          </select>
+        </label>
+        <span class="metric-node-driver-behavior">
+          <span>Behavior</span>
+          ${renderCanvasNodeFlowToggle(nodeKey, definition)}
+        </span>
+      </span>
+      <span class="metric-node-driver-list">
+        ${selectedOptions.length ? selectedOptions.map(candidate => {
+          const selectedIndex = selectedInputIds.indexOf(candidate.id);
+          const operator = selectedIndex > 0 ? operators[selectedIndex - 1] || "+" : "+";
+          const showOperator = selectedIndex > 0;
+          return `
+          <label class="metric-node-driver-chip">
+            ${showOperator ? `
+              <select data-node-driver-operator="${escapeHtml(nodeKey)}" data-node-driver-operator-for="${escapeHtml(candidate.id)}" aria-label="Operator before ${escapeHtml(candidate.label)}">
+                <option value="+" ${operator === "+" ? "selected" : ""}>+</option>
+                <option value="-" ${operator === "-" ? "selected" : ""}>−</option>
+                <option value="*" ${operator === "*" ? "selected" : ""}>×</option>
+                <option value="/" ${operator === "/" ? "selected" : ""}>÷</option>
+              </select>
+            ` : `<span class="metric-node-driver-operator-spacer" aria-hidden="true"></span>`}
+            <input type="checkbox" data-node-driver-input="${escapeHtml(nodeKey)}" value="${escapeHtml(candidate.id)}" checked>
+            <span>${escapeHtml(candidate.label)}</span>
+          </label>
+        `;}).join("") : `<span class="metric-node-back-empty">No drivers selected.</span>`}
+      </span>
+      <span class="metric-node-driver-create">
+        <input type="text" data-node-driver-new-name="${escapeHtml(nodeKey)}" list="${escapeHtml(datalistId)}" placeholder="Search or create metric">
+        <datalist id="${escapeHtml(datalistId)}">
+          ${addOptions.map(candidate => `<option value="${escapeHtml(candidate.label)}"></option>`).join("")}
+        </datalist>
+        <button type="button" data-node-driver-create="${escapeHtml(nodeKey)}">Add</button>
+      </span>
+      <button class="metric-node-driver-apply" type="button" data-node-driver-apply="${escapeHtml(nodeKey)}">Apply Drivers</button>
+    </span>
+  `;
+}
+
+function renderCanvasNodeDimensionsPanel(nodeKey, definition) {
+  if (!definition) return "";
+  if (metricIsLagged(definition)) {
+    return `
+      <span class="metric-node-back-empty">
+        <span>Inherited dimensionality</span>
+        <small>Lagged metrics are derived from their source metric, so their dimensionality follows that source.</small>
+      </span>
+    `;
+  }
+  const assignedDimensionIds = metricDimensionIds(definition.id);
+  const assignedDimensions = assignedDimensionIds
+    .map(dimensionId => dimensionDefinitions()[dimensionId])
+    .filter(Boolean);
+  const assignedSet = new Set(assignedDimensions.map(dimension => dimension.id));
+  const availableDimensions = Object.values(dimensionDefinitions()).filter(dimension => !assignedSet.has(dimension.id));
+  const datalistId = `node-dimension-options-${domSafeId(nodeKey)}`;
+  return `
+    <span class="metric-node-dimensions-panel">
+      <span class="metric-node-dimension-list">
+        ${assignedDimensions.length ? assignedDimensions.map((dimension, index) => `
+          <label class="metric-node-dimension-chip">
+            <input type="checkbox" data-node-dimension-input="${escapeHtml(nodeKey)}" value="${escapeHtml(dimension.id)}" checked>
+            <span>Level ${index + 1}</span>
+            <strong>${escapeHtml(dimension.label)}</strong>
+          </label>
+        `).join("") : `<span class="metric-node-back-empty">No dimensions selected.</span>`}
+      </span>
+      <span class="metric-node-dimension-create">
+        <input type="text" data-node-dimension-new-name="${escapeHtml(nodeKey)}" list="${escapeHtml(datalistId)}" placeholder="Search or create dimension">
+        <datalist id="${escapeHtml(datalistId)}">
+          ${availableDimensions.map(dimension => `<option value="${escapeHtml(dimension.label)}"></option>`).join("")}
+        </datalist>
+        <input type="text" data-node-dimension-new-members="${escapeHtml(nodeKey)}" placeholder="Members for new dimension, comma separated">
+        <button type="button" data-node-dimension-create="${escapeHtml(nodeKey)}">Add</button>
+      </span>
+      <button class="metric-node-dimension-apply" type="button" data-node-dimension-apply="${escapeHtml(nodeKey)}">Apply Levels</button>
+      <small>${assignedDimensions.length ? "Levels are applied in the order shown. Remove a level by unchecking it, then apply." : "Add Level 1 first, then add deeper levels as needed."}</small>
+    </span>
+  `;
+}
+
+function renderCanvasNodeBackPanel(nodeKey, definition) {
+  if (state.selectedCanvasBackPanel === "drivers") return renderCanvasNodeDriversPanel(nodeKey, definition);
+  if (state.selectedCanvasBackPanel === "dimensions") return renderCanvasNodeDimensionsPanel(nodeKey, definition);
+  return `
+    <span class="metric-node-back-empty">
+      <span>${escapeHtml(selectedCanvasBackPanelLabel())}</span>
+      <small>Blank for now.</small>
+    </span>
   `;
 }
 
@@ -5110,6 +7081,8 @@ function renderNode(nodeKey) {
     ? metricMemberReconciliation(parsed.metricId, parsed.dimensionId, parsed.memberId)
     : metricReconciliation(parsed.metricId);
   const isSelected = nodeKey === selectedNodeKey();
+  const isExpanded = state.expandedNodeKey === nodeKey;
+  const isFlipped = state.flippedNodeKey === nodeKey;
   const children = nodeChildKeys(nodeKey);
   const dimensionIds = isMember ? [] : metricDimensionIds(parsed.metricId);
   const coordinateCount = isMember || !dimensionIds.length ? 0 : metricCoordinateKeys(parsed.metricId).length;
@@ -5126,12 +7099,30 @@ function renderNode(nodeKey) {
       dimensionIds.length ? `${dimensionIds.map((_dimensionId, index) => `L${index + 1}`).join("/")} | ${coordinateCount} coordinates` : "",
     ].filter(Boolean).join(" | ");
   return `
-    <button class="metric-node ${isMember ? "member-node" : ""} ${isSelected ? "active" : ""} ${reconciliation.enabled && !reconciliation.matched ? "mismatch" : ""}" data-node-key="${nodeKey}" type="button">
-      <span>${isMember ? member?.label || parsed.memberId : definition.label}</span>
-      <strong>${formatMetricValue(definition, series[series.length - 1])}</strong>
-      <small>${nodeCaption}</small>
-      ${state.canvasViewMode === "chart" ? renderInlineMetricChart(definition, series, bottomUp) : ""}
-    </button>
+    <div class="metric-node ${isMember ? "member-node" : ""} ${isSelected ? "active" : ""} ${isExpanded ? "expanded" : ""} ${isFlipped ? "flipped" : ""} ${reconciliation.enabled && !reconciliation.matched ? "mismatch" : ""}" data-node-key="${nodeKey}" role="button" tabindex="0" aria-pressed="${isFlipped}">
+      <span class="metric-node-flipper">
+        <span class="metric-node-face metric-node-front">
+          <span>${isMember ? member?.label || parsed.memberId : definition.label}</span>
+          <strong>${formatMetricValue(definition, series[series.length - 1])}</strong>
+          <small>${nodeCaption}</small>
+          ${state.canvasViewMode === "chart" ? renderInlineMetricChart(definition, series, bottomUp) : ""}
+        </span>
+        <span class="metric-node-face metric-node-back">
+          <span class="metric-node-back-controls">
+            ${renderCanvasNodeFormatToggle(nodeKey, definition)}
+          </span>
+          <strong>${escapeHtml(isMember ? member?.label || parsed.memberId : definition.label)}</strong>
+          <span class="metric-node-back-panel-tabs">
+            ${renderCanvasNodeBackPanelButton(nodeKey, "drivers", "Drivers")}
+            ${renderCanvasNodeBackPanelButton(nodeKey, "dimensions", "Dimensions")}
+            ${renderCanvasNodeBackPanelButton(nodeKey, "assumptions", "Assumptions")}
+          </span>
+          <span class="metric-node-back-panel">
+            ${renderCanvasNodeBackPanel(nodeKey, definition)}
+          </span>
+        </span>
+      </span>
+    </div>
   `;
 }
 
@@ -5710,7 +7701,9 @@ function renderBottomUpForm(definition) {
   }
 
   form.classList.remove("disabled");
-  typeInput.value = definition.bottomUp?.type || "";
+  typeInput.value = ["sum", "product", "difference"].includes(definition.bottomUp?.type)
+    ? "arithmetic"
+    : definition.bottomUp?.type || "";
   renderFormulaInputList(definition);
 }
 
@@ -5747,35 +7740,7 @@ function renderFormulaInputList(definition) {
     return;
   }
 
-  if (type === "ratio") {
-    const [numeratorId = "", denominatorId = ""] = metricInputIds(definition);
-    const optionMarkup = options.map(candidate => `
-      <option value="${escapeHtml(candidate.id)}">${escapeHtml(candidate.label)}</option>
-    `).join("");
-    inputList.innerHTML = `
-      <div class="formula-ratio-grid">
-        <label>
-          <span>Numerator</span>
-          <select id="formula-ratio-numerator">
-            <option value="">Select numerator</option>
-            ${optionMarkup}
-          </select>
-        </label>
-        <label>
-          <span>Denominator</span>
-          <select id="formula-ratio-denominator">
-            <option value="">Select denominator</option>
-            ${optionMarkup}
-          </select>
-        </label>
-      </div>
-    `;
-    document.getElementById("formula-ratio-numerator").value = numeratorId;
-    document.getElementById("formula-ratio-denominator").value = denominatorId;
-    return;
-  }
-
-  if (type === "cohortMatrixFromStartsAndAgeYoy" || type === "cohortMatrix" || type === "cumulativeNetFlow") {
+  if (type === "cohortMatrix") {
     inputList.innerHTML = `<div class="empty-state">This methodology uses the builder below.</div>`;
     return;
   }
@@ -5785,12 +7750,28 @@ function renderFormulaInputList(definition) {
     return;
   }
 
-  inputList.innerHTML = options.map(candidate => `
+  const selectedInputIds = metricInputIds(definition);
+  const operators = arithmeticOperators(definition);
+  const showOperators = type === "arithmetic";
+  inputList.innerHTML = options.map(candidate => {
+    const selectedIndex = selectedInputIds.indexOf(candidate.id);
+    const selected = selectedIndex >= 0;
+    const operator = selected && selectedIndex > 0 ? operators[selectedIndex - 1] || "+" : "+";
+    const showOperator = showOperators && (!selected || selectedIndex > 0);
+    return `
     <label class="formula-input-chip">
-      <input type="checkbox" value="${candidate.id}" ${selectedInputs.has(candidate.id) ? "checked" : ""}>
-      <span>${candidate.label}</span>
+      ${showOperator ? `
+        <select data-formula-input-operator-for="${escapeHtml(candidate.id)}" aria-label="Operator before ${escapeHtml(candidate.label)}">
+          <option value="+" ${operator === "+" ? "selected" : ""}>+</option>
+          <option value="-" ${operator === "-" ? "selected" : ""}>−</option>
+          <option value="*" ${operator === "*" ? "selected" : ""}>×</option>
+          <option value="/" ${operator === "/" ? "selected" : ""}>÷</option>
+        </select>
+      ` : showOperators ? `<span class="formula-input-operator-spacer" aria-hidden="true"></span>` : ""}
+      <input type="checkbox" value="${escapeHtml(candidate.id)}" ${selected ? "checked" : ""}>
+      <span>${escapeHtml(candidate.label)}</span>
     </label>
-  `).join("");
+  `;}).join("");
 }
 
 function disposeTopDownNapkinChart() {
@@ -6112,7 +8093,7 @@ function renderStockFlowBuilder(definition) {
   const openingInput = document.getElementById("stock-opening-value-input");
   const inflowInput = document.getElementById("stock-inflow-input");
   const outflowInput = document.getElementById("stock-outflow-input");
-  const shouldShow = Boolean(definition && (definition.bottomUp?.type === "cumulativeNetFlow" || selectedFormulaType() === "cumulativeNetFlow"));
+  const shouldShow = false;
   form.classList.toggle("is-hidden", !shouldShow);
 
   if (!shouldShow) {
@@ -6148,8 +8129,7 @@ function renderCohortMatrixBuilder(definition) {
   const selectedType = selectedFormulaType();
   const activeType = selectedType || definition?.bottomUp?.type;
   const isGenericCohortMatrix = activeType === "cohortMatrix";
-  const isLegacyCohortMatrix = activeType === "cohortMatrixFromStartsAndAgeYoy";
-  const shouldShow = Boolean(definition && (isGenericCohortMatrix || isLegacyCohortMatrix));
+  const shouldShow = Boolean(definition && isGenericCohortMatrix);
   form.classList.toggle("is-hidden", !shouldShow);
 
   if (!shouldShow) {
@@ -6330,6 +8310,7 @@ function newBlankModel() {
   state.selectedMetricId = null;
   state.selectedDimensionContext = null;
   state.selectedDimensionId = null;
+  state.canvasFocusMode = true;
   state.topDownSheetExpandedKeys.clear();
   catalogSourceIsDirty = false;
   render();
@@ -6340,6 +8321,8 @@ function loadStarterModel() {
   state.selectedMetricId = "profit";
   state.selectedDimensionContext = null;
   state.selectedDimensionId = Object.keys(dimensionDefinitions())[0] || null;
+  state.canvasFocusMode = true;
+  state.canvasViewMode = "chart";
   state.topDownSheetExpandedKeys.clear();
   catalogSourceIsDirty = false;
   render();
@@ -6375,12 +8358,13 @@ function applyBottomUpFormula() {
   const type = document.getElementById("formula-type-input").value;
   const inputs = type === "weightedAverage"
     ? [document.getElementById("formula-weight-metric")?.value || ""].filter(Boolean)
-    : type === "ratio"
-    ? [
-      document.getElementById("formula-ratio-numerator")?.value || "",
-      document.getElementById("formula-ratio-denominator")?.value || "",
-    ].filter(Boolean)
     : [...document.querySelectorAll("#formula-input-list input:checked")].map(input => input.value);
+  const operators = type === "arithmetic"
+    ? inputs.slice(1).map(inputId => {
+      const operator = document.querySelector(`[data-formula-input-operator-for="${CSS.escape(inputId)}"]`)?.value || "+";
+      return ["+", "-", "*", "/"].includes(operator) ? operator : "+";
+    })
+    : [];
 
   if (!type) {
     definition.bottomUp = null;
@@ -6391,71 +8375,59 @@ function applyBottomUpFormula() {
     return;
   }
 
-  if (type === "difference" && inputs.length !== 2) {
-    setSourceStatus("A difference formula needs exactly two inputs.", "error");
-    return;
-  }
-
-  if (type === "sum" && inputs.length < 1) {
-    setSourceStatus("A sum formula needs at least one input.", "error");
-    return;
-  }
-
-  if (type === "product" && inputs.length < 2) {
-    setSourceStatus("A product formula needs at least two inputs.", "error");
-    return;
-  }
-
-  if (type === "ratio" && inputs.length !== 2) {
-    setSourceStatus("A ratio formula needs a numerator and denominator.", "error");
-    return;
-  }
-
-  if (type === "ratio" && inputs[0] === inputs[1]) {
-    setSourceStatus("A ratio numerator and denominator should be different metrics.", "error");
-    return;
-  }
-
-  if (type === "weightedAverage" && inputs.length !== 1) {
-    setSourceStatus("A weighted average needs one weight metric.", "error");
-    return;
-  }
-
-  if (type === "cohortAgeProduct" && inputs.length !== 2) {
-    setSourceStatus("A cohort age product needs exactly two inputs: cohort stock first, age curve second.", "error");
-    return;
-  }
-
-  if (type === "laggedRetentionFlow" && inputs.length !== 2) {
-    setSourceStatus("A lagged retention flow needs exactly two inputs: stock metric first, retention ratio second.", "error");
-    return;
-  }
-
-  if (type === "laggedMetric" && inputs.length !== 1) {
-    setSourceStatus("A lagged metric needs exactly one source metric.", "error");
-    return;
-  }
-
-  if (type === "cohortMatrixFromStartsAndAgeYoy") {
-    inputs.length = 0;
-  }
-
   if (type === "cohortMatrix") {
     applyCohortMatrixInputs();
     return;
   }
 
-  if (type === "cumulativeNetFlow") {
-    applyStockFlowInputs();
-    return;
+  if (applyBottomUpFormulaToDefinition(definition, type, inputs, { operators })) render();
+}
+
+function applyBottomUpFormulaToDefinition(definition, type, inputs, { operators = [] } = {}) {
+  if (!definition) return false;
+  if (!type) {
+    definition.bottomUp = null;
+    definition.reconciliation = { enabled: false, tolerance: 1 };
+    definition.topDown = { type: "manualSeries", editable: true };
+    setSourceStatus(`${definition.label} is now manually defined.`, "success");
+    catalogSourceIsDirty = false;
+    return true;
+  }
+
+  if (type === "difference" && inputs.length !== 2) {
+    setSourceStatus("A difference formula needs exactly two inputs.", "error");
+    return false;
+  }
+  if (type === "sum" && inputs.length < 1) {
+    setSourceStatus("A sum formula needs at least one input.", "error");
+    return false;
+  }
+  if (type === "product" && inputs.length < 2) {
+    setSourceStatus("A product formula needs at least two inputs.", "error");
+    return false;
+  }
+  if (type === "weightedAverage" && inputs.length !== 1) {
+    setSourceStatus("A weighted average needs one weight metric.", "error");
+    return false;
+  }
+  if (type === "laggedMetric" && inputs.length !== 1) {
+    setSourceStatus("A lagged metric needs exactly one source metric.", "error");
+    return false;
+  }
+  if (type === "arithmetic" && inputs.length < 1) {
+    setSourceStatus("An arithmetic formula needs at least one input.", "error");
+    return false;
   }
 
   definition.bottomUp = type === "laggedMetric"
     ? { type, inputs, lag: definition.bottomUp?.lag || 1 }
-    : type === "ratio"
-      ? { type, inputs, numerator: inputs[0], denominator: inputs[1] }
-      : type === "weightedAverage"
-        ? { type, inputs, weightMetricId: inputs[0] }
+    : type === "weightedAverage"
+      ? { type, inputs, weightMetricId: inputs[0] }
+      : type === "arithmetic"
+        ? { type, inputs, operators: Array.from({ length: Math.max(0, inputs.length - 1) }, (_item, index) => {
+          const operator = operators[index] || "+";
+          return ["+", "-", "*", "/"].includes(operator) ? operator : "+";
+        }) }
       : { type, inputs };
   definition.topDown = type === "laggedMetric"
     ? laggedTopDownDefinition()
@@ -6470,6 +8442,137 @@ function applyBottomUpFormula() {
   }
   setSourceStatus(`${definition.label} formula updated: ${formulaText(definition.id)}.`, "success");
   catalogSourceIsDirty = false;
+  return true;
+}
+
+function applyCanvasDrivers(nodeKey) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition) return;
+  const type = document.querySelector(`[data-node-driver-type="${CSS.escape(nodeKey)}"]`)?.value || "";
+  const inputs = [...document.querySelectorAll(`[data-node-driver-input="${CSS.escape(nodeKey)}"]:checked`)].map(input => input.value);
+  const operators = inputs.slice(1).map(inputId => {
+    const operator = document.querySelector(`[data-node-driver-operator="${CSS.escape(nodeKey)}"][data-node-driver-operator-for="${CSS.escape(inputId)}"]`)?.value || "+";
+    return ["+", "-", "*", "/"].includes(operator) ? operator : "+";
+  });
+  if (applyBottomUpFormulaToDefinition(definition, type, inputs, { operators })) {
+    selectNodeKey(nodeKey);
+    state.expandedNodeKey = nodeKey;
+    state.flippedNodeKey = nodeKey;
+    render();
+  }
+}
+
+function createCanvasDriverMetric(nodeKey) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  const input = document.querySelector(`[data-node-driver-new-name="${CSS.escape(nodeKey)}"]`);
+  const label = input?.value.trim() || "";
+  if (!definition || !label) return;
+  const existingId = resolveMetricSearchValue(label);
+  const id = existingId || createMetricFromFlowLabel(label, { unit: definition.unit || "currency" });
+  if (!id) return;
+  if (!definition.bottomUp) {
+    definition.bottomUp = { type: "arithmetic", inputs: [id], operators: [] };
+    definition.reconciliation = { enabled: true, tolerance: 1 };
+  } else {
+    const inputs = metricInputIds(definition);
+    if (!inputs.includes(id)) {
+      definition.bottomUp.inputs = [...inputs, id];
+      if (["sum", "product", "difference"].includes(definition.bottomUp.type)) {
+        definition.bottomUp = { type: "arithmetic", inputs: definition.bottomUp.inputs, operators: arithmeticOperators(definition) };
+      }
+      if (definition.bottomUp.type === "arithmetic") {
+        definition.bottomUp.operators = arithmeticOperators(definition);
+      }
+    }
+    if (definition.bottomUp.type === "weightedAverage") definition.bottomUp.weightMetricId = id;
+  }
+  catalogSourceIsDirty = false;
+  setSourceStatus(`${metricDefinitions()[id].label} ${existingId ? "added" : "created"} as a driver for ${definition.label}.`, "success");
+  selectNodeKey(nodeKey);
+  state.expandedNodeKey = nodeKey;
+  state.flippedNodeKey = nodeKey;
+  state.selectedCanvasBackPanel = "drivers";
+  render();
+}
+
+function applyCanvasDimensions(nodeKey) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition) return;
+  const dimensionIds = [...document.querySelectorAll(`[data-node-dimension-input="${CSS.escape(nodeKey)}"]:checked`)]
+    .map(input => input.value);
+  assignMetricDimensions(definition.id, dimensionIds);
+  catalogSourceIsDirty = false;
+  setSourceStatus(`${definition.label} dimensionality updated.`, "success");
+  selectNodeKey(nodeKey);
+  state.expandedNodeKey = nodeKey;
+  state.flippedNodeKey = nodeKey;
+  state.selectedCanvasBackPanel = "dimensions";
+  render();
+}
+
+function createCanvasDimensionLevel(nodeKey) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  const input = document.querySelector(`[data-node-dimension-new-name="${CSS.escape(nodeKey)}"]`);
+  const membersInput = document.querySelector(`[data-node-dimension-new-members="${CSS.escape(nodeKey)}"]`);
+  const label = input?.value.trim() || "";
+  if (!definition || !label) return;
+  const existingId = resolveDimensionSearchValue(label);
+  const id = createDimensionFromTileLabel(label, membersInput?.value || "");
+  if (!id) return;
+  const currentDimensionIds = metricDimensionIds(definition.id);
+  const nextDimensionIds = currentDimensionIds.includes(id)
+    ? currentDimensionIds
+    : [...currentDimensionIds, id];
+  assignMetricDimensions(definition.id, nextDimensionIds);
+  reconcileMetricsForDimensionChange(id);
+  catalogSourceIsDirty = false;
+  setSourceStatus(`${dimensionDefinitions()[id].label} ${existingId ? "added" : "created"} as Level ${nextDimensionIds.indexOf(id) + 1} for ${definition.label}.`, "success");
+  selectNodeKey(nodeKey);
+  state.expandedNodeKey = nodeKey;
+  state.flippedNodeKey = nodeKey;
+  state.selectedCanvasBackPanel = "dimensions";
+  render();
+}
+
+function setCanvasNodeFormat(nodeKey, format) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition || !["currency", "count", "percent"].includes(format)) return;
+  if (!definition.presentation || typeof definition.presentation !== "object") definition.presentation = {};
+  definition.presentation.valueFormat = format;
+  catalogSourceIsDirty = false;
+  setSourceStatus(`${definition.label} display format set to ${formatButtonLabel(format)}.`, "success");
+  render();
+}
+
+function setCanvasNodeFlowType(nodeKey, flowType) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition || !["flow", "rate"].includes(flowType)) return;
+  const lockedReason = metricFlowTypeLockedReason(definition);
+  if (lockedReason) {
+    setSourceStatus(lockedReason, "error");
+    return;
+  }
+  if (!definition.time || typeof definition.time !== "object") {
+    definition.time = createManualMetric({ id: definition.id, label: definition.label || definition.id, unit: definition.unit || "currency" }).time;
+  }
+  definition.time = {
+    ...definition.time,
+    flowType,
+    aggregateMethod: flowType === "rate" ? "weightedAverage" : "sum",
+    cumulativeAllowed: flowType === "flow",
+    growthAllowed: true,
+    seasonalityAllowed: flowType === "flow",
+    dailyTargetAllowed: flowType === "flow",
+  };
+  catalogSourceIsDirty = false;
+  clearCalculationCache();
+  setSourceStatus(`${definition.label} behavior set to ${flowType}.`, "success");
   render();
 }
 
@@ -6609,6 +8712,7 @@ function applyCatalogSource() {
         : Object.keys(metricDefinitions())[0] || null;
     state.selectedDimensionContext = parsed.selectedDimensionContext || null;
     state.selectedDimensionId = Object.keys(dimensionDefinitions())[0] || null;
+    state.canvasFocusMode = true;
     state.topDownSheetExpandedKeys.clear();
     catalogSourceIsDirty = false;
     setSourceStatus("Applied catalog JSON.", "success");
@@ -6643,25 +8747,29 @@ function renderScenarioControls() {
 
   const controls = document.getElementById("scenario-role-controls");
   if (!controls) return;
-  const references = referenceScenarios();
   const roles = scenarioRoles();
-  const summary = activeScenarioReconciliationSummary();
-  const publishDisabled = !summary.matched;
+  const selectedDefinition = metricDefinitions()[state.selectedMetricId];
+  const summary = selectedDefinition
+    ? metricReconciliation(selectedDefinition.id)
+    : { matched: false, enabled: false, maxDelta: 0 };
+  const publishDisabled = !selectedDefinition || !summary.matched;
   const roleLabel = role => {
-    const reference = references[role];
+    const reference = selectedDefinition ? metricReference(selectedDefinition.id, role) : null;
     if (!reference) return "Unset";
     const sourceName = reference.sourceScenarioName || reference.sourceScenarioId || "Snapshot";
     return `${sourceName}`;
   };
+  const selectedMetricLabel = selectedDefinition?.label || "No metric selected";
   controls.innerHTML = `
     <span class="scenario-role-pill">Working <strong>${escapeHtml(scenario().name || activeId)}</strong></span>
+    <span class="scenario-role-pill">Metric <strong>${escapeHtml(selectedMetricLabel)}</strong></span>
     <span class="scenario-role-pill">BAU <strong>${escapeHtml(roleLabel("bau"))}</strong></span>
     <span class="scenario-role-pill">Target <strong>${escapeHtml(roleLabel("target"))}</strong></span>
     <span class="scenario-role-status ${summary.matched ? "matched" : "open"}">
-      ${summary.matched ? "Reconciled" : `${summary.openMetricCount} mismatch${summary.openMetricCount === 1 ? "" : "es"}`}
+      ${summary.matched ? "Metric reconciled" : "Metric mismatch"}
     </span>
-    <button id="set-reference-bau" type="button" ${publishDisabled || referenceSnapshotMatchesCurrent("bau") ? "disabled" : ""}>Set as BAU</button>
-    <button id="set-reference-target" type="button" ${publishDisabled || referenceSnapshotMatchesCurrent("target") ? "disabled" : ""}>Set as Target</button>
+    <button id="set-reference-bau" type="button" ${publishDisabled || metricReferenceMatchesCurrent("bau") ? "disabled" : ""}>Set Metric as BAU</button>
+    <button id="set-reference-target" type="button" ${publishDisabled || metricReferenceMatchesCurrent("target") ? "disabled" : ""}>Set Metric as Target</button>
   `;
   roles.working = activeId;
 }
@@ -6736,19 +8844,209 @@ function render() {
   clearCalculationCache();
   renderScenarioControls();
   renderTimeRangeControls();
+  renderModelBriefScreen();
+  setAppScreenVisibility();
+  if (state.activeScreen === "brief") {
+    renderHomeNapkinChart();
+    return;
+  }
+  disposeHomeNapkinChart();
   renderDeltaReviewPanel();
   renderMetricWorkspacePanel();
   renderMetricList();
   renderDimensionCatalog();
   renderCanvas();
+  renderWorkspaceDrawer();
   renderDetail();
   renderCatalogSource();
+  applyCollapsiblePanels();
   const definition = selectedDefinition();
   document.getElementById("set-top-to-bottom").disabled = !definition || !activeBottomUpSeries(definition);
   requestAnimationFrame(renderCanvasLines);
 }
 
 document.body.addEventListener("click", event => {
+  if (event.target.closest("#home-screen-button")) {
+    state.activeScreen = "brief";
+    render();
+    return;
+  }
+
+  const collapseButton = event.target.closest("[data-collapse-panel]");
+  if (collapseButton) {
+    const panelId = collapseButton.dataset.collapsePanel;
+    if (state.collapsedPanels.has(panelId)) {
+      state.collapsedPanels.delete(panelId);
+    } else {
+      state.collapsedPanels.add(panelId);
+    }
+    applyCollapsiblePanels();
+    refreshAfterPanelToggle();
+    return;
+  }
+
+  const modelBriefAction = event.target.closest("[data-model-brief-action]");
+  if (modelBriefAction) {
+    const action = modelBriefAction.dataset.modelBriefAction;
+    if (action === "blank") {
+      state.activeScreen = "model";
+      newBlankModel();
+      return;
+    }
+    if (action === "starter") {
+      state.activeScreen = "model";
+      loadStarterModel();
+      return;
+    }
+    if (action === "import") {
+      state.activeScreen = "model";
+      render();
+      requestAnimationFrame(() => {
+        document.querySelector(".developer-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        document.getElementById("catalog-source")?.focus();
+      });
+      return;
+    }
+    if (action === "enter") {
+      enterModelScreen();
+      return;
+    }
+  }
+
+  const homeMatchButton = event.target.closest("[data-home-action='match-target']");
+  if (homeMatchButton) {
+    matchHomeTargetToBau();
+    return;
+  }
+
+  const homeToggleDriversButton = event.target.closest("[data-home-action='toggle-drivers']");
+  if (homeToggleDriversButton) {
+    state.homeDriverSetupOpen = !state.homeDriverSetupOpen;
+    render();
+    return;
+  }
+
+  const homeYearStepButton = event.target.closest("[data-home-year-step]");
+  if (homeYearStepButton) {
+    stepHomeYear(homeYearStepButton.dataset.homeYearStep, homeYearStepButton.dataset.yearDelta);
+    return;
+  }
+
+  const homeEditLineButton = event.target.closest("[data-home-edit-line]");
+  if (homeEditLineButton) {
+    setHomeEditableLine(homeEditLineButton.dataset.homeEditLine);
+    return;
+  }
+
+  const homeAxisButton = event.target.closest("[data-napkin-y-axis-controls='home'] [data-y-axis-action]");
+  if (homeAxisButton) {
+    handleHomeNapkinYAxisAction(homeAxisButton.dataset.yAxisAction);
+    return;
+  }
+
+  const drawerAxisButton = event.target.closest("[data-napkin-y-axis-controls='drawer-topdown'] [data-y-axis-action]");
+  if (drawerAxisButton) {
+    handleDrawerNapkinYAxisAction(drawerAxisButton.dataset.yAxisAction);
+    return;
+  }
+
+  const drawerChartSettingsButton = event.target.closest("[data-drawer-chart-settings-view]");
+  if (drawerChartSettingsButton) {
+    state.drawerChartSettingsView = drawerChartSettingsButton.dataset.drawerChartSettingsView === "dimensioned" ? "dimensioned" : "total";
+    renderWorkspaceDrawer();
+    return;
+  }
+
+  const drawerDimensionChartButton = event.target.closest("[data-drawer-dimension-chart-view]");
+  if (drawerDimensionChartButton) {
+    state.drawerDimensionChartView = drawerDimensionChartButton.dataset.drawerDimensionChartView === "pctTotal" ? "pctTotal" : "total";
+    renderWorkspaceDrawer();
+    return;
+  }
+
+  const drawerDimensionDrillButton = event.target.closest("[data-drawer-dimension-drill]");
+  if (drawerDimensionDrillButton) {
+    const definition = selectedDefinition();
+    const dimensionId = drawerDimensionDrillButton.dataset.drawerDimensionId;
+    const memberId = drawerDimensionDrillButton.dataset.drawerDimensionDrill;
+    if (definition && dimensionId && memberId) {
+      const filters = { ...drawerDimensionFiltersForMetric(definition.id), [dimensionId]: [memberId] };
+      setDrawerDimensionFilters(definition.id, filters);
+      renderWorkspaceDrawer();
+    }
+    return;
+  }
+
+  const drawerDimensionAddButton = event.target.closest("[data-drawer-dimension-add]");
+  if (drawerDimensionAddButton) {
+    const definition = selectedDefinition();
+    const dimensionId = drawerDimensionAddButton.dataset.drawerDimensionId;
+    const memberId = drawerDimensionAddButton.dataset.drawerDimensionAdd;
+    if (definition && dimensionId && memberId) {
+      const currentFilters = drawerDimensionFiltersForMetric(definition.id);
+      const currentValues = filterValueList(currentFilters[dimensionId]);
+      const nextValues = currentValues.includes(memberId)
+        ? currentValues.filter(value => value !== memberId)
+        : [...currentValues, memberId];
+      const filters = { ...currentFilters };
+      if (nextValues.length) {
+        filters[dimensionId] = nextValues;
+      } else {
+        delete filters[dimensionId];
+      }
+      setDrawerDimensionFilters(definition.id, filters);
+      renderWorkspaceDrawer();
+    }
+    return;
+  }
+
+  const drawerDimensionBreadcrumbButton = event.target.closest("[data-drawer-dimension-breadcrumb-depth]");
+  if (drawerDimensionBreadcrumbButton) {
+    const definition = selectedDefinition();
+    if (definition) {
+      const depth = Math.max(0, Number(drawerDimensionBreadcrumbButton.dataset.drawerDimensionBreadcrumbDepth || 0));
+      const dimensions = metricDimensionIds(definition.id);
+      const currentFilters = drawerDimensionFiltersForMetric(definition.id);
+      const nextFilters = {};
+      dimensions.slice(0, depth).forEach(dimensionId => {
+        if (filterValueList(currentFilters[dimensionId]).length) {
+          nextFilters[dimensionId] = filterValueList(currentFilters[dimensionId]);
+        }
+      });
+      setDrawerDimensionFilters(definition.id, nextFilters);
+      renderWorkspaceDrawer();
+    }
+    return;
+  }
+
+  const drawerDimensionMemberButton = event.target.closest("[data-drawer-dimension-member-toggle]");
+  if (drawerDimensionMemberButton) {
+    const definition = selectedDefinition();
+    const dimensionId = drawerDimensionMemberButton.dataset.drawerDimensionId;
+    const memberId = drawerDimensionMemberButton.dataset.drawerDimensionMemberToggle;
+    if (definition && dimensionId && memberId) {
+      const dimensionContext = drawerDimensionContext(definition);
+      cycleDrawerDimensionMemberMode(definition.id, dimensionId, memberId, dimensionContext?.baseKey || "");
+      renderWorkspaceDrawer();
+    }
+    return;
+  }
+
+  const driverFlowAction = event.target.closest("[data-driver-flow-action]");
+  if (driverFlowAction) {
+    const action = driverFlowAction.dataset.driverFlowAction;
+    if (action === "back") {
+      state.homeDriverSetupOpen = false;
+      state.activeScreen = "brief";
+      render();
+      return;
+    }
+    if (action === "add-row") {
+      addDriverSetupRow();
+      return;
+    }
+  }
+
   const jsonToggle = event.target.closest("[data-json-explorer-path]");
   if (jsonToggle) {
     const path = jsonToggle.dataset.jsonExplorerPath || "";
@@ -6787,9 +9085,68 @@ document.body.addEventListener("click", event => {
     return;
   }
 
+  const nodeBackPanelButton = event.target.closest("[data-node-back-panel]");
+  if (nodeBackPanelButton) {
+    selectNodeKey(nodeBackPanelButton.dataset.nodeKey);
+    selectCanvasBackPanel(nodeBackPanelButton.dataset.nodeBackPanel);
+    if (nodeBackPanelButton.closest(".metric-node-back")) {
+      state.flippedNodeKey = nodeBackPanelButton.dataset.nodeKey;
+    }
+    render();
+    return;
+  }
+
+  const nodeFormatButton = event.target.closest("[data-node-format]");
+  if (nodeFormatButton) {
+    setCanvasNodeFormat(nodeFormatButton.dataset.nodeFormat, nodeFormatButton.dataset.format);
+    return;
+  }
+
+  const nodeFlowTypeButton = event.target.closest("[data-node-flow-type]");
+  if (nodeFlowTypeButton) {
+    setCanvasNodeFlowType(nodeFlowTypeButton.dataset.nodeFlowType, nodeFlowTypeButton.dataset.flowType);
+    return;
+  }
+
+  const nodeDriverCreateButton = event.target.closest("[data-node-driver-create]");
+  if (nodeDriverCreateButton) {
+    createCanvasDriverMetric(nodeDriverCreateButton.dataset.nodeDriverCreate);
+    return;
+  }
+
+  const nodeDriverApplyButton = event.target.closest("[data-node-driver-apply]");
+  if (nodeDriverApplyButton) {
+    applyCanvasDrivers(nodeDriverApplyButton.dataset.nodeDriverApply);
+    return;
+  }
+
+  const nodeDimensionCreateButton = event.target.closest("[data-node-dimension-create]");
+  if (nodeDimensionCreateButton) {
+    createCanvasDimensionLevel(nodeDimensionCreateButton.dataset.nodeDimensionCreate);
+    return;
+  }
+
+  const nodeDimensionApplyButton = event.target.closest("[data-node-dimension-apply]");
+  if (nodeDimensionApplyButton) {
+    applyCanvasDimensions(nodeDimensionApplyButton.dataset.nodeDimensionApply);
+    return;
+  }
+
+  if (event.target.closest(".metric-node-back") && event.target.closest("input, select, textarea, label")) {
+    return;
+  }
+
   const nodeButton = event.target.closest("[data-node-key]");
   if (nodeButton) {
-    selectNodeKey(nodeButton.dataset.nodeKey);
+    const nodeKey = nodeButton.dataset.nodeKey;
+    if (selectedNodeKey() !== nodeKey) {
+      selectNodeKey(nodeKey);
+      expandCanvasNode(nodeKey);
+    } else if (state.expandedNodeKey !== nodeKey) {
+      expandCanvasNode(nodeKey);
+    } else {
+      toggleCanvasNodeFlip(nodeKey);
+    }
     render();
     return;
   }
@@ -6798,6 +9155,14 @@ document.body.addEventListener("click", event => {
   if (workspaceLockButton) {
     toggleWorkspaceLock(workspaceLockButton.dataset.workspaceLockKey);
     renderMetricWorkspacePanel();
+    return;
+  }
+
+  const workspaceDrawerHeightButton = event.target.closest("[data-workspace-drawer-height]");
+  if (workspaceDrawerHeightButton) {
+    state.workspaceDrawerHeight = workspaceDrawerHeightButton.dataset.workspaceDrawerHeight || "collapsed";
+    renderWorkspaceDrawer();
+    refreshAfterPanelToggle();
     return;
   }
 
@@ -6819,6 +9184,22 @@ document.body.addEventListener("click", event => {
     renderCanvas();
     requestAnimationFrame(renderCanvasLines);
     return;
+  }
+  const canvasActionButton = event.target.closest("[data-canvas-action]");
+  if (canvasActionButton) {
+    const action = canvasActionButton.dataset.canvasAction;
+    if (action === "inspect") {
+      inspectSelectedMetricFromCanvas();
+      return;
+    }
+    if (action === "show-workspace") {
+      showFullWorkspace();
+      return;
+    }
+    if (action === "focus") {
+      showCanvasFocusMode();
+      return;
+    }
   }
   const workspaceModeButton = event.target.closest("[data-workspace-mode]");
   if (workspaceModeButton) {
@@ -6974,6 +9355,23 @@ document.body.addEventListener("click", event => {
   }
 });
 
+document.body.addEventListener("submit", event => {
+  if (event.target.closest("#home-year-form")) {
+    event.preventDefault();
+    applyHomeYearRange();
+    return;
+  }
+  if (event.target.closest("#driver-setup-form")) {
+    event.preventDefault();
+    applyDriverSetup();
+    return;
+  }
+  if (event.target.closest("#model-brief-form")) {
+    event.preventDefault();
+    saveModelBriefFromForm();
+  }
+});
+
 document.getElementById("metric-create-form").addEventListener("submit", event => {
   event.preventDefault();
   addMetric();
@@ -7029,6 +9427,21 @@ document.getElementById("catalog-source").addEventListener("input", () => {
 });
 
 document.body.addEventListener("change", event => {
+  if (event.target.closest("#home-metric-title-input")) {
+    applyHomeMetricTitle();
+    return;
+  }
+
+  if (event.target.closest("#home-start-year-input") || event.target.closest("#home-end-year-input")) {
+    applyHomeYearRange();
+    return;
+  }
+
+  if (event.target.closest("#driver-formula-type")) {
+    updateDriverFormulaSymbols();
+    return;
+  }
+
   const scenarioSelect = event.target.closest("#scenario-select");
   if (scenarioSelect) {
     switchScenario(scenarioSelect.value);
@@ -7077,6 +9490,41 @@ document.body.addEventListener("change", event => {
   }
 });
 
+document.body.addEventListener("keydown", event => {
+  const nodeDriverSearchInput = event.target.closest("[data-node-driver-new-name]");
+  if (nodeDriverSearchInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    createCanvasDriverMetric(nodeDriverSearchInput.dataset.nodeDriverNewName);
+    return;
+  }
+  const nodeDimensionSearchInput = event.target.closest("[data-node-dimension-new-name]");
+  if (nodeDimensionSearchInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    createCanvasDimensionLevel(nodeDimensionSearchInput.dataset.nodeDimensionNewName);
+    return;
+  }
+  const nodeDimensionMembersInput = event.target.closest("[data-node-dimension-new-members]");
+  if (nodeDimensionMembersInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    createCanvasDimensionLevel(nodeDimensionMembersInput.dataset.nodeDimensionNewMembers);
+    return;
+  }
+  if (event.target.closest("#home-metric-title-input")) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyHomeMetricTitle();
+    return;
+  }
+  if (event.target.closest("#home-start-year-input") || event.target.closest("#home-end-year-input")) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyHomeYearRange();
+  }
+});
+
 document.getElementById("formula-type-input").addEventListener("change", () => {
   const definition = selectedDefinition();
   renderFormulaInputList(definition);
@@ -7089,6 +9537,9 @@ document.getElementById("formula-type-input").addEventListener("change", () => {
 
 window.addEventListener("resize", () => {
   chart.resize();
+  homeNapkinChart?.chart?.resize();
+  drawerNapkinChart?.chart?.resize();
+  drawerAreaChart?.chart?.resize();
   topDownNapkinChart?.chart?.resize();
   workspaceNapkinChart?.chart?.resize();
   dimensionMixChart?.chart?.resize();
