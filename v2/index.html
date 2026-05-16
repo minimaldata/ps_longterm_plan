@@ -11,10 +11,6 @@
 <body>
   <main class="app-shell">
     <header class="app-header">
-      <div>
-        <p class="eyebrow">V2 Sandbox</p>
-        <h1>Metric Operating Model Canvas</h1>
-      </div>
       <div class="header-actions">
         <button id="home-screen-button" type="button">Home</button>
         <label class="scenario-picker">
@@ -89,27 +85,21 @@
 
       <section class="canvas-panel">
         <div class="panel-heading">
-          <div>
-            <h2>Canvas</h2>
-            <p>Click a node to inspect top-down and bottom-up definitions.</p>
-          </div>
+          <a class="canvas-brand-lockup" href="#" aria-label="Minimal Data home">
+            <img class="canvas-brand-mark" src="./assets/minimal-data-mark.svg" alt="">
+            <span>Minimal Data</span>
+          </a>
           <div class="canvas-panel-actions">
-            <div id="canvas-view-toggle" class="view-toggle" aria-label="Canvas view mode"></div>
-            <button id="set-top-to-bottom" type="button">Set Top -> Bottom</button>
+            <button type="button" data-home-json-export-action="copy">Copy JSON</button>
+            <button type="button" data-home-json-export-action="download">Download JSON</button>
           </div>
         </div>
         <div id="metric-canvas" class="metric-canvas"></div>
         <section id="workspace-drawer" class="workspace-drawer collapsed" aria-label="Selected metric workspace">
           <div class="workspace-drawer-handle" aria-hidden="true"></div>
           <div class="workspace-drawer-header">
-            <div>
-              <span>Selected Metric</span>
-              <strong id="workspace-drawer-title">No metric selected</strong>
-              <small id="workspace-drawer-caption">Select one canvas tile to edit it here.</small>
-            </div>
             <div class="workspace-drawer-summary">
-              <span id="workspace-drawer-status">Idle</span>
-              <strong id="workspace-drawer-value">-</strong>
+              <strong id="workspace-drawer-title">No metric selected</strong>
             </div>
             <div id="workspace-drawer-actions" class="workspace-drawer-actions" aria-label="Workspace drawer height"></div>
           </div>
@@ -377,6 +367,33 @@
         </div>
       </div>
       <p id="catalog-source-status" class="source-status"></p>
+    </section>
+
+    <section id="home-json-import-modal" class="json-import-modal is-hidden" aria-label="Import model JSON">
+      <div class="json-import-backdrop" data-home-json-import-action="close"></div>
+      <div class="json-import-dialog" role="dialog" aria-modal="true" aria-labelledby="home-json-import-title">
+        <div class="json-import-header">
+          <div>
+            <span>Import</span>
+            <strong id="home-json-import-title">Model JSON</strong>
+          </div>
+          <div class="json-import-actions">
+            <button type="button" data-home-json-import-action="close">Close</button>
+            <button type="button" class="primary" data-home-json-import-action="apply">Apply JSON</button>
+          </div>
+        </div>
+        <div class="catalog-source-workspace json-import-workspace">
+          <div class="catalog-source-editor">
+            <div class="source-pane-label">Raw JSON</div>
+            <textarea id="home-json-import-source" spellcheck="false" placeholder="Paste model JSON here"></textarea>
+          </div>
+          <div class="catalog-source-explorer">
+            <div class="source-pane-label">JSON Explorer</div>
+            <div id="home-json-import-explorer" class="json-explorer"></div>
+          </div>
+        </div>
+        <p id="home-json-import-status" class="source-status"></p>
+      </div>
     </section>
   </main>
 

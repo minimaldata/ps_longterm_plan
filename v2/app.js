@@ -51,10 +51,15 @@ const state = {
   drawerDimensionChartView: "total",
   drawerDimensionMemberModes: {},
   drawerDimensionFilters: {},
+  drawerDimensionTableCollapsedKeys: new Set(),
+  drawerDimensionTableExpandedKeys: new Set(),
+  canvasStagedDrivers: [],
+  canvasZoom: 1,
   homeNapkinYMax: null,
   drawerNapkinYMax: null,
   homeEditableLine: "bau",
   homeDriverSetupOpen: false,
+  homeJsonImportOpen: false,
   canvasFocusMode: false,
   expandedNodeKey: null,
   flippedNodeKey: null,
@@ -170,7 +175,20 @@ let pendingWorkspaceLiveRefreshOptions = null;
 let metricWorkspaceRenderToken = 0;
 let metricWorkspaceCharts = [];
 let catalogSourceIsDirty = false;
+let workspaceDrawerTitleAnimationFrame = null;
 const calculationCache = new Map();
+
+function resetNapkinEditPreservation() {
+  topDownNapkinHasPendingCommit = false;
+  homeNapkinHasPendingCommit = false;
+  drawerNapkinHasPendingCommit = false;
+  drawerAreaHasPendingCommit = false;
+  workspaceNapkinHasPendingCommit = false;
+  dimensionMixHasPendingCommit = false;
+  workspaceDimensionMixHasPendingCommit = false;
+  workspaceDimensionMemberChartPendingCommits = new Set();
+  workspaceChildNapkinChartPendingCommits = new Set();
+}
 
 function clearCalculationCache() {
   calculationCache.clear();
@@ -208,6 +226,73 @@ function syncActiveYears() {
   YEARS = modelYears();
   state.model.years = [...YEARS];
   setEngineYears(YEARS);
+  syncViewWindow();
+}
+
+function normalizeViewWindow(rawWindow = {}, years = YEARS) {
+  const fallbackStart = years[0] || DEFAULT_YEARS[0];
+  const fallbackEnd = years[years.length - 1] || DEFAULT_YEARS[DEFAULT_YEARS.length - 1];
+  const start = Number.parseInt(rawWindow?.start, 10);
+  const end = Number.parseInt(rawWindow?.end, 10);
+  const normalizedStart = Number.isInteger(start)
+    ? Math.min(fallbackEnd, Math.max(fallbackStart, start))
+    : fallbackStart;
+  const normalizedEnd = Number.isInteger(end)
+    ? Math.min(fallbackEnd, Math.max(fallbackStart, end))
+    : fallbackEnd;
+  if (normalizedStart > normalizedEnd) return { start: fallbackStart, end: fallbackEnd };
+  return { start: normalizedStart, end: normalizedEnd };
+}
+
+function syncViewWindow() {
+  state.model.viewWindow = normalizeViewWindow(state.model.viewWindow, YEARS);
+}
+
+function visibleStartYear() {
+  return normalizeViewWindow(state.model.viewWindow, YEARS).start;
+}
+
+function visibleEndYear() {
+  return normalizeViewWindow(state.model.viewWindow, YEARS).end;
+}
+
+function formatYearAxisLabel(value) {
+  const numeric = Number(value);
+  if (Number.isInteger(numeric)) return String(numeric);
+  return String(value).replace(/,/g, "");
+}
+
+function visibleYearValueAxis() {
+  return {
+    type: "value",
+    min: visibleStartYear(),
+    max: visibleEndYear(),
+    minInterval: 1,
+    axisLabel: { formatter: formatYearAxisLabel },
+  };
+}
+
+function visibleYears() {
+  const start = visibleStartYear();
+  const end = visibleEndYear();
+  const years = YEARS.filter(year => year >= start && year <= end);
+  return years.length ? years : [...YEARS];
+}
+
+function visibleYearIndices() {
+  return visibleYears()
+    .map(year => YEARS.indexOf(year))
+    .filter(index => index >= 0);
+}
+
+function visibleSeriesValues(series = []) {
+  const indices = visibleYearIndices();
+  return indices.map(index => Number(series?.[index] || 0));
+}
+
+function visiblePointValues(points = []) {
+  const normalized = normalizeNapkinPoints(points);
+  return visibleYears().map(year => interpolateLineValue(normalized, year));
 }
 
 function yearsFromRange(startYear, endYear) {
@@ -226,7 +311,16 @@ function yearsFromRange(startYear, endYear) {
 
 function migrateSeriesByYear(series = [], oldYears = YEARS, newYears = YEARS, fillValue = 0) {
   const byYear = new Map(oldYears.map((year, index) => [Number(year), Number(series?.[index] ?? fillValue)]));
-  return newYears.map(year => Number(byYear.has(Number(year)) ? byYear.get(Number(year)) : fillValue));
+  const firstOldYear = Number(oldYears?.[0]);
+  const lastOldYear = Number(oldYears?.[oldYears.length - 1]);
+  const lastOldValue = Number(series?.[oldYears.length - 1] ?? fillValue);
+  return newYears.map(year => {
+    const numericYear = Number(year);
+    if (byYear.has(numericYear)) return Number(byYear.get(numericYear));
+    if (Number.isFinite(firstOldYear) && numericYear < firstOldYear) return 0;
+    if (Number.isFinite(lastOldYear) && numericYear > lastOldYear) return lastOldValue;
+    return fillValue;
+  });
 }
 
 function migrateTopDownByYear(rawTopDown, oldYears, newYears) {
@@ -237,16 +331,22 @@ function migrateTopDownByYear(rawTopDown, oldYears, newYears) {
     .map(([key, series]) => [key, migrateSeriesByYear(series, oldYears, newYears)]));
 }
 
-function migratePointLineByYear(points = [], newYears = YEARS) {
+function migratedPointValue(points, year, oldYears = YEARS) {
   const normalized = normalizeNapkinPoints(points);
-  return newYears.map(year => [year, interpolateLineValue(normalized, year)]);
+  const firstOldYear = Number(oldYears?.[0]);
+  if (Number.isFinite(firstOldYear) && Number(year) < firstOldYear) return 0;
+  return interpolateLineValue(normalized, year);
 }
 
-function migratePointMapByYear(pointMap, newYears) {
+function migratePointLineByYear(points = [], newYears = YEARS, oldYears = YEARS) {
+  return simplifyControlPoints(newYears.map(year => [year, migratedPointValue(points, year, oldYears)]));
+}
+
+function migratePointMapByYear(pointMap, newYears, oldYears = YEARS) {
   if (!pointMap || typeof pointMap !== "object") return pointMap;
   return Object.fromEntries(Object.entries(pointMap)
     .filter(([_key, points]) => Array.isArray(points))
-    .map(([key, points]) => [key, migratePointLineByYear(points, newYears)]));
+    .map(([key, points]) => [key, migratePointLineByYear(points, newYears, oldYears)]));
 }
 
 function migrateYearObjectByYear(values, newYears, fillValue = 0) {
@@ -271,7 +371,7 @@ function migrateMetricScenarioYears(metric = {}, oldYears, newYears) {
     nextMetric.topDown = migrateTopDownByYear(nextMetric.topDown, oldYears, newYears);
   }
   if (nextMetric.controlPoints) {
-    nextMetric.controlPoints = migratePointMapByYear(nextMetric.controlPoints, newYears);
+    nextMetric.controlPoints = migratePointMapByYear(nextMetric.controlPoints, newYears, oldYears);
   }
   if (nextMetric.topDown && typeof nextMetric.topDown === "object" && !Array.isArray(nextMetric.topDown) && nextMetric.controlPoints) {
     const topDownKeys = Object.keys(nextMetric.topDown);
@@ -279,30 +379,31 @@ function migrateMetricScenarioYears(metric = {}, oldYears, newYears) {
       const isStoredTopDownKey = Object.prototype.hasOwnProperty.call(nextMetric.topDown, key);
       const isOnlyTotal = key === TOTAL_COORDINATE_KEY && topDownKeys.length <= 1;
       if (!isStoredTopDownKey && !isOnlyTotal) return;
-      nextMetric.topDown[key] = newYears.map(year => interpolateLineValue(points, year));
+      const simplifiedPoints = simplifyControlPoints(points);
+      nextMetric.topDown[key] = newYears.map(year => migratedPointValue(simplifiedPoints, year, oldYears));
     });
   }
   if (Array.isArray(nextMetric.manualControlPoints)) {
-    nextMetric.manualControlPoints = migratePointLineByYear(nextMetric.manualControlPoints, newYears);
+    nextMetric.manualControlPoints = migratePointLineByYear(nextMetric.manualControlPoints, newYears, oldYears);
     if (Array.isArray(nextMetric.topDown)) {
-      nextMetric.topDown = newYears.map(year => interpolateLineValue(nextMetric.manualControlPoints, year));
+      nextMetric.topDown = newYears.map(year => migratedPointValue(nextMetric.manualControlPoints, year, oldYears));
     } else if (
       nextMetric.topDown
       && typeof nextMetric.topDown === "object"
       && Object.keys(nextMetric.topDown).every(key => key === TOTAL_COORDINATE_KEY)
     ) {
-      nextMetric.topDown[TOTAL_COORDINATE_KEY] = newYears.map(year => interpolateLineValue(nextMetric.manualControlPoints, year));
+      nextMetric.topDown[TOTAL_COORDINATE_KEY] = newYears.map(year => migratedPointValue(nextMetric.manualControlPoints, year, oldYears));
     }
   }
   if (nextMetric.memberManualControlPoints) {
-    nextMetric.memberManualControlPoints = migratePointMapByYear(nextMetric.memberManualControlPoints, newYears);
+    nextMetric.memberManualControlPoints = migratePointMapByYear(nextMetric.memberManualControlPoints, newYears, oldYears);
   }
   if (Array.isArray(nextMetric.dimensionShareControlPoints)) {
     nextMetric.dimensionShareControlPoints = nextMetric.dimensionShareControlPoints
-      .map(points => migratePointLineByYear(points, newYears));
+      .map(points => migratePointLineByYear(points, newYears, oldYears));
   }
   if (nextMetric.controlPoints && nextMetric.controlPoints[TOTAL_COORDINATE_KEY]) {
-    nextMetric.manualControlPoints = nextMetric.controlPoints[TOTAL_COORDINATE_KEY];
+    nextMetric.manualControlPoints = simplifyControlPoints(nextMetric.controlPoints[TOTAL_COORDINATE_KEY]);
   }
   if (nextMetric.cohortStarts) {
     nextMetric.cohortStarts = migrateYearObjectByYear(nextMetric.cohortStarts, newYears);
@@ -508,6 +609,9 @@ function selectedNodeKey() {
 }
 
 function selectMetric(metricId) {
+  if (state.selectedMetricId !== metricId || state.selectedDimensionContext) {
+    resetNapkinEditPreservation();
+  }
   state.selectedMetricId = metricId;
   state.selectedDimensionContext = null;
   state.expandedNodeKey = null;
@@ -517,10 +621,15 @@ function selectMetric(metricId) {
 
 function selectNodeKey(nodeKey) {
   const parsed = parseNodeKey(nodeKey);
-  state.selectedMetricId = parsed.metricId;
-  state.selectedDimensionContext = parsed.memberId
+  const nextContext = parsed.memberId
     ? { metricId: parsed.metricId, coordinate: { [parsed.dimensionId]: parsed.memberId } }
     : null;
+  const currentKey = selectedNodeKey();
+  if (currentKey !== nodeKey) {
+    resetNapkinEditPreservation();
+  }
+  state.selectedMetricId = parsed.metricId;
+  state.selectedDimensionContext = nextContext;
 }
 
 function toggleCanvasNodeFlip(nodeKey) {
@@ -715,16 +824,16 @@ function normalizeControlPointMap(definition, rawMetric = {}) {
   if (rawMetric.controlPoints && typeof rawMetric.controlPoints === "object") {
     Object.entries(rawMetric.controlPoints).forEach(([rawKey, points]) => {
       if (!Array.isArray(points)) return;
-      map[normalizeRawCoordinateKey(definition, rawKey)] = normalizeNapkinPoints(points);
+      map[normalizeRawCoordinateKey(definition, rawKey)] = simplifyControlPoints(points);
     });
   }
   if (Array.isArray(rawMetric.manualControlPoints)) {
-    map[TOTAL_COORDINATE_KEY] = normalizeNapkinPoints(rawMetric.manualControlPoints);
+    map[TOTAL_COORDINATE_KEY] = simplifyControlPoints(rawMetric.manualControlPoints);
   }
   if (rawMetric.memberManualControlPoints && typeof rawMetric.memberManualControlPoints === "object") {
     Object.entries(rawMetric.memberManualControlPoints).forEach(([memberId, points]) => {
       if (!Array.isArray(points)) return;
-      map[normalizeRawCoordinateKey(definition, memberId)] = normalizeNapkinPoints(points);
+      map[normalizeRawCoordinateKey(definition, memberId)] = simplifyControlPoints(points);
     });
   }
   return map;
@@ -843,7 +952,7 @@ function setMetricTopDownMemberSeries(metricId, memberId, series) {
 function setMetricTopDownCoordinateControlPoints(metricId, coordinate, series) {
   const metric = ensureMetricScenario(metricId);
   if (!metric.controlPoints) metric.controlPoints = {};
-  metric.controlPoints[coordinate] = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+  metric.controlPoints[coordinate] = simplifyControlPoints(YEARS.map((year, index) => [year, Number(series[index] || 0)]));
   setMetricTopDownCoordinateSeries(metricId, coordinate, series);
 }
 
@@ -855,7 +964,7 @@ function setMetricTopDownFilteredSeries(metricId, filters = {}, series) {
 
   if (!filterKeyValue || !Object.keys(filters).length) {
     if (!metric.controlPoints) metric.controlPoints = {};
-    metric.controlPoints[TOTAL_COORDINATE_KEY] = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+    metric.controlPoints[TOTAL_COORDINATE_KEY] = simplifyControlPoints(YEARS.map((year, index) => [year, Number(series[index] || 0)]));
     setMetricTopDownSeries(metricId, series);
     return;
   }
@@ -886,7 +995,7 @@ function setMetricTopDownFilteredSeries(metricId, filters = {}, series) {
       : YEARS.map((_year, index) => Number(series[index] || 0) * Number(sharesByYear[index]?.[key] || 0));
   });
   if (!metric.controlPoints) metric.controlPoints = {};
-  metric.controlPoints[filterKeyValue] = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+  metric.controlPoints[filterKeyValue] = simplifyControlPoints(YEARS.map((year, index) => [year, Number(series[index] || 0)]));
   delete metric.dimensionShareControlPoints;
   clearCalculationCache();
 }
@@ -894,7 +1003,7 @@ function setMetricTopDownFilteredSeries(metricId, filters = {}, series) {
 function preserveTotalControlPoints(metric) {
   const totalControlPoints = metric.controlPoints?.[TOTAL_COORDINATE_KEY];
   if (Array.isArray(totalControlPoints)) {
-    metric.controlPoints = { [TOTAL_COORDINATE_KEY]: normalizeNapkinPoints(totalControlPoints) };
+    metric.controlPoints = { [TOTAL_COORDINATE_KEY]: simplifyControlPoints(totalControlPoints) };
   } else {
     delete metric.controlPoints;
   }
@@ -1507,7 +1616,7 @@ function assignMetricDimensions(metricId, dimensionIds) {
     definition.dimensions = [];
     metric.topDown = { [TOTAL_COORDINATE_KEY]: [...totalSeries] };
     metric.controlPoints = {
-      [TOTAL_COORDINATE_KEY]: YEARS.map((year, index) => [year, Number(totalSeries[index] || 0)]),
+      [TOTAL_COORDINATE_KEY]: simplifyControlPoints(YEARS.map((year, index) => [year, Number(totalSeries[index] || 0)])),
     };
     delete metric.dimensionShareControlPoints;
     if (state.selectedMetricId === metricId) state.selectedDimensionContext = null;
@@ -1734,8 +1843,9 @@ function activeBottomUpSeries(definition) {
     : metricBottomUpSeries(definition.id);
 }
 
-function setActiveTopDownSeries(definition, points) {
-  const series = seriesFromControlPoints(points);
+function setActiveTopDownSeries(definition, points, { simplify = true } = {}) {
+  const nextPoints = simplify ? simplifyControlPoints(points) : normalizeNapkinPoints(points);
+  const series = seriesFromControlPoints(nextPoints);
   const metric = ensureMetricScenario(definition.id);
   const context = selectedDimensionContextForMetric(definition.id);
 
@@ -1745,7 +1855,7 @@ function setActiveTopDownSeries(definition, points) {
   }
 
   if (!metric.controlPoints) metric.controlPoints = {};
-  metric.controlPoints[TOTAL_COORDINATE_KEY] = points;
+  metric.controlPoints[TOTAL_COORDINATE_KEY] = nextPoints;
   setMetricTopDownSeries(definition.id, series);
 }
 
@@ -1758,6 +1868,38 @@ function normalizeNapkinPoints(points) {
     byX.set(x, y);
   });
   return Array.from(byX.entries()).sort((left, right) => left[0] - right[0]);
+}
+
+function linearlyInterpolatedValue(leftPoint, rightPoint, x) {
+  const [leftX, leftY] = leftPoint;
+  const [rightX, rightY] = rightPoint;
+  const span = rightX - leftX || 1;
+  const progress = (x - leftX) / span;
+  return Number(leftY || 0) + (Number(rightY || 0) - Number(leftY || 0)) * progress;
+}
+
+function simplifyControlPoints(points, tolerance = 1e-9) {
+  let simplified = normalizeNapkinPoints(points);
+  if (simplified.length <= 2) return simplified;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const next = [simplified[0]];
+    for (let index = 1; index < simplified.length - 1; index += 1) {
+      const previous = next[next.length - 1];
+      const current = simplified[index];
+      const following = simplified[index + 1];
+      const expected = linearlyInterpolatedValue(previous, following, current[0]);
+      if (Math.abs(expected - current[1]) <= tolerance) {
+        changed = true;
+        continue;
+      }
+      next.push(current);
+    }
+    next.push(simplified[simplified.length - 1]);
+    simplified = next;
+  }
+  return simplified;
 }
 
 function ageCurveValue(ageCurve, age) {
@@ -1775,9 +1917,7 @@ function interpolateLineValue(points, x) {
     const [leftX, leftY] = sorted[index - 1];
     const [rightX, rightY] = sorted[index];
     if (x >= leftX && x <= rightX) {
-      const span = rightX - leftX || 1;
-      const progress = (x - leftX) / span;
-      return Number(leftY || 0) + (Number(rightY || 0) - Number(leftY || 0)) * progress;
+      return linearlyInterpolatedValue([leftX, leftY], [rightX, rightY], x);
     }
   }
   return Number(sorted[sorted.length - 1][1] || 0);
@@ -2728,33 +2868,84 @@ function trimFixed(value, decimals) {
   return Number(value).toFixed(decimals).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1");
 }
 
+function effectiveAnchorYear() {
+  const currentVisibleYears = visibleYears();
+  const requestedYear = Number(state.anchorYear || DEFAULT_ANCHOR_YEAR);
+  if (currentVisibleYears.includes(requestedYear)) return requestedYear;
+  if (!currentVisibleYears.length) return requestedYear;
+  return currentVisibleYears.reduce((closest, year) => (
+    Math.abs(year - requestedYear) < Math.abs(closest - requestedYear) ? year : closest
+  ), currentVisibleYears[0]);
+}
+
+function anchorYearIndex() {
+  return Math.max(0, YEARS.indexOf(effectiveAnchorYear()));
+}
+
+function setAnchorYear(value) {
+  const currentVisibleYears = visibleYears();
+  if (!currentVisibleYears.length) return;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return;
+  const minYear = currentVisibleYears[0];
+  const maxYear = currentVisibleYears[currentVisibleYears.length - 1];
+  state.anchorYear = Math.min(maxYear, Math.max(minYear, parsed));
+}
+
+function stepAnchorYear(delta) {
+  const currentVisibleYears = visibleYears();
+  if (!currentVisibleYears.length) return;
+  const currentIndex = Math.max(0, currentVisibleYears.indexOf(effectiveAnchorYear()));
+  const nextIndex = Math.min(currentVisibleYears.length - 1, Math.max(0, currentIndex + Number(delta || 0)));
+  state.anchorYear = currentVisibleYears[nextIndex];
+}
+
+function applyCanvasTimelineBoundary(boundary, value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return false;
+  const currentWindow = normalizeViewWindow(state.model.viewWindow, YEARS);
+  const nextStart = boundary === "start" ? parsed : currentWindow.start;
+  const nextEnd = boundary === "end" ? parsed : currentWindow.end;
+  if (nextStart > nextEnd) throw new Error("Start year must be before end year.");
+  const storedStart = YEARS[0] || nextStart;
+  const storedEnd = YEARS[YEARS.length - 1] || nextEnd;
+  const storageStart = Math.min(storedStart, nextStart);
+  const storageEnd = Math.max(storedEnd, nextEnd);
+  const changed = migrateModelYears(yearsFromRange(storageStart, storageEnd));
+  state.model.viewWindow = { start: nextStart, end: nextEnd };
+  setAnchorYear(state.anchorYear);
+  return changed;
+}
+
 function compactMagnitude(value, divisor, suffix, precisionOffset = 0) {
   const scaled = value / divisor;
-  const absScaled = Math.abs(scaled);
-  const baseDecimals = absScaled < 10 && !Number.isInteger(scaled)
-    ? 1
-    : absScaled < 100 && Math.abs(scaled - Math.round(scaled)) >= 0.1
-      ? 1
-      : 0;
-  const decimals = Math.min(3, baseDecimals + precisionOffset);
-  return `${trimFixed(scaled, decimals)}${suffix}`;
+  const decimals = Math.min(4, 2 + precisionOffset);
+  return `${scaled.toFixed(decimals)}${suffix}`;
+}
+
+function compactNumberWithSuffix(value, { precisionOffset = 0 } = {}) {
+  const numericValue = Number(value || 0);
+  const abs = Math.abs(numericValue);
+  const sign = numericValue < 0 ? "-" : "";
+  if (abs > 999_000_000_000_000) return `${sign}${abs.toExponential(2)}`;
+  if (abs >= 1_000_000_000_000) return `${sign}${compactMagnitude(abs, 1_000_000_000_000, "T", precisionOffset)}`;
+  if (abs >= 1_000_000_000) return `${sign}${compactMagnitude(abs, 1_000_000_000, "B", precisionOffset)}`;
+  if (abs >= 1_000_000) return `${sign}${compactMagnitude(abs, 1_000_000, "M", precisionOffset)}`;
+  if (abs >= 1_000) return `${sign}${compactMagnitude(abs, 1_000, "K", precisionOffset)}`;
+  return null;
 }
 
 function compactCurrency(value) {
   const numericValue = Number(value || 0);
-  const abs = Math.abs(numericValue);
-  const sign = numericValue < 0 ? "-" : "";
-  if (abs >= 1000000) return `${sign}$${compactMagnitude(abs, 1000000, "M")}`;
-  if (abs >= 1000) return `${sign}$${compactMagnitude(abs, 1000, "k")}`;
+  const compact = compactNumberWithSuffix(numericValue);
+  if (compact) return `${compact.startsWith("-") ? "-$" : "$"}${compact.replace(/^-/, "")}`;
   return formatCurrency(numericValue);
 }
 
 function compactCurrencyTooltip(value) {
   const numericValue = Number(value || 0);
-  const abs = Math.abs(numericValue);
-  const sign = numericValue < 0 ? "-" : "";
-  if (abs >= 1000000) return `${sign}$${compactMagnitude(abs, 1000000, "M", 1)}`;
-  if (abs >= 1000) return `${sign}$${compactMagnitude(abs, 1000, "k", 1)}`;
+  const compact = compactNumberWithSuffix(numericValue, { precisionOffset: 1 });
+  if (compact) return `${compact.startsWith("-") ? "-$" : "$"}${compact.replace(/^-/, "")}`;
   return formatCurrencyPrecise(numericValue);
 }
 
@@ -2765,11 +2956,104 @@ function formatMetricValue(definition, value, { precise = false } = {}) {
     return `${trimFixed(numericValue * 100, precise ? 2 : 1)}%`;
   }
   if (displayFormat === "count") {
+    const compact = compactNumberWithSuffix(numericValue, { precisionOffset: precise ? 1 : 0 });
+    if (compact) return compact;
     return new Intl.NumberFormat("en-US", {
       maximumFractionDigits: precise ? 2 : 0,
     }).format(numericValue);
   }
   return precise ? compactCurrencyTooltip(numericValue) : compactCurrency(numericValue);
+}
+
+function formatMetricEditValue(definition, value) {
+  const numericValue = Number(value || 0);
+  const displayFormat = metricDisplayFormat(definition);
+  if (displayFormat === "percent") {
+    return `${trimFixed(numericValue * 100, 2)}%`;
+  }
+  if (displayFormat === "count") {
+    const compact = Math.abs(numericValue) >= 1_000_000_000
+      ? compactNumberWithSuffix(numericValue)
+      : null;
+    if (compact) return compact;
+    return new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 2,
+    }).format(numericValue);
+  }
+  if (Math.abs(numericValue) >= 1_000_000_000) return compactCurrency(numericValue);
+  return formatCurrencyPrecise(numericValue);
+}
+
+function formatMetricTypingValue(definition, value) {
+  const numericValue = Number(value || 0);
+  const displayFormat = metricDisplayFormat(definition);
+  if (displayFormat === "percent") {
+    return `${trimFixed(numericValue * 100, 2)}%`;
+  }
+  if (displayFormat === "count") {
+    return new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 2,
+    }).format(numericValue);
+  }
+  return formatCurrencyPrecise(numericValue);
+}
+
+function parseMetricInputValue(definition, rawValue) {
+  const text = String(rawValue || "").trim();
+  if (!text) return null;
+  const compactMatch = text.match(/^\s*[$]?\s*([-+]?(?:\d+(?:,\d{3})*|\d*\.?\d+)(?:e[-+]?\d+)?)\s*([kmbtKMBT])?\s*%?\s*$/);
+  const suffix = compactMatch?.[2]?.toLowerCase() || "";
+  const multiplier = suffix === "k"
+    ? 1_000
+    : suffix === "m"
+      ? 1_000_000
+      : suffix === "b"
+        ? 1_000_000_000
+        : suffix === "t"
+          ? 1_000_000_000_000
+          : 1;
+  const numericText = compactMatch
+    ? compactMatch[1].replace(/,/g, "")
+    : text.replace(/[$,%\s,]/g, "");
+  const value = Number(numericText) * multiplier;
+  if (!Number.isFinite(value)) return null;
+  if (metricDisplayFormat(definition) === "percent") {
+    return Math.abs(value) > 1 || text.includes("%") ? value / 100 : value;
+  }
+  return value;
+}
+
+function numberValueSizeClass(value) {
+  return String(value || "").length > 10
+    ? "xs"
+    : String(value || "").length > 7
+      ? "sm"
+      : "";
+}
+
+function applyNumberValueSizeClass(input, value) {
+  input.classList.remove("sm", "xs");
+  const sizeClass = numberValueSizeClass(value);
+  if (sizeClass) input.classList.add(sizeClass);
+}
+
+function formatCanvasAnchorValueInput(input) {
+  const node = input.closest("[data-node-key]");
+  const parsed = node?.dataset.nodeKey ? parseNodeKey(node.dataset.nodeKey) : null;
+  const definition = parsed ? metricDefinitions()[parsed.metricId] : null;
+  if (!definition) return;
+  const rawValue = input.value;
+  const parsedValue = parseMetricInputValue(definition, rawValue);
+  if (parsedValue === null) {
+    applyNumberValueSizeClass(input, rawValue);
+    return;
+  }
+  const nextValue = formatMetricTypingValue(definition, parsedValue);
+  if (input.value !== nextValue) {
+    input.value = nextValue;
+    input.setSelectionRange(nextValue.length, nextValue.length);
+  }
+  applyNumberValueSizeClass(input, nextValue);
 }
 
 function metricDisplayFormat(definition) {
@@ -2800,6 +3084,17 @@ function snapSafeNapkinYMax(rawMax) {
     yMax = Math.ceil(yMax / step) * step;
   }
   return yMax;
+}
+
+function defaultNapkinYMax(definition = null) {
+  return metricDisplayFormat(definition) === "percent" ? 1 : 100000;
+}
+
+function napkinYMaxForValues(definition, values = []) {
+  const floor = defaultNapkinYMax(definition);
+  const dataMax = Math.max(0, ...values.map(value => Number(value || 0)));
+  if (!Number.isFinite(dataMax) || dataMax <= floor) return floor;
+  return snapSafeNapkinYMax(dataMax * 1.25);
 }
 
 function escapeHtml(value) {
@@ -2884,14 +3179,19 @@ function metricSlug(label) {
 }
 
 function uniqueMetricId(label) {
-  const base = metricSlug(label);
-  let id = base;
-  let suffix = 2;
+  let id = generatedMetricId();
   while (metricDefinitions()[id]) {
-    id = `${base}-${suffix}`;
-    suffix += 1;
+    id = generatedMetricId();
   }
   return id;
+}
+
+function generatedMetricId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `metric_${uuid.replace(/-/g, "").slice(0, 16)}`;
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  const timePart = Date.now().toString(36);
+  return `metric_${timePart}${randomPart}`;
 }
 
 function uniqueScenarioId() {
@@ -2919,6 +3219,7 @@ function sourceSnapshot() {
   return JSON.stringify({
     name: state.model.name,
     years: YEARS,
+    viewWindow: normalizeViewWindow(state.model.viewWindow, YEARS),
     selectedMetricId: state.selectedMetricId,
     selectedDimensionContext: state.selectedDimensionContext,
     activeScenarioId: activeScenarioId(),
@@ -2980,8 +3281,8 @@ function renderJsonExplorerNode(key, value, path, depth = 0) {
   `;
 }
 
-function renderJsonExplorerFromText(text) {
-  const explorer = document.getElementById("catalog-json-explorer");
+function renderJsonExplorerFromText(text, explorerId = "catalog-json-explorer") {
+  const explorer = document.getElementById(explorerId);
   if (!explorer) return;
   try {
     const parsed = JSON.parse(text || "{}");
@@ -3500,18 +3801,18 @@ function homeMetricControlPoints(metricId) {
 function homeTargetControlPoints(metricId, bauPoints = []) {
   const reference = metricReference(metricId, "target");
   if (Array.isArray(reference?.controlPoints) && reference.controlPoints.length) {
-    return normalizeNapkinPoints(reference.controlPoints);
+    return simplifyControlPoints(reference.controlPoints);
   }
   if (Array.isArray(reference?.series)) {
-    return YEARS.map((year, index) => [year, Number(reference.series[index] || 0)]);
+    return simplifyControlPoints(YEARS.map((year, index) => [year, Number(reference.series[index] || 0)]));
   }
-  return normalizeNapkinPoints(bauPoints);
+  return simplifyControlPoints(bauPoints);
 }
 
-function setHomeTargetReferenceFromPoints(metricId, points) {
+function setHomeTargetReferenceFromPoints(metricId, points, { simplify = true } = {}) {
   const definition = metricDefinitions()[metricId];
   if (!definition) return;
-  const normalizedPoints = normalizeNapkinPoints(points);
+  const normalizedPoints = simplify ? simplifyControlPoints(points) : normalizeNapkinPoints(points);
   const series = seriesFromControlPoints(normalizedPoints).map(value => Number(value || 0));
   const timestamp = new Date().toISOString();
   if (!metricReferences()[metricId]) metricReferences()[metricId] = {};
@@ -3564,7 +3865,10 @@ function syncHomeNapkinChart() {
   if (!definition) return;
   const points = homeMetricControlPoints(homeNapkinMetricId);
   homeNapkinIsSyncing = true;
-  homeNapkinChart.lines = homeNapkinLines(definition, points);
+  homeNapkinChart.lines = homeNapkinLines(definition, points, { simplify: false });
+  const yMax = homeNapkinYMaxForPoints(definition, points);
+  homeNapkinChart.baseOption.yAxis.max = yMax;
+  homeNapkinChart.chart.setOption({ yAxis: { max: yMax } }, false);
   configureHomeNapkinDomain(homeNapkinChart);
   homeNapkinChart._refreshChart();
   styleHomeReferenceLines(homeNapkinChart);
@@ -3573,40 +3877,45 @@ function syncHomeNapkinChart() {
 
 function configureHomeNapkinDomain(chart) {
   if (!chart) return;
-  chart.globalMaxX = YEARS[YEARS.length - 1];
-  chart.windowStartX = YEARS[0];
-  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = visibleEndYear();
+  chart.windowStartX = visibleStartYear();
+  chart.windowEndX = visibleEndYear();
 }
 
-function homeNapkinYMaxForPoints(points) {
-  const rawYMax = Math.max(10, ...points.map(point => Number(point[1] || 0))) * 1.25;
-  const snappedYMax = snapSafeNapkinYMax(rawYMax);
+function homeNapkinYMaxForPoints(definition, points) {
+  const snappedYMax = napkinYMaxForValues(definition, visiblePointValues(points));
   return Number.isFinite(state.homeNapkinYMax)
     ? Math.max(state.homeNapkinYMax, snappedYMax)
     : snappedYMax;
 }
 
-function homeNapkinLines(definition, points) {
+function displayControlPoints(points) {
+  return simplifyControlPoints(points);
+}
+
+function homeNapkinLines(definition, points, { simplify = false } = {}) {
+  const bauPoints = simplify ? displayControlPoints(points) : points;
+  const targetPoints = homeTargetControlPoints(definition.id, points);
   const lines = [{
     name: "BAU",
     color: "#111827",
-    data: points,
+    data: bauPoints,
     editable: state.homeEditableLine === "bau",
     editDomain: {
-      moveX: [[YEARS[0], YEARS[YEARS.length - 1]]],
-      addX: [[YEARS[0], YEARS[YEARS.length - 1]]],
-      deleteX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      moveX: [[visibleStartYear(), visibleEndYear()]],
+      addX: [[visibleStartYear(), visibleEndYear()]],
+      deleteX: [[visibleStartYear(), visibleEndYear()]],
     },
   }];
   lines.push({
     name: "Target",
     color: "#2f6f73",
-    data: homeTargetControlPoints(definition.id, points),
+    data: simplify ? displayControlPoints(targetPoints) : targetPoints,
     editable: state.homeEditableLine === "target",
     editDomain: {
-      moveX: [[YEARS[0], YEARS[YEARS.length - 1]]],
-      addX: [[YEARS[0], YEARS[YEARS.length - 1]]],
-      deleteX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      moveX: [[visibleStartYear(), visibleEndYear()]],
+      addX: [[visibleStartYear(), visibleEndYear()]],
+      deleteX: [[visibleStartYear(), visibleEndYear()]],
     },
   });
   return lines;
@@ -3666,7 +3975,7 @@ function commitHomeNapkinEdit() {
   if (!editableLine) return;
   const nextPoints = normalizeNapkinPoints(editableLine.data);
   if (state.homeEditableLine === "target") {
-    setHomeTargetReferenceFromPoints(homeNapkinMetricId, nextPoints);
+    setHomeTargetReferenceFromPoints(homeNapkinMetricId, nextPoints, { simplify: false });
   } else {
     const metric = ensureMetricScenario(homeNapkinMetricId);
     if (!metric.controlPoints) metric.controlPoints = {};
@@ -3702,8 +4011,8 @@ function renderHomeNapkinChart() {
       true,
       {
         animation: false,
-        xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
-        yAxis: { type: "value", min: 0, max: 10, axisLabel: { formatter: compactCurrency } },
+        xAxis: visibleYearValueAxis(),
+        yAxis: { type: "value", min: 0, max: defaultNapkinYMax(), axisLabel: { formatter: compactCurrency } },
         grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
         tooltip: { show: false },
       },
@@ -3724,18 +4033,18 @@ function renderHomeNapkinChart() {
   disposeHomeNapkinChart();
   container.innerHTML = "";
   const points = homeMetricControlPoints(metricId);
-  const yMax = homeNapkinYMaxForPoints(points);
+  const yMax = homeNapkinYMaxForPoints(definition, points);
   homeNapkinMetricId = metricId;
   homeNapkinChart = new NapkinChart(
     "home-napkin-chart",
-    homeNapkinLines(definition, points),
+    homeNapkinLines(definition, points, { simplify: true }),
     true,
     {
       animation: false,
-      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
-      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: compactCurrency } },
+      xAxis: visibleYearValueAxis(),
+      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
       grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
-      tooltip: { trigger: "axis", valueFormatter: value => compactCurrencyTooltip(value) },
+      tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
     },
     "none",
     false
@@ -3781,7 +4090,7 @@ function renderModelBriefScreen() {
           <span>Start Year</span>
           <div class="home-year-stepper">
             <button type="button" data-home-year-step="start" data-year-delta="-1" aria-label="Decrease start year">−</button>
-            <input id="home-start-year-input" type="text" inputmode="numeric" value="${escapeHtml(YEARS[0] || DEFAULT_YEARS[0])}">
+            <input id="home-start-year-input" type="text" inputmode="numeric" value="${escapeHtml(visibleStartYear())}">
             <button type="button" data-home-year-step="start" data-year-delta="1" aria-label="Increase start year">+</button>
           </div>
         </label>
@@ -3789,7 +4098,7 @@ function renderModelBriefScreen() {
           <span>End Year</span>
           <div class="home-year-stepper">
             <button type="button" data-home-year-step="end" data-year-delta="-1" aria-label="Decrease end year">−</button>
-            <input id="home-end-year-input" type="text" inputmode="numeric" value="${escapeHtml(YEARS[YEARS.length - 1] || DEFAULT_YEARS[DEFAULT_YEARS.length - 1])}">
+            <input id="home-end-year-input" type="text" inputmode="numeric" value="${escapeHtml(visibleEndYear())}">
             <button type="button" data-home-year-step="end" data-year-delta="1" aria-label="Increase end year">+</button>
           </div>
         </label>
@@ -3799,6 +4108,7 @@ function renderModelBriefScreen() {
         <button type="button" class="${activeHomeLine === "target" ? "active" : ""}" data-home-edit-line="target" aria-pressed="${activeHomeLine === "target"}"><i class="target"></i> Target</button>
       </div>
       <div class="home-next-actions">
+        <button type="button" class="secondary" data-home-json-import-action="open">Import JSON</button>
         <button type="button" data-home-action="toggle-drivers" ${hasMetric ? "" : "disabled"}>${state.homeDriverSetupOpen ? "Hide Drivers" : "Add Drivers"}</button>
       </div>
       ${state.homeDriverSetupOpen && definition ? driverSetupMarkup(definition) : ""}
@@ -3817,12 +4127,11 @@ function driverSetupMarkup(definition, { standalone = false } = {}) {
   const existingInputs = definition ? metricInputIds(definition) : [];
   const driverLabels = existingInputs.length
     ? existingInputs.map(inputId => metricDefinitions()[inputId]?.label || "")
-    : ["Revenue", "Cost"];
+    : ["", ""];
   while (driverLabels.length < 2) driverLabels.push("");
-  const isProfitLikeMetric = /\b(profit|margin|income|earnings)\b/i.test(definition?.label || "");
   const operators = definition?.bottomUp
     ? arithmeticOperators(definition)
-    : [isProfitLikeMetric ? "-" : "+"];
+    : ["+"];
   return `
     <section class="${standalone ? "driver-setup-tile" : "home-driver-setup"}" aria-label="Add drivers">
       ${standalone ? `
@@ -3843,7 +4152,7 @@ function driverSetupMarkup(definition, { standalone = false } = {}) {
         </div>
       `}
       <form id="driver-setup-form" class="driver-setup-form">
-        <label>
+        <label class="driver-setup-relationship">
           <span>Relationship</span>
           <select id="driver-formula-type">
             <option value="arithmetic" selected>Arithmetic</option>
@@ -3851,10 +4160,10 @@ function driverSetupMarkup(definition, { standalone = false } = {}) {
         </label>
         <div class="driver-input-grid" data-driver-formula-operators>
           ${driverLabels.map((label, index) => `
-            ${index ? driverOperatorSelectMarkup(operators[index - 1] || "+") : ""}
-            <label>
+            <label class="driver-input-chip">
+              ${index ? driverOperatorSelectMarkup(operators[index - 1] || "+") : `<span class="driver-formula-operator-spacer" aria-hidden="true"></span>`}
               <span>Driver ${index + 1}</span>
-              <input class="driver-name-input" type="text" value="${escapeHtml(label)}" placeholder="${index === 0 ? "Revenue" : index === 1 ? "Cost" : "Optional"}">
+              <input class="driver-name-input" type="text" value="${escapeHtml(label)}" placeholder="Metric name">
             </label>
           `).join("")}
         </div>
@@ -4013,7 +4322,15 @@ function applyHomeYearRange() {
   const startYear = document.getElementById("home-start-year-input")?.value;
   const endYear = document.getElementById("home-end-year-input")?.value;
   try {
-    migrateModelYears(yearsFromRange(startYear, endYear));
+    const start = Number.parseInt(startYear, 10);
+    const end = Number.parseInt(endYear, 10);
+    if (!Number.isInteger(start) || !Number.isInteger(end)) throw new Error("Start year and end year must be whole years.");
+    if (start > end) throw new Error("Start year must be before end year.");
+    const storedStart = YEARS[0] || start;
+    const storedEnd = YEARS[YEARS.length - 1] || end;
+    migrateModelYears(yearsFromRange(Math.min(storedStart, start), Math.max(storedEnd, end)));
+    state.model.viewWindow = { start, end };
+    setAnchorYear(state.anchorYear);
     catalogSourceIsDirty = false;
     render();
   } catch (error) {
@@ -4026,13 +4343,13 @@ function addDriverSetupRow() {
   if (!grid) return;
   const index = grid.querySelectorAll(".driver-name-input").length + 1;
   grid.insertAdjacentHTML("beforeend", `
-    ${index > 1 ? driverOperatorSelectMarkup("+") : ""}
-    <label>
+    <label class="driver-input-chip">
+      ${index > 1 ? driverOperatorSelectMarkup("+") : `<span class="driver-formula-operator-spacer" aria-hidden="true"></span>`}
       <span>Driver ${index}</span>
       <input class="driver-name-input" type="text" value="" placeholder="Optional">
     </label>
   `);
-  grid.querySelector(".driver-name-input:last-child")?.focus();
+  grid.querySelector(".driver-input-chip:last-child .driver-name-input")?.focus();
 }
 
 function updateDriverFormulaSymbols() {
@@ -4063,7 +4380,6 @@ function applyDriverSetup() {
     unit: definition.unit || "currency",
     color: index === 0 ? "#4f7fb8" : index === 1 ? "#6fa76b" : "#7b6fb8",
   })).filter(Boolean);
-  childIds.forEach(childId => ensureRevenueExampleDimensions(childId));
   definition.bottomUp = {
     type: "arithmetic",
     inputs: childIds,
@@ -4139,7 +4455,13 @@ function cancelWorkspaceLiveRefresh() {
 }
 
 function workspaceChartOption(definition, seriesList, { compact = false } = {}) {
-  const values = seriesList.flatMap(item => item.data || []);
+  const visibleList = seriesList.map(item => ({
+    ...item,
+    data: Array.isArray(item.data) && item.data.length === YEARS.length
+      ? visibleSeriesValues(item.data)
+      : item.data,
+  }));
+  const values = visibleList.flatMap(item => item.data || []);
   const maxValue = Math.max(1, ...values.map(value => Math.abs(Number(value || 0))));
   return {
     animation: false,
@@ -4151,7 +4473,7 @@ function workspaceChartOption(definition, seriesList, { compact = false } = {}) 
     grid: { left: 10, right: 10, top: compact ? 10 : 34, bottom: 22, containLabel: true },
     xAxis: {
       type: "category",
-      data: YEARS.map(String),
+      data: visibleYears().map(String),
       axisTick: { alignWithLabel: true },
     },
     yAxis: {
@@ -4160,7 +4482,7 @@ function workspaceChartOption(definition, seriesList, { compact = false } = {}) 
       max: value => Math.max(maxValue, value.max),
       axisLabel: { formatter: value => formatMetricValue(definition, value) },
     },
-    series: seriesList.map(item => ({
+    series: visibleList.map(item => ({
       name: item.name,
       type: "line",
       data: item.data,
@@ -4760,7 +5082,7 @@ function workspaceCohortModeHtml(definition) {
 function setMetricControlPointsFromSeries(metricId, series) {
   const metric = ensureMetricScenario(metricId);
   if (!metric.controlPoints) metric.controlPoints = {};
-  metric.controlPoints[TOTAL_COORDINATE_KEY] = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
+  metric.controlPoints[TOTAL_COORDINATE_KEY] = simplifyControlPoints(YEARS.map((year, index) => [year, Number(series[index] || 0)]));
   setMetricTopDownSeries(metricId, series);
 }
 
@@ -4801,12 +5123,13 @@ function fitChildrenToParent(metricId) {
   render();
 }
 
-function syncWorkspaceNapkinChart() {
+function syncWorkspaceNapkinChart({ simplify = false } = {}) {
   if (!workspaceNapkinChart || !workspaceNapkinMetricId) return;
   const parsed = parseNodeKey(workspaceNapkinMetricId);
   const definition = metricDefinitions()[parsed.metricId];
   if (!definition) return;
   const points = activeTopDownControlPoints(definition);
+  const displayPoints = simplify ? displayControlPoints(points) : points;
   const context = selectedDimensionContextForMetric(definition.id);
   const label = context
     ? `${definition.label}: ${context.label}`
@@ -4817,7 +5140,7 @@ function syncWorkspaceNapkinChart() {
   const lines = [{
     name: label,
     color: "#111827",
-    data: points,
+    data: displayPoints,
     editable: true,
   }];
   const bottomUp = activeWorkspaceBottomUpSeries(definition);
@@ -4830,9 +5153,14 @@ function syncWorkspaceNapkinChart() {
     });
   }
   workspaceNapkinChart.lines = lines;
-  workspaceNapkinChart.globalMaxX = YEARS[YEARS.length - 1];
-  workspaceNapkinChart.windowStartX = YEARS[0];
-  workspaceNapkinChart.windowEndX = YEARS[YEARS.length - 1];
+  workspaceNapkinChart.baseOption.yAxis.max = napkinYMaxForValues(definition, [
+    ...visiblePointValues(displayPoints),
+    ...visibleSeriesValues(bottomUp || []),
+  ]);
+  workspaceNapkinChart.chart.setOption({ yAxis: { max: workspaceNapkinChart.baseOption.yAxis.max } }, false);
+  workspaceNapkinChart.globalMaxX = visibleEndYear();
+  workspaceNapkinChart.windowStartX = visibleStartYear();
+  workspaceNapkinChart.windowEndX = visibleEndYear();
   workspaceNapkinChart._refreshChart();
   scheduleWorkspaceNapkinReferenceLineStyle();
   workspaceNapkinIsSyncing = false;
@@ -4969,9 +5297,14 @@ function syncWorkspaceChildNapkinChart(chartKey, item) {
       editable: false,
     }] : []),
   ];
-  chart.globalMaxX = YEARS[YEARS.length - 1];
-  chart.windowStartX = YEARS[0];
-  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.baseOption.yAxis.max = napkinYMaxForValues(child, [
+    ...visiblePointValues(points),
+    ...visibleSeriesValues(bottomUp || []),
+  ]);
+  chart.chart.setOption({ yAxis: { max: chart.baseOption.yAxis.max } }, false);
+  chart.globalMaxX = visibleEndYear();
+  chart.windowStartX = visibleStartYear();
+  chart.windowEndX = visibleEndYear();
   chart._refreshChart();
   styleNapkinBottomUpReference(chart);
   workspaceChildNapkinChartSyncing.delete(chartKey);
@@ -5008,9 +5341,14 @@ function syncWorkspaceDimensionGroupNapkinChart(chartKey, item) {
       editable: false,
     }] : []),
   ];
-  chart.globalMaxX = YEARS[YEARS.length - 1];
-  chart.windowStartX = YEARS[0];
-  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.baseOption.yAxis.max = napkinYMaxForValues(definition, [
+    ...visiblePointValues(points),
+    ...visibleSeriesValues(bottomUp || []),
+  ]);
+  chart.chart.setOption({ yAxis: { max: chart.baseOption.yAxis.max } }, false);
+  chart.globalMaxX = visibleEndYear();
+  chart.windowStartX = visibleStartYear();
+  chart.windowEndX = visibleEndYear();
   chart._refreshChart();
   styleNapkinBottomUpReference(chart);
   workspaceDimensionMemberChartSyncing.delete(chartKey);
@@ -5081,8 +5419,10 @@ function renderWorkspaceNapkinEditor(definition) {
   container.innerHTML = "";
   const points = activeTopDownControlPoints(definition);
   const bottomUp = activeWorkspaceBottomUpSeries(definition);
-  const rawYMax = Math.max(10, ...points.map(point => Number(point[1] || 0)), ...(bottomUp || [])) * 1.25;
-  const yMax = snapSafeNapkinYMax(rawYMax);
+  const yMax = napkinYMaxForValues(definition, [
+    ...visiblePointValues(points),
+    ...visibleSeriesValues(bottomUp || []),
+  ]);
   const context = selectedDimensionContextForMetric(definition.id);
   const lineName = context ? `${definition.label}: ${context.label}` : definition.label;
   workspaceNapkinMetricId = currentSelectionKey;
@@ -5092,7 +5432,7 @@ function renderWorkspaceNapkinEditor(definition) {
     {
       name: lineName,
       color: "#111827",
-      data: points,
+      data: displayControlPoints(points),
       editable: true,
     },
     ...(bottomUp ? [{
@@ -5105,7 +5445,7 @@ function renderWorkspaceNapkinEditor(definition) {
     true,
     {
       animation: false,
-      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      xAxis: visibleYearValueAxis(),
       yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
       tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
@@ -5113,8 +5453,7 @@ function renderWorkspaceNapkinEditor(definition) {
     "none",
     false
   );
-  syncWorkspaceNapkinChart();
-  scheduleWorkspaceNapkinReferenceLineStyle();
+  syncWorkspaceNapkinChart({ simplify: true });
 
   workspaceNapkinChart.chart.getZr().on("mouseup", () => {
     if (!workspaceNapkinHasPendingCommit) return;
@@ -5127,7 +5466,7 @@ function renderWorkspaceNapkinEditor(definition) {
     if (workspaceNapkinIsSyncing || !workspaceNapkinChart?.lines?.[0]) return;
     scheduleWorkspaceNapkinReferenceLineStyle();
     const nextPoints = normalizeNapkinPoints(workspaceNapkinChart.lines[0].data);
-    setActiveTopDownSeries(definition, nextPoints);
+    setActiveTopDownSeries(definition, nextPoints, { simplify: false });
     if (workspaceNapkinChart._isDragging) {
       workspaceNapkinHasPendingCommit = true;
       scheduleMetricWorkspaceLiveRefresh({ skipWorkspaceNapkin: true });
@@ -5153,9 +5492,9 @@ function syncWorkspaceDimensionMixChart() {
   workspaceDimensionMixChart.topAreaColor = topGroup.color;
   workspaceDimensionMixChart.baseOption.topAreaLabel = workspaceDimensionMixChart.topAreaLabel;
   workspaceDimensionMixChart.baseOption.topAreaColor = workspaceDimensionMixChart.topAreaColor;
-  workspaceDimensionMixChart.globalMaxX = YEARS[YEARS.length - 1];
-  workspaceDimensionMixChart.windowStartX = YEARS[0];
-  workspaceDimensionMixChart.windowEndX = YEARS[YEARS.length - 1];
+  workspaceDimensionMixChart.globalMaxX = visibleEndYear();
+  workspaceDimensionMixChart.windowStartX = visibleStartYear();
+  workspaceDimensionMixChart.windowEndX = visibleEndYear();
   workspaceDimensionMixChart._refreshChart();
   workspaceDimensionMixChart.resize();
   workspaceDimensionMixIsSyncing = false;
@@ -5200,7 +5539,7 @@ function renderWorkspaceDimensionMixEditor(definition) {
     true,
     {
       animation: false,
-      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      xAxis: visibleYearValueAxis(),
       yAxis: {
         type: "value",
         min: 0,
@@ -5289,8 +5628,10 @@ function renderWorkspaceDimensionGroupNapkin(definition, mixContext, group, inde
   const locked = workspaceIsLocked(lockKey);
   const points = workspaceDimensionGroupControlPoints(definition, mixContext, group);
   const bottomUp = dimensionGroupBottomUpSeries(mixContext, group);
-  const rawYMax = Math.max(10, ...points.map(point => Number(point[1] || 0)), ...(bottomUp || [])) * 1.25;
-  const yMax = snapSafeNapkinYMax(rawYMax);
+  const yMax = napkinYMaxForValues(definition, [
+    ...visiblePointValues(points),
+    ...visibleSeriesValues(bottomUp || []),
+  ]);
   const lineColor = group.color || dimensionGroupColor(group.id);
 
   container.innerHTML = "";
@@ -5300,7 +5641,7 @@ function renderWorkspaceDimensionGroupNapkin(definition, mixContext, group, inde
       {
         name: group.label,
         color: lineColor,
-        data: points,
+        data: displayControlPoints(points),
         editable: !locked,
       },
       ...(bottomUp ? [{
@@ -5315,8 +5656,8 @@ function renderWorkspaceDimensionGroupNapkin(definition, mixContext, group, inde
       animation: false,
       xAxis: {
         type: "value",
-        min: YEARS[0],
-        max: YEARS[YEARS.length - 1],
+        min: visibleStartYear(),
+        max: visibleEndYear(),
         minInterval: 1,
       },
       yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
@@ -5327,9 +5668,9 @@ function renderWorkspaceDimensionGroupNapkin(definition, mixContext, group, inde
     false
   );
 
-  chart.globalMaxX = YEARS[YEARS.length - 1];
-  chart.windowStartX = YEARS[0];
-  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = visibleEndYear();
+  chart.windowStartX = visibleStartYear();
+  chart.windowEndX = visibleEndYear();
   chart._refreshChart();
   styleNapkinBottomUpReference(chart);
 
@@ -5393,8 +5734,10 @@ function renderWorkspaceChildNapkin(parentMetricId, childId, index) {
 
   const points = manualControlPoints(childId);
   const bottomUp = metricDirectBottomUpSeries(childId);
-  const rawYMax = Math.max(10, ...points.map(point => Number(point[1] || 0)), ...(bottomUp || [])) * 1.25;
-  const yMax = snapSafeNapkinYMax(rawYMax);
+  const yMax = napkinYMaxForValues(child, [
+    ...visiblePointValues(points),
+    ...visibleSeriesValues(bottomUp || []),
+  ]);
   const lineColor = child.presentation?.color || "#111827";
   const chartKey = `${childId}::${index}`;
   const lockKey = workspaceChildLockKey(parentMetricId, childId);
@@ -5407,7 +5750,7 @@ function renderWorkspaceChildNapkin(parentMetricId, childId, index) {
       {
         name: child.label || childId,
         color: lineColor,
-        data: points,
+        data: displayControlPoints(points),
         editable: !locked,
       },
       ...(bottomUp ? [{
@@ -5422,8 +5765,8 @@ function renderWorkspaceChildNapkin(parentMetricId, childId, index) {
       animation: false,
       xAxis: {
         type: "value",
-        min: YEARS[0],
-        max: YEARS[YEARS.length - 1],
+        min: visibleStartYear(),
+        max: visibleEndYear(),
         minInterval: 1,
       },
       yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(child, value) } },
@@ -5434,9 +5777,9 @@ function renderWorkspaceChildNapkin(parentMetricId, childId, index) {
     false
   );
 
-  chart.globalMaxX = YEARS[YEARS.length - 1];
-  chart.windowStartX = YEARS[0];
-  chart.windowEndX = YEARS[YEARS.length - 1];
+  chart.globalMaxX = visibleEndYear();
+  chart.windowStartX = visibleStartYear();
+  chart.windowEndX = visibleEndYear();
   chart._refreshChart();
 
   styleNapkinBottomUpReference(chart);
@@ -5505,7 +5848,10 @@ function renderWorkspaceDimensionGroupLinesChart(definition, mixContext) {
     type: "dashed",
     layer: "ungrouped",
   })) : [];
-  const seriesList = [...groupedSeries, ...rawSeries];
+  const seriesList = [...groupedSeries, ...rawSeries].map(item => ({
+    ...item,
+    data: visibleSeriesValues(item.data),
+  }));
   if (!seriesList.length) {
     element.innerHTML = `<div class="metric-workspace-empty"><strong>No lines selected</strong><span>Turn on Grouped, Ungrouped, or both.</span></div>`;
     return;
@@ -5523,7 +5869,7 @@ function renderWorkspaceDimensionGroupLinesChart(definition, mixContext) {
     grid: { left: 10, right: 10, top: 34, bottom: 24, containLabel: true },
     xAxis: {
       type: "category",
-      data: YEARS.map(String),
+      data: visibleYears().map(String),
       axisTick: { alignWithLabel: true },
     },
     yAxis: {
@@ -5798,12 +6144,21 @@ function setReferenceScenario(role) {
 
 function setSourceStatus(message, tone = "") {
   const status = document.getElementById("catalog-source-status");
+  if (!status) return;
+  status.textContent = message;
+  status.className = `source-status ${tone}`;
+}
+
+function setHomeJsonImportStatus(message, tone = "") {
+  const status = document.getElementById("home-json-import-status");
+  if (!status) return;
   status.textContent = message;
   status.className = `source-status ${tone}`;
 }
 
 function renderCatalogSource() {
   const source = document.getElementById("catalog-source");
+  if (!source) return;
   if (document.activeElement === source && catalogSourceIsDirty) {
     renderJsonExplorerFromText(source.value);
     return;
@@ -5811,6 +6166,17 @@ function renderCatalogSource() {
   source.value = sourceSnapshot();
   renderJsonExplorerFromText(source.value);
   catalogSourceIsDirty = false;
+}
+
+function renderHomeJsonImportModal() {
+  const modal = document.getElementById("home-json-import-modal");
+  if (!modal) return;
+  modal.classList.toggle("is-hidden", !state.homeJsonImportOpen);
+  if (!state.homeJsonImportOpen) return;
+  const source = document.getElementById("home-json-import-source");
+  if (source) {
+    renderJsonExplorerFromText(source.value, "home-json-import-explorer");
+  }
 }
 
 function normalizeImportedModel(rawModel) {
@@ -5894,6 +6260,7 @@ function normalizeImportedModel(rawModel) {
   return {
     name: rawModel.name || "Custom Model",
     years: importedYears,
+    viewWindow: normalizeViewWindow(rawModel.viewWindow, importedYears),
     scenarioRoles: {
       working: activeId,
       bau: referenceScenariosValue.bau?.id || importedRoles.bau || null,
@@ -6011,41 +6378,185 @@ function renderMetricDimensionAssignment(definition) {
 
 function renderCanvas() {
   const canvas = document.getElementById("metric-canvas");
-  renderCanvasViewToggle();
   canvas.classList.toggle("chart-mode", state.canvasViewMode === "chart");
+  canvas.style.setProperty("--canvas-zoom", String(state.canvasZoom));
   const levels = canvasLevels();
   if (!levels.length) {
     canvas.innerHTML = `
+      ${renderCanvasTopLeftControls()}
+      ${renderCanvasZoomControl()}
       <div class="canvas-empty">
         <strong>Blank canvas</strong>
         <span>Create the first metric, then define how it connects to other metrics.</span>
       </div>
+      ${renderCanvasStagedDrivers()}
     `;
     return;
   }
 
   canvas.innerHTML = `
     <svg id="canvas-lines" class="canvas-lines" aria-hidden="true"></svg>
+    ${renderCanvasTopLeftControls()}
+    ${renderCanvasZoomControl()}
     ${levels.map((level, levelIndex) => `
       <div class="canvas-level dynamic-level" style="--level-index: ${levelIndex}">
         ${level.map(nodeKey => renderNode(nodeKey)).join("")}
       </div>
     `).join("")}
+    <div class="canvas-scroll-spacer" aria-hidden="true"></div>
+    ${renderCanvasStagedDrivers()}
   `;
 }
 
-function renderCanvasViewToggle() {
-  const toggle = document.getElementById("canvas-view-toggle");
-  if (!toggle) return;
-  const selectedMetricExists = Boolean(selectedDefinition());
-  toggle.innerHTML = `
-    ${["number", "chart"].map(mode => `
-    <button class="view-toggle-button ${state.canvasViewMode === mode ? "active" : ""}" type="button" data-canvas-view-mode="${mode}">
-      ${mode === "number" ? "Numbers" : "Charts"}
-    </button>
-    `).join("")}
-    <button class="view-toggle-button canvas-inspect-button" type="button" data-canvas-action="inspect" ${selectedMetricExists ? "" : "disabled"}>Inspect Metric</button>
-    <button class="view-toggle-button" type="button" data-canvas-action="${state.canvasFocusMode ? "show-workspace" : "focus"}">${state.canvasFocusMode ? "Show Workspace" : "Focus Canvas"}</button>
+function renderCanvasTopLeftControls() {
+  return `
+    <div class="canvas-top-left-controls">
+      ${renderCanvasModeControl()}
+      ${renderCanvasAnchorYearControl()}
+    </div>
+  `;
+}
+
+function renderCanvasAnchorYearControl() {
+  const year = effectiveAnchorYear();
+  const startYear = visibleStartYear();
+  const endYear = visibleEndYear();
+  return `
+    <div class="canvas-anchor-year-control" aria-label="Global anchor year">
+      <span class="canvas-anchor-step-stack">
+        <button type="button" data-anchor-year-step="-1" aria-label="Decrease anchor year">−</button>
+        <input class="canvas-anchor-boundary-input" type="text" inputmode="numeric" data-timeline-boundary-input="start" value="${escapeHtml(startYear)}" aria-label="Start year">
+      </span>
+      <input class="canvas-anchor-current-input" type="text" inputmode="numeric" data-anchor-year-input value="${escapeHtml(year)}" aria-label="Anchor year">
+      <span class="canvas-anchor-step-stack">
+        <button type="button" data-anchor-year-step="1" aria-label="Increase anchor year">+</button>
+        <input class="canvas-anchor-boundary-input" type="text" inputmode="numeric" data-timeline-boundary-input="end" value="${escapeHtml(endYear)}" aria-label="End year">
+      </span>
+    </div>
+  `;
+}
+
+function renderCanvasStagedDrivers() {
+  if (!state.canvasStagedDrivers.length) return "";
+  return `
+    <div class="canvas-staged-drivers" aria-label="Staged driver metrics">
+      ${state.canvasStagedDrivers.map((driver, index) => `
+        <div class="canvas-staged-driver" style="left: ${Number(driver.x || 0)}px; top: ${Number(driver.y || 0)}px;">
+          <strong>${escapeHtml(driver.label || `New Driver ${index + 1}`)}</strong>
+        </div>
+      `).join("")}
+      <div class="canvas-staged-driver-hint">
+        Click an empty parent tile to attach. Esc to cancel.
+      </div>
+    </div>
+  `;
+}
+
+function renderCanvasModeControl() {
+  return `
+    <div class="canvas-mode-control view-toggle" aria-label="Canvas view mode">
+      ${["number", "chart"].map(mode => `
+        <button class="view-toggle-button ${state.canvasViewMode === mode ? "active" : ""}" type="button" data-canvas-view-mode="${mode}">
+          ${mode === "number" ? "Numbers" : "Charts"}
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function nextStagedDriverLabel(index = 0) {
+  const existingNumbers = Object.values(metricDefinitions())
+    .map(definition => String(definition.label || "").match(/^New Driver\s+(\d+)$/i))
+    .filter(Boolean)
+    .map(match => Number(match[1]))
+    .filter(Number.isFinite);
+  const stagedNumbers = state.canvasStagedDrivers
+    .map(driver => String(driver.label || "").match(/^New Driver\s+(\d+)$/i))
+    .filter(Boolean)
+    .map(match => Number(match[1]))
+    .filter(Number.isFinite);
+  const maxNumber = Math.max(0, ...existingNumbers, ...stagedNumbers);
+  return `New Driver ${maxNumber + index + 1}`;
+}
+
+function stageCanvasDriverFromClick(event) {
+  const canvas = document.getElementById("metric-canvas");
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left + canvas.scrollLeft;
+  const y = event.clientY - rect.top + canvas.scrollTop;
+  state.canvasStagedDrivers.push({
+    x,
+    y,
+    label: nextStagedDriverLabel(),
+  });
+  renderCanvas();
+  requestAnimationFrame(renderCanvasLines);
+}
+
+function clearCanvasStagedDrivers() {
+  if (!state.canvasStagedDrivers.length) return false;
+  state.canvasStagedDrivers = [];
+  renderCanvas();
+  requestAnimationFrame(renderCanvasLines);
+  return true;
+}
+
+function commitCanvasStagedDriversToParent(nodeKey) {
+  if (!state.canvasStagedDrivers.length) return false;
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition || parsed.memberId) {
+    setSourceStatus("Staged drivers can only attach to a metric tile.", "error");
+    return true;
+  }
+  if (definition.bottomUp || childIds(definition.id).length) {
+    setSourceStatus(`${definition.label} already has drivers. Open Drivers to edit them.`, "error");
+    return true;
+  }
+
+  const ids = state.canvasStagedDrivers.map(driver => {
+    const id = uniqueMetricId(driver.label);
+    metricDefinitions()[id] = createManualMetric({
+      id,
+      label: driver.label,
+      unit: definition.unit || "currency",
+      color: "#4f7fb8",
+    });
+    Object.values(scenarioCollection()).forEach(sourceScenario => {
+      ensureMetricScenarioFor(sourceScenario, id);
+    });
+    return id;
+  });
+
+  definition.bottomUp = {
+    type: "arithmetic",
+    inputs: ids,
+    operators: Array.from({ length: Math.max(0, ids.length - 1) }, () => "+"),
+  };
+  definition.reconciliation = { enabled: true, tolerance: 1 };
+  state.canvasStagedDrivers = [];
+  catalogSourceIsDirty = false;
+  clearCalculationCache();
+  selectNodeKey(nodeKey);
+  state.expandedNodeKey = nodeKey;
+  state.flippedNodeKey = nodeKey;
+  state.selectedCanvasBackPanel = "drivers";
+  setSourceStatus(`${ids.length} staged driver${ids.length === 1 ? "" : "s"} attached to ${definition.label}.`, "success");
+  render();
+  return true;
+}
+
+function renderCanvasZoomControl() {
+  const zoomPercent = Math.round(state.canvasZoom * 100);
+  return `
+    <div class="canvas-zoom-control" aria-label="Canvas magnification">
+      <span class="canvas-zoom-control-inner">
+        <button type="button" data-canvas-zoom="out" aria-label="Zoom out">-</button>
+        <span>${zoomPercent}%</span>
+        <button type="button" data-canvas-zoom="in" aria-label="Zoom in">+</button>
+      </span>
+    </div>
   `;
 }
 
@@ -6075,10 +6586,70 @@ function workspaceDrawerSelectedSummary() {
   };
 }
 
+const WORKSPACE_TITLE_REFERENCE_LABEL = "rev per customer";
+const WORKSPACE_TITLE_REFERENCE_MS_PER_CHARACTER = 22;
+const WORKSPACE_TITLE_TARGET_DURATION = WORKSPACE_TITLE_REFERENCE_LABEL.length * WORKSPACE_TITLE_REFERENCE_MS_PER_CHARACTER;
+
+function workspaceTitleMsPerCharacter(text) {
+  return WORKSPACE_TITLE_TARGET_DURATION / Math.max(1, String(text || "").length);
+}
+
+function setWorkspaceDrawerTitle(title, label, key) {
+  const titleKey = key || "";
+  const previousKey = title.dataset.workspaceTitleKey || "";
+  const isAnimatingSameKey = title.classList.contains("typing") && previousKey === titleKey;
+  if (isAnimatingSameKey) return;
+
+  if (workspaceDrawerTitleAnimationFrame) {
+    cancelAnimationFrame(workspaceDrawerTitleAnimationFrame);
+    workspaceDrawerTitleAnimationFrame = null;
+  }
+
+  title.dataset.workspaceTitleKey = titleKey;
+  if (!titleKey || previousKey === titleKey) {
+    title.classList.remove("typing");
+    title.textContent = label;
+    return;
+  }
+
+  const previousLabel = title.textContent || "";
+  const shouldErasePrevious = Boolean(previousKey && previousLabel && previousLabel !== label);
+  title.classList.add("typing");
+  const startedAt = performance.now();
+  const eraseMsPerCharacter = workspaceTitleMsPerCharacter(previousLabel);
+  const typeMsPerCharacter = workspaceTitleMsPerCharacter(label);
+  const eraseDuration = shouldErasePrevious ? previousLabel.length * eraseMsPerCharacter : 0;
+
+  const step = now => {
+    if (title.dataset.workspaceTitleKey !== titleKey) return;
+    const elapsed = now - startedAt;
+
+    if (shouldErasePrevious && elapsed < eraseDuration) {
+      const remaining = Math.max(0, previousLabel.length - Math.floor(elapsed / eraseMsPerCharacter) - 1);
+      title.textContent = previousLabel.slice(0, remaining);
+      workspaceDrawerTitleAnimationFrame = requestAnimationFrame(step);
+      return;
+    }
+
+    const typingElapsed = elapsed - eraseDuration;
+    const count = Math.min(label.length, Math.max(1, Math.floor(typingElapsed / typeMsPerCharacter) + 1));
+    title.textContent = label.slice(0, count);
+    if (count < label.length) {
+      workspaceDrawerTitleAnimationFrame = requestAnimationFrame(step);
+      return;
+    }
+    title.textContent = label;
+    title.classList.remove("typing");
+    workspaceDrawerTitleAnimationFrame = null;
+  };
+
+  workspaceDrawerTitleAnimationFrame = requestAnimationFrame(step);
+}
+
 function renderWorkspaceDrawer() {
   const drawer = document.getElementById("workspace-drawer");
   if (!drawer) return;
-  const height = ["collapsed", "medium", "full"].includes(state.workspaceDrawerHeight)
+  const height = ["collapsed", "full"].includes(state.workspaceDrawerHeight)
     ? state.workspaceDrawerHeight
     : "collapsed";
   const summary = workspaceDrawerSelectedSummary();
@@ -6089,26 +6660,36 @@ function renderWorkspaceDrawer() {
   const value = document.getElementById("workspace-drawer-value");
   const actions = document.getElementById("workspace-drawer-actions");
   const body = document.getElementById("workspace-drawer-body");
-  if (title) title.textContent = summary.label;
+  if (title) setWorkspaceDrawerTitle(title, summary.label, selectedNodeKey());
   if (caption) caption.textContent = summary.caption;
-  if (status) status.textContent = summary.status;
-  if (value) value.textContent = summary.value;
+  if (status) status.textContent = summary.label;
+  if (value) value.textContent = "";
   if (actions) {
-    actions.innerHTML = [
-      ["collapsed", "Bar"],
-      ["medium", "Half"],
-      ["full", "Full"],
-    ].map(([mode, label]) => `
-      <button type="button" data-workspace-drawer-height="${mode}" class="${height === mode ? "active" : ""}" aria-pressed="${height === mode}">
-        ${label}
+    const nextHeight = height === "full" ? "collapsed" : "full";
+    const actionLabel = height === "full" ? "Collapse workspace drawer" : "Expand workspace drawer";
+    actions.innerHTML = `
+      <button
+        type="button"
+        class="workspace-drawer-toggle ${height === "full" ? "down" : "up"}"
+        data-workspace-drawer-height="${nextHeight}"
+        aria-label="${actionLabel}"
+        title="${actionLabel}"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          ${height === "full" ? `
+            <path d="M5 9l7 7"></path>
+            <path d="M12 16l7-7"></path>
+          ` : `
+            <path d="M5 15l7-7"></path>
+            <path d="M12 8l7 7"></path>
+          `}
+        </svg>
       </button>
-    `).join("");
+    `;
   }
   disposeDrawerNapkinChart();
   if (body) body.innerHTML = renderWorkspaceDrawerBody();
-  if (height !== "collapsed") {
-    renderDrawerNapkinChart();
-  }
+  if (height !== "collapsed") renderDrawerPrimaryChart();
 }
 
 function renderWorkspaceDrawerBody() {
@@ -6126,22 +6707,17 @@ function renderWorkspaceDrawerBody() {
   const chartMode = drawerPrimaryChartMode(definition);
   const chartTitle = drawerPrimaryChartTitle(definition, chartMode);
   const chartCaption = drawerPrimaryChartCaption(definition, chartMode);
-  const showYAxisControls = chartMode !== "dimension-pct-total";
+  const showYAxisControls = !["dimension-pct-total", "dimension-table"].includes(chartMode);
   return `
     <div class="workspace-drawer-template">
-      <section class="workspace-drawer-template-header">
-        <span>Focused Metric Workspace</span>
-        <strong>${escapeHtml(definition.label)}</strong>
-        <small>Template area for a single-metric editing experience.</small>
-      </section>
       <section class="workspace-drawer-chart-slot">
         <div class="workspace-drawer-chart-header">
           <strong>${escapeHtml(chartTitle)}</strong>
           <span>${escapeHtml(chartCaption)}</span>
           ${showYAxisControls ? yAxisButtonRow("drawer-topdown", "Drawer chart Y axis controls") : ""}
         </div>
-        <div class="workspace-drawer-chart-body">
-          <div id="workspace-drawer-topdown-chart" class="workspace-drawer-napkin-chart"></div>
+        <div class="workspace-drawer-chart-body ${chartMode === "dimension-table" ? "table" : ""}">
+          <div id="workspace-drawer-topdown-chart" class="${chartMode === "dimension-table" ? "workspace-drawer-table-wrap" : "workspace-drawer-napkin-chart"}"></div>
         </div>
       </section>
       <section class="workspace-drawer-chart-slot">
@@ -6152,13 +6728,20 @@ function renderWorkspaceDrawerBody() {
           ${renderDrawerChartSettings(definition)}
         </div>
       </section>
+      <section class="workspace-drawer-template-footer">
+        <span>Focused Metric Workspace</span>
+        <strong>${escapeHtml(definition.label)}</strong>
+        <small>Template area for a single-metric editing experience.</small>
+      </section>
     </div>
   `;
 }
 
 function renderDrawerChartSettings(definition) {
   const selectedView = state.drawerChartSettingsView === "dimensioned" ? "dimensioned" : "total";
-  const selectedDimensionChartView = state.drawerDimensionChartView === "pctTotal" ? "pctTotal" : "total";
+  const selectedDimensionChartView = ["pctTotal", "table"].includes(state.drawerDimensionChartView)
+    ? state.drawerDimensionChartView
+    : "total";
   const dimensions = metricDimensionIds(definition.id)
     .map((dimensionId, index) => ({
       index,
@@ -6185,6 +6768,7 @@ function renderDrawerChartSettings(definition) {
               ${[
                 ["total", "Total"],
                 ["pctTotal", "% Total"],
+                ["table", "Table"],
               ].map(([view, label]) => `
                 <button type="button" data-drawer-dimension-chart-view="${view}" class="${selectedDimensionChartView === view ? "active" : ""}" aria-pressed="${selectedDimensionChartView === view}" ${dimensions.length ? "" : "disabled"}>
                   ${label}
@@ -6397,12 +6981,18 @@ function cycleDrawerDimensionMemberMode(metricId, dimensionId, memberId, baseKey
 
 function drawerPrimaryChartMode(definition) {
   const wantsDimensioned = state.drawerChartSettingsView === "dimensioned";
+  const hasDimensions = metricDimensionIds(definition?.id).length > 0;
+  if (!wantsDimensioned || !hasDimensions) return "total";
+  if (state.drawerDimensionChartView === "table") return "dimension-table";
   const dimensionContext = drawerDimensionContext(definition);
-  if (!wantsDimensioned || !dimensionContext) return "total";
+  if (!dimensionContext) return "total";
   return state.drawerDimensionChartView === "pctTotal" ? "dimension-pct-total" : "dimension-total";
 }
 
 function drawerPrimaryChartTitle(definition, chartMode) {
+  if (chartMode === "dimension-table") {
+    return "Dimension Table";
+  }
   if (chartMode === "dimension-total") {
     return `${drawerDimensionContext(definition)?.dimensionLabel || "Dimension"} Totals`;
   }
@@ -6413,9 +7003,130 @@ function drawerPrimaryChartTitle(definition, chartMode) {
 }
 
 function drawerPrimaryChartCaption(definition, chartMode) {
+  if (chartMode === "dimension-table") return "Expandable rollup by hierarchy";
   if (chartMode === "dimension-total") return "Editable member lines";
   if (chartMode === "dimension-pct-total") return "Editable mix";
   return formatMetricValue(definition, totalSeriesValue(activeTopDownSeries(definition)), { precise: true });
+}
+
+function drawerTableRootKey(metricId, filters = {}) {
+  return `${metricId || ""}::table-root::${filterKey(filters) || TOTAL_COORDINATE_KEY}`;
+}
+
+function drawerTableRowKey(metricId, filters = {}) {
+  return `${metricId || ""}::table-row::${filterKey(filters) || TOTAL_COORDINATE_KEY}`;
+}
+
+function drawerDimensionTableRows(definition) {
+  const dimensionIds = metricDimensionIds(definition.id);
+  const baseFilters = drawerDimensionFiltersForMetric(definition.id);
+  const rows = [];
+  const rootKey = drawerTableRootKey(definition.id, baseFilters);
+  rows.push({
+    key: rootKey,
+    depth: 0,
+    labels: [],
+    filters: { ...baseFilters },
+    canExpand: dimensionIds.length > 0,
+    isExpanded: !state.drawerDimensionTableCollapsedKeys.has(rootKey),
+  });
+
+  if (state.drawerDimensionTableCollapsedKeys.has(rootKey)) return rows;
+
+  function addLevel(levelIndex, parentFilters, labels) {
+    if (levelIndex >= dimensionIds.length) return;
+    const dimensionId = dimensionIds[levelIndex];
+    const selectedMemberIds = filterValueList(baseFilters[dimensionId]);
+    const members = dimensionMembers(dimensionId)
+      .filter(member => !selectedMemberIds.length || selectedMemberIds.includes(member.id));
+    members.forEach(member => {
+      const filters = { ...parentFilters, [dimensionId]: member.id };
+      const rowKey = drawerTableRowKey(definition.id, filters);
+      const rowLabels = [...labels, member.label];
+      const canExpand = levelIndex < dimensionIds.length - 1;
+      const isExpanded = state.drawerDimensionTableExpandedKeys.has(rowKey);
+      rows.push({
+        key: rowKey,
+        depth: levelIndex + 1,
+        labels: rowLabels,
+        filters,
+        canExpand,
+        isExpanded,
+      });
+      if (canExpand && isExpanded) addLevel(levelIndex + 1, filters, rowLabels);
+    });
+  }
+
+  addLevel(0, { ...baseFilters }, []);
+  return rows;
+}
+
+function renderDrawerDimensionTable(definition) {
+  const container = document.getElementById("workspace-drawer-topdown-chart");
+  if (!container || !definition) return;
+  const dimensionIds = metricDimensionIds(definition.id);
+  if (!dimensionIds.length) {
+    container.innerHTML = `<div class="chart-empty">No dimensions assigned to this metric yet.</div>`;
+    return;
+  }
+  const rows = drawerDimensionTableRows(definition);
+  const dimensionColumns = dimensionIds.map((dimensionId, index) => ({
+    dimensionId,
+    label: metricDimensionLevelLabel(definition.id, dimensionId).replace(/^Level \d+:\s*/, "") || `Level ${index + 1}`,
+  }));
+  container.innerHTML = `
+    <div class="workspace-drawer-pivot-table-shell">
+      <table class="workspace-drawer-pivot-table">
+        <thead>
+          <tr>
+            ${dimensionColumns.map((column, index) => `<th>Level ${index + 1}: ${escapeHtml(column.label)}</th>`).join("")}
+            ${visibleYears().map(year => `<th class="numeric">${year}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => {
+            const series = metricTopDownFilteredSeries(definition.id, row.filters);
+            return `
+              <tr class="${row.depth === 0 ? "total" : ""}">
+                ${dimensionColumns.map((_column, index) => {
+                  const hasLabel = index < row.labels.length;
+                  const isCurrentLevel = index === Math.max(0, row.depth - 1);
+                  const label = row.depth === 0 && index === 0 ? "Total" : hasLabel ? row.labels[index] : "";
+                  return `
+                    <td class="${isCurrentLevel ? "current" : ""}" style="padding-left: ${10 + Math.max(0, row.depth - 1) * 12}px;">
+                      ${isCurrentLevel || (row.depth === 0 && index === 0) ? `
+                        ${row.canExpand ? `
+                          <button
+                            type="button"
+                            class="workspace-drawer-table-toggle"
+                            data-drawer-dimension-table-toggle="${escapeHtml(row.key)}"
+                            data-drawer-dimension-table-root="${row.depth === 0 ? "true" : "false"}"
+                            aria-label="${row.isExpanded ? "Collapse" : "Expand"} ${escapeHtml(label || "row")}"
+                          >${row.isExpanded ? "-" : "+"}</button>
+                        ` : `<span class="workspace-drawer-table-toggle-spacer"></span>`}
+                        <span>${escapeHtml(label)}</span>
+                      ` : escapeHtml(label)}
+                    </td>
+                  `;
+                }).join("")}
+                ${visibleYearIndices().map(index => `<td class="numeric">${escapeHtml(formatMetricValue(definition, series[index], { precise: true }))}</td>`).join("")}
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderDrawerPrimaryChart() {
+  const definition = selectedDefinition();
+  if (!definition) return;
+  if (drawerPrimaryChartMode(definition) === "dimension-table") {
+    renderDrawerDimensionTable(definition);
+    return;
+  }
+  renderDrawerNapkinChart();
 }
 
 function disposeDrawerNapkinChart() {
@@ -6436,27 +7147,39 @@ function disposeDrawerNapkinChart() {
   drawerAreaHasPendingCommit = false;
 }
 
-function drawerNapkinLine(definition, name = "Top-Down", color = "#111827", data = activeTopDownControlPoints(definition), extra = {}) {
+function drawerNapkinLine(definition, name = "Top-Down", color = "#111827", data = activeTopDownControlPoints(definition), extra = {}, { simplify = false } = {}) {
   return {
     name,
     color,
-    data: normalizeNapkinPoints(data),
+    data: simplify ? displayControlPoints(data) : normalizeNapkinPoints(data),
     editable: true,
     editDomain: {
-      moveX: [[YEARS[0], YEARS[YEARS.length - 1]]],
-      addX: [[YEARS[0], YEARS[YEARS.length - 1]]],
-      deleteX: [[YEARS[0], YEARS[YEARS.length - 1]]],
+      moveX: [[visibleStartYear(), visibleEndYear()]],
+      addX: [[visibleStartYear(), visibleEndYear()]],
+      deleteX: [[visibleStartYear(), visibleEndYear()]],
     },
     ...extra,
   };
 }
 
-function drawerNapkinLines(definition, chartMode) {
+function drawerNapkinLines(definition, chartMode, { simplify = false } = {}) {
   if (chartMode !== "dimension-total") {
-    return [drawerNapkinLine(definition)];
+    const lines = [drawerNapkinLine(definition, "Top-Down", "#111827", activeTopDownControlPoints(definition), {}, { simplify })];
+    const bottomUp = activeBottomUpSeries(definition);
+    if (bottomUp) {
+      lines.push(drawerNapkinLine(
+        definition,
+        "Bottom-Up",
+        "#4f7fb8",
+        YEARS.map((year, index) => [year, Number(bottomUp[index] || 0)]),
+        { editable: false },
+        { simplify }
+      ));
+    }
+    return lines;
   }
   const dimensionContext = drawerDimensionContext(definition);
-  if (!dimensionContext) return [drawerNapkinLine(definition)];
+  if (!dimensionContext) return [drawerNapkinLine(definition, "Top-Down", "#111827", activeTopDownControlPoints(definition), {}, { simplify })];
   return drawerVisibleDimensionMembers(definition, dimensionContext).flatMap(({ member, mode }) => {
     const series = metricTopDownFilteredSeries(definition.id, { ...dimensionContext.baseFilters, [dimensionContext.dimensionId]: member.id });
     const points = YEARS.map((year, index) => [year, Number(series[index] || 0)]);
@@ -6465,7 +7188,8 @@ function drawerNapkinLines(definition, chartMode) {
       member.label,
       dimensionMemberColor(dimensionContext.members, member.id),
       points,
-      { memberId: member.id, dimensionId: dimensionContext.dimensionId, editable: mode === "on" }
+      { memberId: member.id, dimensionId: dimensionContext.dimensionId, editable: mode === "on" },
+      { simplify }
     )];
   });
 }
@@ -6528,17 +7252,24 @@ function clearDrawerDimensionPctControls(definition, dimensionContext) {
   delete metric.manualControlPoints;
 }
 
-function syncDrawerNapkinChart() {
+function syncDrawerNapkinChart({ simplify = false } = {}) {
   if (!drawerNapkinChart || !drawerNapkinMetricId || drawerNapkinChart._isDragging) return;
   const definition = metricDefinitions()[drawerNapkinMetricId];
   if (!definition) return;
   const chartMode = drawerPrimaryChartMode(definition);
   drawerNapkinIsSyncing = true;
-  drawerNapkinChart.lines = drawerNapkinLines(definition, chartMode);
-  drawerNapkinChart.globalMaxX = YEARS[YEARS.length - 1];
-  drawerNapkinChart.windowStartX = YEARS[0];
-  drawerNapkinChart.windowEndX = YEARS[YEARS.length - 1];
+  drawerNapkinChart.lines = drawerNapkinLines(definition, chartMode, { simplify });
+  const allValues = drawerNapkinChart.lines.flatMap(line => line.data.map(point => Number(point[1] || 0)));
+  const snappedYMax = napkinYMaxForValues(definition, allValues);
+  drawerNapkinChart.baseOption.yAxis.max = Number.isFinite(state.drawerNapkinYMax)
+    ? Math.max(state.drawerNapkinYMax, snappedYMax)
+    : snappedYMax;
+  drawerNapkinChart.chart.setOption({ yAxis: { max: drawerNapkinChart.baseOption.yAxis.max } }, false);
+  drawerNapkinChart.globalMaxX = visibleEndYear();
+  drawerNapkinChart.windowStartX = visibleStartYear();
+  drawerNapkinChart.windowEndX = visibleEndYear();
   drawerNapkinChart._refreshChart();
+  styleNapkinBottomUpReference(drawerNapkinChart);
   drawerNapkinIsSyncing = false;
 }
 
@@ -6551,6 +7282,7 @@ function applyDrawerNapkinYAxisMax(nextYMax) {
   drawerNapkinChart.baseOption.yAxis.max = nextYMax;
   drawerNapkinChart.chart.setOption({ yAxis: { max: nextYMax } }, false);
   drawerNapkinChart._refreshChart();
+  styleNapkinBottomUpReference(drawerNapkinChart);
   drawerNapkinIsSyncing = false;
 }
 
@@ -6584,17 +7316,17 @@ function applyDrawerNapkinLines(definition) {
     return;
   }
   const nextPoints = normalizeNapkinPoints(drawerNapkinChart.lines[0].data);
-  setActiveTopDownSeries(definition, nextPoints);
+  setActiveTopDownSeries(definition, nextPoints, { simplify: false });
 }
 
-function commitDrawerNapkinEdit(definition) {
+function commitDrawerNapkinEdit(definition, { renderDrawer = false } = {}) {
   if (!drawerNapkinChart?.lines?.length || !definition) return;
   applyDrawerNapkinLines(definition);
   drawerNapkinHasPendingCommit = false;
   catalogSourceIsDirty = false;
   renderMetricList();
   renderCanvas();
-  renderWorkspaceDrawer();
+  if (renderDrawer) renderWorkspaceDrawer();
   renderCatalogSource();
   requestAnimationFrame(renderCanvasLines);
 }
@@ -6628,9 +7360,9 @@ function renderDrawerNapkinChart() {
   if (drawerNapkinChart?.chart) {
     drawerNapkinChart.chart.dispose();
   }
-  const lines = drawerNapkinLines(definition, chartMode);
-  const allValues = lines.flatMap(line => line.data.map(point => Number(point[1] || 0)));
-  const snappedYMax = snapSafeNapkinYMax(Math.max(10, ...allValues) * 1.25);
+  const lines = drawerNapkinLines(definition, chartMode, { simplify: true });
+  const allValues = lines.flatMap(line => visiblePointValues(line.data));
+  const snappedYMax = napkinYMaxForValues(definition, allValues);
   const yMax = Number.isFinite(state.drawerNapkinYMax)
     ? Math.max(state.drawerNapkinYMax, snappedYMax)
     : snappedYMax;
@@ -6642,7 +7374,7 @@ function renderDrawerNapkinChart() {
     true,
     {
       animation: false,
-      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      xAxis: visibleYearValueAxis(),
       yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
       grid: { left: 12, right: 18, top: 16, bottom: 30, containLabel: true },
       tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
@@ -6650,7 +7382,7 @@ function renderDrawerNapkinChart() {
     "none",
     false
   );
-  syncDrawerNapkinChart();
+  syncDrawerNapkinChart({ simplify: true });
 
   drawerNapkinChart.chart.getZr().on("mouseup", () => {
     if (!drawerNapkinHasPendingCommit) return;
@@ -6682,9 +7414,9 @@ function syncDrawerDimensionPctChart(definition) {
   drawerAreaChart.topAreaColor = topMember ? dimensionMemberColor(dimensionContext.members, topMember.id) : "#4f7fb8";
   drawerAreaChart.baseOption.topAreaLabel = drawerAreaChart.topAreaLabel;
   drawerAreaChart.baseOption.topAreaColor = drawerAreaChart.topAreaColor;
-  drawerAreaChart.globalMaxX = YEARS[YEARS.length - 1];
-  drawerAreaChart.windowStartX = YEARS[0];
-  drawerAreaChart.windowEndX = YEARS[YEARS.length - 1];
+  drawerAreaChart.globalMaxX = visibleEndYear();
+  drawerAreaChart.windowStartX = visibleStartYear();
+  drawerAreaChart.windowEndX = visibleEndYear();
   drawerAreaChart._refreshChart();
   drawerAreaChart.resize();
   drawerAreaIsSyncing = false;
@@ -6768,7 +7500,7 @@ function renderDrawerDimensionPctChart(definition) {
     true,
     {
       animation: false,
-      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      xAxis: visibleYearValueAxis(),
       yAxis: {
         type: "value",
         min: 0,
@@ -6818,20 +7550,24 @@ function renderInlineMetricChart(definition, topDown, bottomUp = null) {
   const width = 220;
   const height = 84;
   const margin = { top: 10, right: 8, bottom: 16, left: 8 };
-  const allValues = [...topDown, ...(bottomUp || [])].map(value => Number(value || 0));
+  const indices = visibleYearIndices();
+  const visibleTopDown = indices.map(index => Number(topDown[index] || 0));
+  const visibleBottomUp = bottomUp ? indices.map(index => Number(bottomUp[index] || 0)) : null;
+  const allValues = [...visibleTopDown, ...(visibleBottomUp || [])].map(value => Number(value || 0));
   const rawMin = Math.min(0, ...allValues);
   const rawMax = Math.max(0, ...allValues);
   const padding = rawMax === rawMin ? 1 : (rawMax - rawMin) * 0.08;
   const minValue = rawMin - padding;
   const maxValue = rawMax + padding;
   const zeroY = margin.top + ((maxValue - 0) / (maxValue - minValue || 1)) * (height - margin.top - margin.bottom);
-  const topDownPath = inlineChartPath(topDown, minValue, maxValue, width, height, margin);
-  const bottomUpPath = bottomUp ? inlineChartPath(bottomUp, minValue, maxValue, width, height, margin) : "";
-  const anchorYear = Number(state.anchorYear || DEFAULT_ANCHOR_YEAR);
-  const anchorIndex = YEARS.indexOf(anchorYear);
-  const anchorValue = anchorIndex >= 0 ? Number(topDown[anchorIndex] || 0) : null;
-  const anchorX = anchorIndex >= 0
-    ? margin.left + (topDown.length === 1 ? 0 : (anchorIndex / (topDown.length - 1)) * (width - margin.left - margin.right))
+  const topDownPath = inlineChartPath(visibleTopDown, minValue, maxValue, width, height, margin);
+  const bottomUpPath = visibleBottomUp ? inlineChartPath(visibleBottomUp, minValue, maxValue, width, height, margin) : "";
+  const anchorYear = effectiveAnchorYear();
+  const anchorFullIndex = anchorYearIndex();
+  const anchorVisibleIndex = visibleYears().indexOf(anchorYear);
+  const anchorValue = anchorFullIndex >= 0 ? Number(topDown[anchorFullIndex] || 0) : null;
+  const anchorX = anchorVisibleIndex >= 0
+    ? margin.left + (visibleTopDown.length === 1 ? 0 : (anchorVisibleIndex / (visibleTopDown.length - 1)) * (width - margin.left - margin.right))
     : null;
   const anchorY = anchorValue !== null
     ? margin.top + ((maxValue - anchorValue) / (maxValue - minValue || 1)) * (height - margin.top - margin.bottom)
@@ -6958,13 +7694,15 @@ function createDimensionFromTileLabel(label, membersText = "") {
 function renderCanvasNodeDriversPanel(nodeKey, definition) {
   const formulaType = ["sum", "product", "difference"].includes(definition.bottomUp?.type)
     ? "arithmetic"
-    : definition.bottomUp?.type || "";
+    : definition.bottomUp?.type === "arithmetic"
+      ? "arithmetic"
+      : "";
   const selectedInputIds = metricInputIds(definition);
-  const selectedInputs = new Set(selectedInputIds);
   const operators = arithmeticOperators(definition);
   const selectedOptions = selectedInputIds
     .map(inputId => metricDefinitions()[inputId])
     .filter(Boolean);
+  const selectedInputs = new Set(selectedOptions.map(option => option.id));
   const addOptions = canvasBackDriverOptions(definition).filter(candidate => !selectedInputs.has(candidate.id));
   const datalistId = `node-driver-options-${domSafeId(nodeKey)}`;
   return `
@@ -6975,8 +7713,6 @@ function renderCanvasNodeDriversPanel(nodeKey, definition) {
           <select data-node-driver-type="${escapeHtml(nodeKey)}">
             <option value="" ${!formulaType ? "selected" : ""}>Manual</option>
             <option value="arithmetic" ${formulaType === "arithmetic" ? "selected" : ""}>Arithmetic</option>
-            <option value="weightedAverage" ${formulaType === "weightedAverage" ? "selected" : ""}>Weighted Average</option>
-            <option value="laggedMetric" ${formulaType === "laggedMetric" ? "selected" : ""}>Lagged Metric</option>
           </select>
         </label>
         <span class="metric-node-driver-behavior">
@@ -6990,7 +7726,7 @@ function renderCanvasNodeDriversPanel(nodeKey, definition) {
           const operator = selectedIndex > 0 ? operators[selectedIndex - 1] || "+" : "+";
           const showOperator = selectedIndex > 0;
           return `
-          <label class="metric-node-driver-chip">
+          <span class="metric-node-driver-chip">
             ${showOperator ? `
               <select data-node-driver-operator="${escapeHtml(nodeKey)}" data-node-driver-operator-for="${escapeHtml(candidate.id)}" aria-label="Operator before ${escapeHtml(candidate.label)}">
                 <option value="+" ${operator === "+" ? "selected" : ""}>+</option>
@@ -6999,9 +7735,15 @@ function renderCanvasNodeDriversPanel(nodeKey, definition) {
                 <option value="/" ${operator === "/" ? "selected" : ""}>÷</option>
               </select>
             ` : `<span class="metric-node-driver-operator-spacer" aria-hidden="true"></span>`}
-            <input type="checkbox" data-node-driver-input="${escapeHtml(nodeKey)}" value="${escapeHtml(candidate.id)}" checked>
-            <span>${escapeHtml(candidate.label)}</span>
-          </label>
+            <input
+              class="metric-node-driver-label-input"
+              type="text"
+              value="${escapeHtml(candidate.label)}"
+              data-node-driver-label="${escapeHtml(candidate.id)}"
+              aria-label="Driver metric name"
+            >
+            <button type="button" data-node-driver-remove="${escapeHtml(nodeKey)}" data-node-driver-remove-id="${escapeHtml(candidate.id)}" aria-label="Remove ${escapeHtml(candidate.label)}">×</button>
+          </span>
         `;}).join("") : `<span class="metric-node-back-empty">No drivers selected.</span>`}
       </span>
       <span class="metric-node-driver-create">
@@ -7011,7 +7753,6 @@ function renderCanvasNodeDriversPanel(nodeKey, definition) {
         </datalist>
         <button type="button" data-node-driver-create="${escapeHtml(nodeKey)}">Add</button>
       </span>
-      <button class="metric-node-driver-apply" type="button" data-node-driver-apply="${escapeHtml(nodeKey)}">Apply Drivers</button>
     </span>
   `;
 }
@@ -7069,6 +7810,92 @@ function renderCanvasNodeBackPanel(nodeKey, definition) {
   `;
 }
 
+function renderMetricNodeNumberView(definition, label, series, isExpanded) {
+  const year = effectiveAnchorYear();
+  const index = anchorYearIndex();
+  const value = Number(series[index] || 0);
+  const formattedValue = isExpanded
+    ? formatMetricEditValue(definition, value)
+    : formatMetricValue(definition, value);
+  const valueSizeClass = numberValueSizeClass(formattedValue);
+  return `
+    <span class="metric-node-number-view">
+      <span class="metric-node-number-label">${escapeHtml(label)}</span>
+      ${isExpanded ? `
+        <input
+          class="metric-node-number-value metric-node-number-input ${valueSizeClass}"
+          type="text"
+          data-node-anchor-value
+          value="${escapeHtml(formattedValue)}"
+          aria-label="${escapeHtml(label)} value for ${escapeHtml(year)}"
+        >
+      ` : `
+        <strong class="metric-node-number-value ${valueSizeClass}">${escapeHtml(formattedValue)}</strong>
+      `}
+      ${isExpanded ? `
+        <span class="metric-node-anchor-year-control" aria-label="Global anchor year">
+          <button type="button" data-anchor-year-step="-1" aria-label="Decrease anchor year">−</button>
+          <input type="text" inputmode="numeric" data-anchor-year-input value="${escapeHtml(year)}" aria-label="Anchor year">
+          <button type="button" data-anchor-year-step="1" aria-label="Increase anchor year">+</button>
+        </span>
+      ` : ""}
+    </span>
+  `;
+}
+
+function seriesEqual(left = [], right = [], tolerance = 1e-9) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((value, index) => Math.abs(Number(value || 0) - Number(right[index] || 0)) <= tolerance);
+}
+
+function renderCanvasNodeFitButton(nodeKey, children, topDown, bottomUp) {
+  if (!children.length || !bottomUp || seriesEqual(topDown, bottomUp)) return "";
+  return `
+    <button
+      class="metric-node-fit-button"
+      type="button"
+      data-node-fit-bottom-up="${escapeHtml(nodeKey)}"
+      aria-label="Fit top-down line to bottom-up value"
+      title="Fit to bottom-up"
+    >
+      <svg class="metric-node-fit-mark" viewBox="0 0 67 32" aria-hidden="true" focusable="false">
+        <g class="metric-node-fit-center" fill="currentColor">
+          <rect x="22.154" y="4.923" width="22.154" height="7.385"></rect>
+          <rect x="22.154" y="19.692" width="22.154" height="7.385"></rect>
+        </g>
+        <path class="metric-node-fit-angle left" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M9.514 16L18.46 4.923L12.715.283L.021 16l12.696 15.717 5.744-4.64L9.514 16Z"></path>
+        <path class="metric-node-fit-angle right" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M56.947 16L48 4.923l5.745-4.64L66.44 16 53.744 31.717 48 27.077 56.947 16Z"></path>
+      </svg>
+    </button>
+  `;
+}
+
+function applyCanvasAnchorValue(nodeKey, rawValue) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition) return;
+  const nextValue = parseMetricInputValue(definition, rawValue);
+  if (nextValue === null) {
+    setSourceStatus("Enter a valid number for the selected year.", "error");
+    renderCanvas();
+    requestAnimationFrame(renderCanvasLines);
+    return;
+  }
+  const nextSeries = parsed.memberId
+    ? metricTopDownFilteredSeries(parsed.metricId, { [parsed.dimensionId]: parsed.memberId })
+    : metricTopDownSeries(parsed.metricId);
+  nextSeries[anchorYearIndex()] = nextValue;
+  if (parsed.memberId) {
+    setMetricTopDownFilteredSeries(parsed.metricId, { [parsed.dimensionId]: parsed.memberId }, nextSeries);
+  } else {
+    setMetricTopDownFilteredSeries(parsed.metricId, {}, nextSeries);
+  }
+  catalogSourceIsDirty = false;
+  renderCanvas();
+  renderWorkspaceDrawer();
+  requestAnimationFrame(renderCanvasLines);
+}
+
 function renderNode(nodeKey) {
   const parsed = parseNodeKey(nodeKey);
   const definition = metricDefinitions()[parsed.metricId];
@@ -7098,20 +7925,32 @@ function renderNode(nodeKey) {
             : "Manual series",
       dimensionIds.length ? `${dimensionIds.map((_dimensionId, index) => `L${index + 1}`).join("/")} | ${coordinateCount} coordinates` : "",
     ].filter(Boolean).join(" | ");
+  const nodeLabel = isMember ? member?.label || parsed.memberId : definition.label;
   return `
     <div class="metric-node ${isMember ? "member-node" : ""} ${isSelected ? "active" : ""} ${isExpanded ? "expanded" : ""} ${isFlipped ? "flipped" : ""} ${reconciliation.enabled && !reconciliation.matched ? "mismatch" : ""}" data-node-key="${nodeKey}" role="button" tabindex="0" aria-pressed="${isFlipped}">
       <span class="metric-node-flipper">
         <span class="metric-node-face metric-node-front">
-          <span>${isMember ? member?.label || parsed.memberId : definition.label}</span>
-          <strong>${formatMetricValue(definition, series[series.length - 1])}</strong>
-          <small>${nodeCaption}</small>
-          ${state.canvasViewMode === "chart" ? renderInlineMetricChart(definition, series, bottomUp) : ""}
+          ${state.canvasViewMode === "chart" ? `
+            <span>${escapeHtml(nodeLabel)}</span>
+            ${renderInlineMetricChart(definition, series, bottomUp)}
+          ` : renderMetricNodeNumberView(definition, nodeLabel, series, isExpanded)}
+          ${renderCanvasNodeFitButton(nodeKey, children, series, bottomUp)}
         </span>
         <span class="metric-node-face metric-node-back">
           <span class="metric-node-back-controls">
             ${renderCanvasNodeFormatToggle(nodeKey, definition)}
           </span>
-          <strong>${escapeHtml(isMember ? member?.label || parsed.memberId : definition.label)}</strong>
+          ${isMember ? `
+            <strong>${escapeHtml(nodeLabel)}</strong>
+          ` : `
+            <input
+              class="metric-node-title-input"
+              type="text"
+              value="${escapeHtml(nodeLabel)}"
+              data-node-label-input="${escapeHtml(nodeKey)}"
+              aria-label="Metric name"
+            >
+          `}
           <span class="metric-node-back-panel-tabs">
             ${renderCanvasNodeBackPanelButton(nodeKey, "drivers", "Drivers")}
             ${renderCanvasNodeBackPanelButton(nodeKey, "dimensions", "Dimensions")}
@@ -7416,12 +8255,12 @@ function renderDimensionBreakdown(definition) {
     },
     legend: { top: 0 },
     grid: { left: 12, right: 18, top: 42, bottom: 34, containLabel: true },
-    xAxis: { type: "category", data: YEARS.map(String) },
+    xAxis: { type: "category", data: visibleYears().map(String) },
     yAxis: { type: "value", axisLabel: { formatter: compactCurrency } },
     series: coordinateKeys.map(key => ({
       name: coordinateLabelForMetric(definition.id, key),
       type: "line",
-      data: metricTopDownCoordinateSeries(definition.id, key),
+      data: visibleSeriesValues(metricTopDownCoordinateSeries(definition.id, key)),
       symbolSize: 6,
       lineStyle: { width: 2.5 },
     })),
@@ -7452,9 +8291,9 @@ function syncDimensionMixChart() {
   dimensionMixChart.topAreaColor = dimensionMemberColor(members, topMember.id);
   dimensionMixChart.baseOption.topAreaLabel = dimensionMixChart.topAreaLabel;
   dimensionMixChart.baseOption.topAreaColor = dimensionMixChart.topAreaColor;
-  dimensionMixChart.globalMaxX = YEARS[YEARS.length - 1];
-  dimensionMixChart.windowStartX = YEARS[0];
-  dimensionMixChart.windowEndX = YEARS[YEARS.length - 1];
+  dimensionMixChart.globalMaxX = visibleEndYear();
+  dimensionMixChart.windowStartX = visibleStartYear();
+  dimensionMixChart.windowEndX = visibleEndYear();
   dimensionMixChart._refreshChart();
   dimensionMixChart.resize();
   dimensionMixIsSyncing = false;
@@ -7496,7 +8335,7 @@ function renderDimensionMixEditor(definition) {
     true,
     {
       animation: false,
-      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
+      xAxis: visibleYearValueAxis(),
       yAxis: {
         type: "value",
         min: 0,
@@ -7660,9 +8499,14 @@ function renderDefinitionComparisonChart(definition) {
     },
     legend: { top: 0 },
     grid: { left: 12, right: 18, top: 42, bottom: 34, containLabel: true },
-    xAxis: { type: "category", data: YEARS.map(String) },
+    xAxis: { type: "category", data: visibleYears().map(String) },
     yAxis: { type: "value", axisLabel: { formatter: compactCurrency } },
-    series,
+    series: series.map(item => ({
+      ...item,
+      data: Array.isArray(item.data) && item.data.length === YEARS.length
+        ? visibleSeriesValues(item.data)
+        : item.data,
+    })),
   }, true);
 }
 
@@ -7835,12 +8679,13 @@ function renderLaggedOpeningEditor(definition) {
   `;
 }
 
-function syncTopDownNapkinChart() {
+function syncTopDownNapkinChart({ simplify = false } = {}) {
   if (!topDownNapkinChart || !topDownNapkinMetricId) return;
   const parsed = parseNodeKey(topDownNapkinMetricId);
   const definition = metricDefinitions()[parsed.metricId];
   if (!definition) return;
   const points = activeTopDownControlPoints(definition);
+  const displayPoints = simplify ? displayControlPoints(points) : points;
   const context = selectedDimensionContextForMetric(definition.id);
   const label = context
     ? `${definition.label}: ${context.label}`
@@ -7851,12 +8696,14 @@ function syncTopDownNapkinChart() {
   topDownNapkinChart.lines = [{
     name: label,
     color: "#111827",
-    data: points,
+    data: displayPoints,
     editable: true,
   }];
-  topDownNapkinChart.globalMaxX = YEARS[YEARS.length - 1];
-  topDownNapkinChart.windowStartX = YEARS[0];
-  topDownNapkinChart.windowEndX = YEARS[YEARS.length - 1];
+  topDownNapkinChart.baseOption.yAxis.max = napkinYMaxForValues(definition, visiblePointValues(displayPoints));
+  topDownNapkinChart.chart.setOption({ yAxis: { max: topDownNapkinChart.baseOption.yAxis.max } }, false);
+  topDownNapkinChart.globalMaxX = visibleEndYear();
+  topDownNapkinChart.windowStartX = visibleStartYear();
+  topDownNapkinChart.windowEndX = visibleEndYear();
   topDownNapkinChart._refreshChart();
   topDownNapkinIsSyncing = false;
 }
@@ -8023,8 +8870,7 @@ function renderTopDownNapkinEditor(definition) {
   container.innerHTML = "";
 
   const points = activeTopDownControlPoints(definition);
-  const rawYMax = Math.max(10, ...points.map(point => Number(point[1] || 0))) * 1.25;
-  const yMax = snapSafeNapkinYMax(rawYMax);
+  const yMax = napkinYMaxForValues(definition, visiblePointValues(points));
   const context = selectedDimensionContextForMetric(definition.id);
   const lineName = context ? `${definition.label}: ${context.label}` : definition.label;
   topDownNapkinMetricId = currentSelectionKey;
@@ -8033,22 +8879,21 @@ function renderTopDownNapkinEditor(definition) {
     [{
       name: lineName,
       color: "#111827",
-      data: points,
+      data: displayControlPoints(points),
       editable: true,
     }],
     true,
     {
       animation: false,
-      xAxis: { type: "value", min: YEARS[0], max: YEARS[YEARS.length - 1], minInterval: 1 },
-      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: compactCurrency } },
+      xAxis: visibleYearValueAxis(),
+      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
       grid: { left: 12, right: 18, top: 14, bottom: 34, containLabel: true },
-      tooltip: { trigger: "axis", valueFormatter: value => compactCurrencyTooltip(value) },
+      tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
     },
     "none",
     false
   );
-  syncTopDownNapkinChart();
-
+  syncTopDownNapkinChart({ simplify: true });
   topDownNapkinChart.chart.getZr().on("mouseup", () => {
     if (!topDownNapkinHasPendingCommit) return;
     requestAnimationFrame(() => {
@@ -8059,7 +8904,7 @@ function renderTopDownNapkinEditor(definition) {
   topDownNapkinChart.onDataChanged = () => {
     if (topDownNapkinIsSyncing || !topDownNapkinChart?.lines?.[0]) return;
     const nextPoints = normalizeNapkinPoints(topDownNapkinChart.lines[0].data);
-    setActiveTopDownSeries(definition, nextPoints);
+    setActiveTopDownSeries(definition, nextPoints, { simplify: false });
     refreshDetailAfterTopDownEdit(definition);
     if (topDownNapkinChart._isDragging) {
       topDownNapkinHasPendingCommit = true;
@@ -8204,12 +9049,15 @@ function renderCohortMatrixBuilder(definition) {
     animation: false,
     tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
     grid: { left: 10, right: 16, top: 16, bottom: 28, containLabel: true },
-    xAxis: { type: "category", data: YEARS.map(String) },
+    xAxis: { type: "category", data: visibleYears().map(String) },
     yAxis: { type: "value", axisLabel: { formatter: value => formatMetricValue(definition, value) } },
     series: [{
       name: "Starting Value",
       type: "line",
-      data: YEARS.map((year, index) => isGenericCohortMatrix ? Number(sourceSeries[index] || 0) : cohortStartValueForYear(starts, year)),
+      data: visibleYearIndices().map(index => {
+        const year = YEARS[index];
+        return isGenericCohortMatrix ? Number(sourceSeries[index] || 0) : cohortStartValueForYear(starts, year);
+      }),
       symbolSize: 7,
       lineStyle: { color: "#2f6f73", width: 3 },
       itemStyle: { color: "#2f6f73" },
@@ -8282,9 +9130,8 @@ function syncCohortBuilderChartsFromForm(definition) {
   });
 }
 
-function setTopToBottom(metricId, { direct = false } = {}) {
+function setTopToBottom(metricId, { direct = false, context = selectedDimensionContextForMetric(metricId) } = {}) {
   if (!metricId) return;
-  const context = selectedDimensionContextForMetric(metricId);
   const bottomUp = context
     ? direct
       ? metricDirectBottomUpSeries(metricId, context)
@@ -8294,7 +9141,7 @@ function setTopToBottom(metricId, { direct = false } = {}) {
       : metricBottomUpSeries(metricId);
   if (!bottomUp) return;
   const metric = ensureMetricScenario(metricId);
-  const points = YEARS.map((year, index) => [year, Number(bottomUp[index] || 0)]);
+  const points = simplifyControlPoints(YEARS.map((year, index) => [year, Number(bottomUp[index] || 0)]));
   if (context) {
     setMetricTopDownFilteredSeries(metricId, context.coordinate, bottomUp);
   } else {
@@ -8303,6 +9150,13 @@ function setTopToBottom(metricId, { direct = false } = {}) {
     metric.controlPoints[TOTAL_COORDINATE_KEY] = points;
   }
   render();
+}
+
+function setCanvasNodeTopToBottom(nodeKey) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition || !nodeChildKeys(nodeKey).length) return;
+  setTopToBottom(parsed.metricId, { context: contextForNodeKey(nodeKey) });
 }
 
 function newBlankModel() {
@@ -8438,29 +9292,98 @@ function applyBottomUpFormulaToDefinition(definition, type, inputs, { operators 
   } else {
     const metric = ensureMetricScenario(definition.id);
     if (!metric.controlPoints) metric.controlPoints = {};
-    metric.controlPoints[TOTAL_COORDINATE_KEY] = manualControlPoints(definition.id);
+    metric.controlPoints[TOTAL_COORDINATE_KEY] = simplifyControlPoints(manualControlPoints(definition.id));
   }
   setSourceStatus(`${definition.label} formula updated: ${formulaText(definition.id)}.`, "success");
   catalogSourceIsDirty = false;
   return true;
 }
 
-function applyCanvasDrivers(nodeKey) {
+function setCanvasDriverPanelState(nodeKey) {
+  selectNodeKey(nodeKey);
+  state.expandedNodeKey = nodeKey;
+  state.flippedNodeKey = nodeKey;
+  state.selectedCanvasBackPanel = "drivers";
+}
+
+function setDefinitionToManual(definition) {
+  definition.bottomUp = null;
+  definition.reconciliation = { enabled: false, tolerance: 1 };
+  definition.topDown = { type: "manualSeries", editable: true };
+}
+
+function setDefinitionToArithmetic(definition, inputs, operators = []) {
+  const cleanInputs = Array.from(new Set(inputs.filter(inputId => metricDefinitions()[inputId])));
+  if (!cleanInputs.length) {
+    setDefinitionToManual(definition);
+    return;
+  }
+  definition.bottomUp = {
+    type: "arithmetic",
+    inputs: cleanInputs,
+    operators: Array.from({ length: Math.max(0, cleanInputs.length - 1) }, (_item, index) => {
+      const operator = operators[index] || "+";
+      return ["+", "-", "*", "/"].includes(operator) ? operator : "+";
+    }),
+  };
+  definition.topDown = { type: "manualSeries", editable: true };
+  definition.reconciliation = { enabled: true, tolerance: 1 };
+  const metric = ensureMetricScenario(definition.id);
+  if (!metric.controlPoints) metric.controlPoints = {};
+  metric.controlPoints[TOTAL_COORDINATE_KEY] = simplifyControlPoints(manualControlPoints(definition.id));
+}
+
+function setCanvasDriverRelationship(nodeKey, type) {
   const parsed = parseNodeKey(nodeKey);
   const definition = metricDefinitions()[parsed.metricId];
   if (!definition) return;
-  const type = document.querySelector(`[data-node-driver-type="${CSS.escape(nodeKey)}"]`)?.value || "";
-  const inputs = [...document.querySelectorAll(`[data-node-driver-input="${CSS.escape(nodeKey)}"]:checked`)].map(input => input.value);
-  const operators = inputs.slice(1).map(inputId => {
-    const operator = document.querySelector(`[data-node-driver-operator="${CSS.escape(nodeKey)}"][data-node-driver-operator-for="${CSS.escape(inputId)}"]`)?.value || "+";
-    return ["+", "-", "*", "/"].includes(operator) ? operator : "+";
-  });
-  if (applyBottomUpFormulaToDefinition(definition, type, inputs, { operators })) {
-    selectNodeKey(nodeKey);
-    state.expandedNodeKey = nodeKey;
-    state.flippedNodeKey = nodeKey;
-    render();
+  if (type === "arithmetic") {
+    setDefinitionToArithmetic(definition, metricInputIds(definition), arithmeticOperators(definition));
+  } else {
+    setDefinitionToManual(definition);
   }
+  catalogSourceIsDirty = false;
+  clearCalculationCache();
+  setCanvasDriverPanelState(nodeKey);
+  setSourceStatus(`${definition.label} drivers ${type === "arithmetic" ? "set to arithmetic" : "cleared"}.`, "success");
+  render();
+}
+
+function updateCanvasDriverOperator(nodeKey, inputId, operator) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition || !["+", "-", "*", "/"].includes(operator)) return;
+  const inputs = metricInputIds(definition);
+  const inputIndex = inputs.indexOf(inputId);
+  if (inputIndex <= 0) return;
+  const operators = arithmeticOperators(definition);
+  operators[inputIndex - 1] = operator;
+  setDefinitionToArithmetic(definition, inputs, operators);
+  catalogSourceIsDirty = false;
+  clearCalculationCache();
+  setCanvasDriverPanelState(nodeKey);
+  render();
+}
+
+function removeCanvasDriver(nodeKey, inputId) {
+  const parsed = parseNodeKey(nodeKey);
+  const definition = metricDefinitions()[parsed.metricId];
+  if (!definition) return;
+  const inputs = metricInputIds(definition);
+  const removeIndex = inputs.indexOf(inputId);
+  if (removeIndex < 0) return;
+  const nextInputs = inputs.filter(id => id !== inputId);
+  const existingOperators = arithmeticOperators(definition);
+  const nextOperators = nextInputs.slice(1).map(input => {
+    const oldIndex = inputs.indexOf(input);
+    return existingOperators[Math.max(0, oldIndex - 1)] || "+";
+  });
+  setDefinitionToArithmetic(definition, nextInputs, nextOperators);
+  catalogSourceIsDirty = false;
+  clearCalculationCache();
+  setCanvasDriverPanelState(nodeKey);
+  setSourceStatus(`${metricDefinitions()[inputId]?.label || inputId} removed from ${definition.label}.`, "success");
+  render();
 }
 
 function createCanvasDriverMetric(nodeKey) {
@@ -8472,28 +9395,12 @@ function createCanvasDriverMetric(nodeKey) {
   const existingId = resolveMetricSearchValue(label);
   const id = existingId || createMetricFromFlowLabel(label, { unit: definition.unit || "currency" });
   if (!id) return;
-  if (!definition.bottomUp) {
-    definition.bottomUp = { type: "arithmetic", inputs: [id], operators: [] };
-    definition.reconciliation = { enabled: true, tolerance: 1 };
-  } else {
-    const inputs = metricInputIds(definition);
-    if (!inputs.includes(id)) {
-      definition.bottomUp.inputs = [...inputs, id];
-      if (["sum", "product", "difference"].includes(definition.bottomUp.type)) {
-        definition.bottomUp = { type: "arithmetic", inputs: definition.bottomUp.inputs, operators: arithmeticOperators(definition) };
-      }
-      if (definition.bottomUp.type === "arithmetic") {
-        definition.bottomUp.operators = arithmeticOperators(definition);
-      }
-    }
-    if (definition.bottomUp.type === "weightedAverage") definition.bottomUp.weightMetricId = id;
-  }
+  const inputs = metricInputIds(definition);
+  const operators = arithmeticOperators(definition);
+  if (!inputs.includes(id)) setDefinitionToArithmetic(definition, [...inputs, id], operators);
   catalogSourceIsDirty = false;
   setSourceStatus(`${metricDefinitions()[id].label} ${existingId ? "added" : "created"} as a driver for ${definition.label}.`, "success");
-  selectNodeKey(nodeKey);
-  state.expandedNodeKey = nodeKey;
-  state.flippedNodeKey = nodeKey;
-  state.selectedCanvasBackPanel = "drivers";
+  setCanvasDriverPanelState(nodeKey);
   render();
 }
 
@@ -8546,6 +9453,28 @@ function setCanvasNodeFormat(nodeKey, format) {
   definition.presentation.valueFormat = format;
   catalogSourceIsDirty = false;
   setSourceStatus(`${definition.label} display format set to ${formatButtonLabel(format)}.`, "success");
+  render();
+}
+
+function applyCanvasNodeLabel(nodeKey, rawLabel) {
+  const parsed = parseNodeKey(nodeKey);
+  if (parsed.memberId) return;
+  applyMetricLabel(parsed.metricId, rawLabel);
+}
+
+function applyMetricLabel(metricId, rawLabel) {
+  const definition = metricDefinitions()[metricId];
+  if (!definition) return;
+  const nextLabel = String(rawLabel || "").trim();
+  if (!nextLabel) {
+    setSourceStatus("Metric name is required.", "error");
+    render();
+    return;
+  }
+  if (definition.label === nextLabel) return;
+  definition.label = nextLabel;
+  catalogSourceIsDirty = false;
+  setSourceStatus(`Metric renamed to ${nextLabel}.`, "success");
   render();
 }
 
@@ -8697,8 +9626,9 @@ function applyCohortMatrixInputs() {
   render();
 }
 
-function applyCatalogSource() {
-  const source = document.getElementById("catalog-source");
+function applyCatalogSource(sourceId = "catalog-source", statusSetter = setSourceStatus) {
+  const source = document.getElementById(sourceId);
+  if (!source) return false;
   const previousYears = [...YEARS];
   try {
     const parsed = JSON.parse(source.value);
@@ -8715,12 +9645,14 @@ function applyCatalogSource() {
     state.canvasFocusMode = true;
     state.topDownSheetExpandedKeys.clear();
     catalogSourceIsDirty = false;
-    setSourceStatus("Applied catalog JSON.", "success");
+    statusSetter("Applied catalog JSON.", "success");
     render();
+    return true;
   } catch (error) {
     YEARS = previousYears;
     setEngineYears(YEARS);
-    setSourceStatus(error.message, "error");
+    statusSetter(error.message, "error");
+    return false;
   }
 }
 
@@ -8733,6 +9665,49 @@ async function copyCatalogSource() {
     source.select();
     setSourceStatus("Catalog JSON selected. Copy it manually.", "error");
   }
+}
+
+function modelJsonFilename() {
+  const baseName = window.prompt("Name this JSON file", `${metricSlug(state.model.name || "model")}.json`);
+  if (baseName === null) return null;
+  const trimmed = baseName.trim();
+  if (!trimmed) return null;
+  const safeName = trimmed
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+  return safeName.toLowerCase().endsWith(".json") ? safeName : `${safeName}.json`;
+}
+
+async function copyHomeJsonSnapshot() {
+  const json = sourceSnapshot();
+  try {
+    await navigator.clipboard.writeText(json);
+  } catch (_error) {
+    const textarea = document.createElement("textarea");
+    textarea.value = json;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+}
+
+function downloadHomeJsonSnapshot() {
+  const filename = modelJsonFilename();
+  if (!filename) return;
+  const blob = new Blob([sourceSnapshot()], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function renderScenarioControls() {
@@ -8846,6 +9821,7 @@ function render() {
   renderTimeRangeControls();
   renderModelBriefScreen();
   setAppScreenVisibility();
+  renderHomeJsonImportModal();
   if (state.activeScreen === "brief") {
     renderHomeNapkinChart();
     return;
@@ -8860,8 +9836,6 @@ function render() {
   renderDetail();
   renderCatalogSource();
   applyCollapsiblePanels();
-  const definition = selectedDefinition();
-  document.getElementById("set-top-to-bottom").disabled = !definition || !activeBottomUpSeries(definition);
   requestAnimationFrame(renderCanvasLines);
 }
 
@@ -8926,6 +9900,19 @@ document.body.addEventListener("click", event => {
     return;
   }
 
+  const homeJsonExportButton = event.target.closest("[data-home-json-export-action]");
+  if (homeJsonExportButton) {
+    const action = homeJsonExportButton.dataset.homeJsonExportAction;
+    if (action === "copy") {
+      copyHomeJsonSnapshot();
+      return;
+    }
+    if (action === "download") {
+      downloadHomeJsonSnapshot();
+      return;
+    }
+  }
+
   const homeYearStepButton = event.target.closest("[data-home-year-step]");
   if (homeYearStepButton) {
     stepHomeYear(homeYearStepButton.dataset.homeYearStep, homeYearStepButton.dataset.yearDelta);
@@ -8952,6 +9939,7 @@ document.body.addEventListener("click", event => {
 
   const drawerChartSettingsButton = event.target.closest("[data-drawer-chart-settings-view]");
   if (drawerChartSettingsButton) {
+    resetNapkinEditPreservation();
     state.drawerChartSettingsView = drawerChartSettingsButton.dataset.drawerChartSettingsView === "dimensioned" ? "dimensioned" : "total";
     renderWorkspaceDrawer();
     return;
@@ -8959,7 +9947,31 @@ document.body.addEventListener("click", event => {
 
   const drawerDimensionChartButton = event.target.closest("[data-drawer-dimension-chart-view]");
   if (drawerDimensionChartButton) {
-    state.drawerDimensionChartView = drawerDimensionChartButton.dataset.drawerDimensionChartView === "pctTotal" ? "pctTotal" : "total";
+    resetNapkinEditPreservation();
+    state.drawerDimensionChartView = ["pctTotal", "table"].includes(drawerDimensionChartButton.dataset.drawerDimensionChartView)
+      ? drawerDimensionChartButton.dataset.drawerDimensionChartView
+      : "total";
+    renderWorkspaceDrawer();
+    return;
+  }
+
+  const drawerDimensionTableToggle = event.target.closest("[data-drawer-dimension-table-toggle]");
+  if (drawerDimensionTableToggle) {
+    const key = drawerDimensionTableToggle.dataset.drawerDimensionTableToggle;
+    const isRoot = drawerDimensionTableToggle.dataset.drawerDimensionTableRoot === "true";
+    if (key && isRoot) {
+      if (state.drawerDimensionTableCollapsedKeys.has(key)) {
+        state.drawerDimensionTableCollapsedKeys.delete(key);
+      } else {
+        state.drawerDimensionTableCollapsedKeys.add(key);
+      }
+    } else if (key) {
+      if (state.drawerDimensionTableExpandedKeys.has(key)) {
+        state.drawerDimensionTableExpandedKeys.delete(key);
+      } else {
+        state.drawerDimensionTableExpandedKeys.add(key);
+      }
+    }
     renderWorkspaceDrawer();
     return;
   }
@@ -9055,8 +10067,40 @@ document.body.addEventListener("click", event => {
     } else {
       state.jsonExplorerExpandedPaths.add(path);
     }
-    renderJsonExplorerFromText(document.getElementById("catalog-source").value);
+    const isHomeImport = Boolean(jsonToggle.closest("#home-json-import-modal"));
+    const sourceId = isHomeImport ? "home-json-import-source" : "catalog-source";
+    const explorerId = isHomeImport ? "home-json-import-explorer" : "catalog-json-explorer";
+    renderJsonExplorerFromText(document.getElementById(sourceId)?.value || "", explorerId);
     return;
+  }
+
+  const homeJsonImportButton = event.target.closest("[data-home-json-import-action]");
+  if (homeJsonImportButton) {
+    const action = homeJsonImportButton.dataset.homeJsonImportAction;
+    if (action === "open") {
+      state.homeJsonImportOpen = true;
+      render();
+      window.requestAnimationFrame(() => {
+        const source = document.getElementById("home-json-import-source");
+        if (source) source.focus();
+      });
+      return;
+    }
+    if (action === "close") {
+      state.homeJsonImportOpen = false;
+      render();
+      return;
+    }
+    if (action === "apply") {
+      const applied = applyCatalogSource("home-json-import-source", setHomeJsonImportStatus);
+      if (applied) {
+        state.homeJsonImportOpen = false;
+        state.activeScreen = "model";
+        state.canvasFocusMode = true;
+        render();
+      }
+      return;
+    }
   }
 
   const dimensionButton = event.target.closest("[data-catalog-dimension-id]");
@@ -9108,15 +10152,15 @@ document.body.addEventListener("click", event => {
     return;
   }
 
-  const nodeDriverCreateButton = event.target.closest("[data-node-driver-create]");
-  if (nodeDriverCreateButton) {
-    createCanvasDriverMetric(nodeDriverCreateButton.dataset.nodeDriverCreate);
+  const nodeDriverRemoveButton = event.target.closest("[data-node-driver-remove]");
+  if (nodeDriverRemoveButton) {
+    removeCanvasDriver(nodeDriverRemoveButton.dataset.nodeDriverRemove, nodeDriverRemoveButton.dataset.nodeDriverRemoveId);
     return;
   }
 
-  const nodeDriverApplyButton = event.target.closest("[data-node-driver-apply]");
-  if (nodeDriverApplyButton) {
-    applyCanvasDrivers(nodeDriverApplyButton.dataset.nodeDriverApply);
+  const nodeDriverCreateButton = event.target.closest("[data-node-driver-create]");
+  if (nodeDriverCreateButton) {
+    createCanvasDriverMetric(nodeDriverCreateButton.dataset.nodeDriverCreate);
     return;
   }
 
@@ -9136,12 +10180,73 @@ document.body.addEventListener("click", event => {
     return;
   }
 
+  if (event.target.closest("[data-node-anchor-value]")) {
+    return;
+  }
+
+  const anchorYearStepButton = event.target.closest("[data-anchor-year-step]");
+  if (anchorYearStepButton) {
+    stepAnchorYear(anchorYearStepButton.dataset.anchorYearStep);
+    renderCanvas();
+    requestAnimationFrame(renderCanvasLines);
+    return;
+  }
+
+  if (event.target.closest("[data-anchor-year-input]")) {
+    return;
+  }
+
+  if (event.target.closest("[data-timeline-boundary-input]")) {
+    return;
+  }
+
+  const blankCanvasClick = event.target.closest("#metric-canvas")
+    && !event.target.closest(".metric-node")
+    && !event.target.closest(".canvas-zoom-control")
+    && !event.target.closest(".canvas-top-left-controls")
+    && !event.target.closest(".canvas-mode-control")
+    && !event.target.closest(".canvas-staged-drivers")
+    && !event.target.closest("#canvas-lines");
+  if (blankCanvasClick && state.expandedNodeKey) {
+    state.expandedNodeKey = null;
+    state.flippedNodeKey = null;
+    render();
+    return;
+  }
+  if (blankCanvasClick && event.metaKey) {
+    stageCanvasDriverFromClick(event);
+    return;
+  }
+  if (blankCanvasClick && clearCanvasStagedDrivers()) {
+    return;
+  }
+
+  const canvasZoomButton = event.target.closest("[data-canvas-zoom]");
+  if (canvasZoomButton) {
+    const direction = canvasZoomButton.dataset.canvasZoom;
+    const delta = direction === "in" ? 0.1 : -0.1;
+    state.canvasZoom = Math.min(1.4, Math.max(0.7, Number((state.canvasZoom + delta).toFixed(2))));
+    renderCanvas();
+    requestAnimationFrame(renderCanvasLines);
+    return;
+  }
+
+  const nodeFitBottomUpButton = event.target.closest("[data-node-fit-bottom-up]");
+  if (nodeFitBottomUpButton) {
+    setCanvasNodeTopToBottom(nodeFitBottomUpButton.dataset.nodeFitBottomUp);
+    return;
+  }
+
   const nodeButton = event.target.closest("[data-node-key]");
   if (nodeButton) {
     const nodeKey = nodeButton.dataset.nodeKey;
+    if (commitCanvasStagedDriversToParent(nodeKey)) {
+      return;
+    }
     if (selectedNodeKey() !== nodeKey) {
       selectNodeKey(nodeKey);
-      expandCanvasNode(nodeKey);
+      state.expandedNodeKey = null;
+      state.flippedNodeKey = null;
     } else if (state.expandedNodeKey !== nodeKey) {
       expandCanvasNode(nodeKey);
     } else {
@@ -9161,6 +10266,9 @@ document.body.addEventListener("click", event => {
   const workspaceDrawerHeightButton = event.target.closest("[data-workspace-drawer-height]");
   if (workspaceDrawerHeightButton) {
     state.workspaceDrawerHeight = workspaceDrawerHeightButton.dataset.workspaceDrawerHeight || "collapsed";
+    if (state.workspaceDrawerHeight === "collapsed") {
+      resetNapkinEditPreservation();
+    }
     renderWorkspaceDrawer();
     refreshAfterPanelToggle();
     return;
@@ -9203,6 +10311,7 @@ document.body.addEventListener("click", event => {
   }
   const workspaceModeButton = event.target.closest("[data-workspace-mode]");
   if (workspaceModeButton) {
+    resetNapkinEditPreservation();
     state.metricWorkspaceMode = workspaceModeButton.dataset.workspaceMode || "total";
     renderMetricWorkspacePanel();
     return;
@@ -9253,10 +10362,6 @@ document.body.addEventListener("click", event => {
     }
     return;
   }
-  if (event.target.closest("#set-top-to-bottom")) {
-    setTopToBottom(state.selectedMetricId);
-    return;
-  }
   const workspaceSetParentButton = event.target.closest("[data-workspace-set-parent]");
   if (workspaceSetParentButton) {
     setTopToBottom(workspaceSetParentButton.dataset.workspaceSetParent, { direct: true });
@@ -9269,6 +10374,7 @@ document.body.addEventListener("click", event => {
   }
   const workspaceCoordinateButton = event.target.closest("[data-workspace-coordinate-metric]");
   if (workspaceCoordinateButton) {
+    resetNapkinEditPreservation();
     state.selectedMetricId = workspaceCoordinateButton.dataset.workspaceCoordinateMetric;
     const coordinate = workspaceCoordinateButton.dataset.workspaceCoordinateJson
       ? JSON.parse(workspaceCoordinateButton.dataset.workspaceCoordinateJson)
@@ -9324,6 +10430,7 @@ document.body.addEventListener("click", event => {
   }
   const topDownViewButton = event.target.closest("[data-top-down-view]");
   if (topDownViewButton) {
+    resetNapkinEditPreservation();
     setTopDownEditorView(topDownViewButton.dataset.topDownView);
     render();
     return;
@@ -9426,6 +10533,19 @@ document.getElementById("catalog-source").addEventListener("input", () => {
   setSourceStatus("Catalog JSON has unapplied edits.");
 });
 
+document.getElementById("home-json-import-source").addEventListener("input", () => {
+  const source = document.getElementById("home-json-import-source");
+  renderJsonExplorerFromText(source.value, "home-json-import-explorer");
+  setHomeJsonImportStatus(source.value.trim() ? "JSON ready to apply." : "Paste model JSON, then apply.");
+});
+
+document.body.addEventListener("input", event => {
+  const anchorValueInput = event.target.closest("[data-node-anchor-value]");
+  if (anchorValueInput) {
+    formatCanvasAnchorValueInput(anchorValueInput);
+  }
+});
+
 document.body.addEventListener("change", event => {
   if (event.target.closest("#home-metric-title-input")) {
     applyHomeMetricTitle();
@@ -9439,6 +10559,61 @@ document.body.addEventListener("change", event => {
 
   if (event.target.closest("#driver-formula-type")) {
     updateDriverFormulaSymbols();
+    return;
+  }
+
+  const nodeDriverTypeInput = event.target.closest("[data-node-driver-type]");
+  if (nodeDriverTypeInput) {
+    setCanvasDriverRelationship(nodeDriverTypeInput.dataset.nodeDriverType, nodeDriverTypeInput.value);
+    return;
+  }
+
+  const nodeDriverOperatorInput = event.target.closest("[data-node-driver-operator]");
+  if (nodeDriverOperatorInput) {
+    updateCanvasDriverOperator(
+      nodeDriverOperatorInput.dataset.nodeDriverOperator,
+      nodeDriverOperatorInput.dataset.nodeDriverOperatorFor,
+      nodeDriverOperatorInput.value
+    );
+    return;
+  }
+
+  const anchorYearInput = event.target.closest("[data-anchor-year-input]");
+  if (anchorYearInput) {
+    setAnchorYear(anchorYearInput.value);
+    renderCanvas();
+    requestAnimationFrame(renderCanvasLines);
+    return;
+  }
+
+  const timelineBoundaryInput = event.target.closest("[data-timeline-boundary-input]");
+  if (timelineBoundaryInput) {
+    try {
+      applyCanvasTimelineBoundary(timelineBoundaryInput.dataset.timelineBoundaryInput, timelineBoundaryInput.value);
+      render();
+    } catch (error) {
+      renderCanvas();
+      requestAnimationFrame(renderCanvasLines);
+    }
+    return;
+  }
+
+  const anchorValueInput = event.target.closest("[data-node-anchor-value]");
+  if (anchorValueInput) {
+    const node = anchorValueInput.closest("[data-node-key]");
+    if (node?.dataset.nodeKey) applyCanvasAnchorValue(node.dataset.nodeKey, anchorValueInput.value);
+    return;
+  }
+
+  const nodeDriverLabelInput = event.target.closest("[data-node-driver-label]");
+  if (nodeDriverLabelInput) {
+    applyMetricLabel(nodeDriverLabelInput.dataset.nodeDriverLabel, nodeDriverLabelInput.value);
+    return;
+  }
+
+  const nodeLabelInput = event.target.closest("[data-node-label-input]");
+  if (nodeLabelInput) {
+    applyCanvasNodeLabel(nodeLabelInput.dataset.nodeLabelInput, nodeLabelInput.value);
     return;
   }
 
@@ -9491,6 +10666,60 @@ document.body.addEventListener("change", event => {
 });
 
 document.body.addEventListener("keydown", event => {
+  if (event.key === "Escape" && clearCanvasStagedDrivers()) {
+    event.preventDefault();
+    return;
+  }
+
+  const anchorYearInput = event.target.closest("[data-anchor-year-input]");
+  if (anchorYearInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    setAnchorYear(anchorYearInput.value);
+    renderCanvas();
+    requestAnimationFrame(renderCanvasLines);
+    return;
+  }
+
+  const timelineBoundaryInput = event.target.closest("[data-timeline-boundary-input]");
+  if (timelineBoundaryInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    try {
+      applyCanvasTimelineBoundary(timelineBoundaryInput.dataset.timelineBoundaryInput, timelineBoundaryInput.value);
+      render();
+    } catch (error) {
+      renderCanvas();
+      requestAnimationFrame(renderCanvasLines);
+    }
+    return;
+  }
+
+  const anchorValueInput = event.target.closest("[data-node-anchor-value]");
+  if (anchorValueInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const node = anchorValueInput.closest("[data-node-key]");
+    if (node?.dataset.nodeKey) applyCanvasAnchorValue(node.dataset.nodeKey, anchorValueInput.value);
+    return;
+  }
+
+  const nodeLabelInput = event.target.closest("[data-node-label-input]");
+  if (nodeLabelInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyCanvasNodeLabel(nodeLabelInput.dataset.nodeLabelInput, nodeLabelInput.value);
+    return;
+  }
+
+  const nodeDriverLabelInput = event.target.closest("[data-node-driver-label]");
+  if (nodeDriverLabelInput) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyMetricLabel(nodeDriverLabelInput.dataset.nodeDriverLabel, nodeDriverLabelInput.value);
+    return;
+  }
+
   const nodeDriverSearchInput = event.target.closest("[data-node-driver-new-name]");
   if (nodeDriverSearchInput) {
     if (event.key !== "Enter") return;

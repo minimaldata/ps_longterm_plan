@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <defs>
+    <style>
+      .md-icon-line {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 5.5;
+        stroke-linecap: square;
+        stroke-linejoin: miter;
+      }
+    </style>
+  </defs>
+
+  <symbol id="md-arrow-left" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M15 5L8 12"/>
+    <path class="md-icon-line" d="M8 12l7 7"/>
+  </symbol>
+
+  <symbol id="md-arrow-right" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M9 5l7 7"/>
+    <path class="md-icon-line" d="M16 12l-7 7"/>
+  </symbol>
+
+  <symbol id="md-arrow-up" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 15l7-7"/>
+    <path class="md-icon-line" d="M12 8l7 7"/>
+  </symbol>
+
+  <symbol id="md-arrow-down" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 9l7 7"/>
+    <path class="md-icon-line" d="M12 16l7-7"/>
+  </symbol>
+
+  <symbol id="md-upload" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 10l7-7"/>
+    <path class="md-icon-line" d="M12 3l7 7"/>
+    <path class="md-icon-line" d="M5 20h14"/>
+  </symbol>
+
+  <symbol id="md-download" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 9l7 7"/>
+    <path class="md-icon-line" d="M12 16l7-7"/>
+    <path class="md-icon-line" d="M5 21h14"/>
+  </symbol>
+
+  <symbol id="md-trash" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 6h14"/>
+    <path class="md-icon-line" d="M8 11h8"/>
+    <path class="md-icon-line" d="M7 18h10"/>
+    <path class="md-icon-line" d="M9 6l1.5-3"/>
+    <path class="md-icon-line" d="M15 6l-1.5-3"/>
+  </symbol>
+
+  <symbol id="md-edit" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M6 17l11-11"/>
+    <path class="md-icon-line" d="M14 3l7 7"/>
+    <path class="md-icon-line" d="M4 21h15"/>
+  </symbol>
+
+  <symbol id="md-plus" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M12 5v14"/>
+    <path class="md-icon-line" d="M5 12h14"/>
+  </symbol>
+
+  <symbol id="md-minus" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 12h14"/>
+  </symbol>
+
+  <symbol id="md-close" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M6 6l12 12"/>
+    <path class="md-icon-line" d="M18 6L6 18"/>
+  </symbol>
+
+  <symbol id="md-check" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M4 12l6 6"/>
+    <path class="md-icon-line" d="M10 18L20 6"/>
+  </symbol>
+
+  <symbol id="md-search" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 5l8 8"/>
+    <path class="md-icon-line" d="M13 5l-8 8"/>
+    <path class="md-icon-line" d="M14 14l6 6"/>
+  </symbol>
+
+  <symbol id="md-filter" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M4 6h16"/>
+    <path class="md-icon-line" d="M7 12h10"/>
+    <path class="md-icon-line" d="M10 18h4"/>
+  </symbol>
+
+  <symbol id="md-menu" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 6h14"/>
+    <path class="md-icon-line" d="M5 12h14"/>
+    <path class="md-icon-line" d="M5 18h14"/>
+  </symbol>
+
+  <symbol id="md-copy" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M7 7h12"/>
+    <path class="md-icon-line" d="M19 7v12"/>
+    <path class="md-icon-line" d="M19 19H7"/>
+    <path class="md-icon-line" d="M5 5h12"/>
+    <path class="md-icon-line" d="M5 5v12"/>
+  </symbol>
+
+  <symbol id="md-external" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 19h14"/>
+    <path class="md-icon-line" d="M19 19V5"/>
+    <path class="md-icon-line" d="M11 5h8"/>
+    <path class="md-icon-line" d="M19 5l-9 9"/>
+  </symbol>
+
+  <symbol id="md-refresh" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M6 8h12"/>
+    <path class="md-icon-line" d="M18 8l-5-5"/>
+    <path class="md-icon-line" d="M18 8l-5 5"/>
+    <path class="md-icon-line" d="M18 16H6"/>
+    <path class="md-icon-line" d="M6 16l5-5"/>
+    <path class="md-icon-line" d="M6 16l5 5"/>
+  </symbol>
+
+  <symbol id="md-settings" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 7h14"/>
+    <path class="md-icon-line" d="M8 12h8"/>
+    <path class="md-icon-line" d="M5 17h14"/>
+    <path class="md-icon-line" d="M9 4v6"/>
+    <path class="md-icon-line" d="M15 14v6"/>
+  </symbol>
+
+  <symbol id="md-save" viewBox="0 0 24 24">
+    <path class="md-icon-line" d="M5 5h12"/>
+    <path class="md-icon-line" d="M19 7v12"/>
+    <path class="md-icon-line" d="M5 19h14"/>
+    <path class="md-icon-line" d="M5 5v14"/>
+    <path class="md-icon-line" d="M8 12h8"/>
+  </symbol>
+</svg>
