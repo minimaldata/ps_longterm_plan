@@ -36,9 +36,9 @@ const state = {
   selectedMetricId: null,
   selectedDimensionContext: null,
   selectedDimensionId: null,
-  activeScreen: "brief",
+  activeScreen: "model",
   topDownEditorView: "chart",
-  canvasViewMode: "number",
+  canvasViewMode: "chart",
   anchorYear: DEFAULT_ANCHOR_YEAR,
   workspaceDrawerHeight: "collapsed",
   metricWorkspaceMode: "total",
@@ -64,7 +64,8 @@ const state = {
   homeEditableLine: "bau",
   homeDriverSetupOpen: false,
   homeJsonImportOpen: false,
-  canvasFocusMode: false,
+  canvasFocusMode: true,
+  selectedDimensionNodeKey: null,
   expandedNodeKey: null,
   flippedNodeKey: null,
   selectedCanvasBackPanel: "drivers",
@@ -607,8 +608,11 @@ function selectedDimensionContextForMetric(metricId = state.selectedMetricId) {
 
 function selectedNodeKey() {
   const context = selectedDimensionContextForMetric();
-  return context?.entries?.length === 1 && context.dimensionId === primaryDimensionId(context.metricId)
-    ? memberNodeKey(context.metricId, context.dimensionId, context.memberId)
+  if (state.selectedDimensionNodeKey && state.selectedMetricId === parseNodeKey(state.selectedDimensionNodeKey).metricId) {
+    return state.selectedDimensionNodeKey;
+  }
+  return context?.entries?.length === 1
+    ? dimensionNodeKey(context.metricId, context.dimensionId)
     : state.selectedMetricId;
 }
 
@@ -618,6 +622,7 @@ function selectMetric(metricId) {
   }
   state.selectedMetricId = metricId;
   state.selectedDimensionContext = null;
+  state.selectedDimensionNodeKey = null;
   state.expandedNodeKey = null;
   state.flippedNodeKey = null;
   state.selectedCanvasBackPanel = "drivers";
@@ -634,6 +639,7 @@ function selectNodeKey(nodeKey) {
   }
   state.selectedMetricId = parsed.metricId;
   state.selectedDimensionContext = nextContext;
+  state.selectedDimensionNodeKey = parsed.nodeType === "dimension" ? nodeKey : null;
 }
 
 function toggleCanvasNodeFlip(nodeKey) {
@@ -759,12 +765,22 @@ function memberNodeKey(metricId, dimensionId, memberId) {
   return `${metricId}::member::${dimensionId}::${memberId}`;
 }
 
+function dimensionNodeKey(metricId, dimensionId) {
+  return `${metricId}::dimension::${dimensionId}`;
+}
+
 function parseNodeKey(nodeKey) {
-  const parts = String(nodeKey || "").split("::member::");
-  if (parts.length !== 2) return { metricId: nodeKey, dimensionId: null, memberId: null };
-  const [metricId, dimensionPart] = parts;
+  const rawKey = String(nodeKey || "");
+  const dimensionParts = rawKey.split("::dimension::");
+  if (dimensionParts.length === 2) {
+    const [metricId, dimensionId] = dimensionParts;
+    return { nodeType: "dimension", metricId, dimensionId, memberId: null };
+  }
+  const memberParts = rawKey.split("::member::");
+  if (memberParts.length !== 2) return { nodeType: "metric", metricId: nodeKey, dimensionId: null, memberId: null };
+  const [metricId, dimensionPart] = memberParts;
   const [dimensionId, memberId] = dimensionPart.split("::");
-  return { metricId, dimensionId, memberId };
+  return { nodeType: "member", metricId, dimensionId, memberId };
 }
 
 function isMemberNodeKey(nodeKey) {
@@ -2692,6 +2708,62 @@ function metricBottomUpFilteredSeries(metricId, filters = {}) {
   });
 }
 
+function evaluateFormulaExpressionAtIndex(definition, index, coordinate = {}, overrideMetricId = null, overrideValue = null) {
+  const inputs = metricInputIds(definition);
+  const inputValue = inputId => {
+    if (inputId === overrideMetricId) return Number(overrideValue || 0);
+    const series = metricTopDownContextSeries(inputId, { coordinate });
+    return Number(series[index] || 0);
+  };
+  if (definition.bottomUp?.type === "sum") {
+    return inputs.reduce((sum, inputId) => sum + inputValue(inputId), 0);
+  }
+  if (definition.bottomUp?.type === "product") {
+    if (!inputs.length) return null;
+    return inputs.reduce((product, inputId) => product * inputValue(inputId), 1);
+  }
+  if (definition.bottomUp?.type === "difference") {
+    const [leftId, rightId] = inputs;
+    if (!leftId || !rightId) return null;
+    return inputValue(leftId) - inputValue(rightId);
+  }
+  if (definition.bottomUp?.type === "arithmetic") {
+    const operators = arithmeticOperators(definition);
+    if (!inputs.length) return null;
+    return inputs.reduce((value, inputId, inputIndex) => {
+      const input = inputValue(inputId);
+      if (inputIndex === 0) return input;
+      const operator = operators[inputIndex - 1] || "+";
+      if (operator === "-") return value - input;
+      if (operator === "*") return value * input;
+      if (operator === "/") return input ? value / input : null;
+      return value + input;
+    }, 0);
+  }
+  return null;
+}
+
+function formulaContributionSeries(parentMetricId, sourceMetricId, sourceCoordinate = {}) {
+  const definition = metricDefinitions()[parentMetricId];
+  if (!definition?.bottomUp || metricFlowType(definition) !== "flow") return null;
+  if (!metricInputIds(definition).includes(sourceMetricId)) return null;
+  if (!["sum", "product", "difference", "arithmetic"].includes(definition.bottomUp.type)) return null;
+  const coordinateKeys = formulaCoordinateKeys(definition, sourceCoordinate);
+  if (!coordinateKeys) return null;
+  const series = YEARS.map((_year, index) => {
+    let total = 0;
+    for (const key of coordinateKeys) {
+      const coordinate = parseCoordinateKey(key);
+      const actual = evaluateFormulaExpressionAtIndex(definition, index, coordinate);
+      const withoutSource = evaluateFormulaExpressionAtIndex(definition, index, coordinate, sourceMetricId, 0);
+      if (actual === null || withoutSource === null) return null;
+      total += actual - withoutSource;
+    }
+    return total;
+  });
+  return series.some(value => value === null || value === undefined) ? null : series;
+}
+
 function metricTopDownContextSeries(metricId, context = null) {
   const filters = relevantCoordinateFilters(metricId, context);
   return Object.keys(filters).length
@@ -2813,8 +2885,15 @@ function childIds(metricId) {
 
 function nodeChildKeys(nodeKey) {
   const parsed = parseNodeKey(nodeKey);
-  if (parsed.memberId) return [];
+  if (parsed.memberId || parsed.nodeType === "dimension") return [];
   return childIds(parsed.metricId);
+}
+
+function dimensionChildNodeKeys(nodeKey) {
+  const parsed = parseNodeKey(nodeKey);
+  if (parsed.nodeType !== "metric") return [];
+  return metricDimensionIds(parsed.metricId)
+    .map(dimensionId => dimensionNodeKey(parsed.metricId, dimensionId));
 }
 
 function parentIds(metricId) {
@@ -4189,6 +4268,7 @@ function renderModelBriefScreen() {
         <button type="button" class="${activeHomeLine === "target" ? "active" : ""}" data-home-edit-line="target" aria-pressed="${activeHomeLine === "target"}"><i class="target"></i> Target</button>
       </div>
       <div class="home-next-actions">
+        <button type="button" class="secondary" data-home-json-import-action="open">Import JSON</button>
         <button type="button" data-home-action="toggle-drivers" ${hasMetric ? "" : "disabled"}>${state.homeDriverSetupOpen ? "Hide Drivers" : "Add Drivers"}</button>
       </div>
       ${state.homeDriverSetupOpen && definition ? driverSetupMarkup(definition) : ""}
@@ -6479,11 +6559,35 @@ function renderCanvas() {
     ${renderCanvasZoomControl()}
     ${levels.map((level, levelIndex) => `
       <div class="canvas-level dynamic-level" style="--level-index: ${levelIndex}">
-        ${level.map(nodeKey => renderNode(nodeKey)).join("")}
+        ${level.map(nodeKey => renderCanvasNodeCluster(nodeKey)).join("")}
       </div>
     `).join("")}
     <div class="canvas-scroll-spacer" aria-hidden="true"></div>
     ${renderCanvasStagedDrivers()}
+  `;
+}
+
+function renderCanvasNodeCluster(nodeKey) {
+  const dimensionNodes = dimensionChildNodeKeys(nodeKey);
+  if (!dimensionNodes.length) return renderNode(nodeKey);
+  const selectedParsed = parseNodeKey(selectedNodeKey());
+  const parsed = parseNodeKey(nodeKey);
+  const activeDimensionIndex = selectedParsed.metricId === parsed.metricId && selectedParsed.dimensionId
+    ? metricDimensionIds(parsed.metricId).indexOf(selectedParsed.dimensionId)
+    : -1;
+  const activeDepth = Math.max(0, activeDimensionIndex + 1);
+  const isStackActive = activeDepth > 0;
+  const chainReserve = activeDepth * 276;
+  return `
+    <div class="canvas-node-cluster has-dimension-node ${isStackActive ? "stack-active" : ""}" style="--dimension-node-count: ${dimensionNodes.length}; --active-dimension-depth: ${activeDepth}; --dimension-chain-reserve: ${chainReserve}px">
+      ${dimensionNodes.map((dimensionNode, index) => renderNode(dimensionNode, {
+        dimensionLevel: index,
+        dimensionInActivePath: isStackActive && index < activeDepth,
+        dimensionCanPreview: isStackActive && index === activeDepth,
+        activeDimensionDepth: activeDepth,
+      })).join("")}
+      ${renderNode(nodeKey)}
+    </div>
   `;
 }
 
@@ -6641,6 +6745,9 @@ function renderCanvasZoomControl() {
         <button type="button" data-canvas-json-action="download" aria-label="Download JSON" title="Download JSON">
           ${jsonTransferIcon("download")}
         </button>
+        <button type="button" data-canvas-json-action="copy" aria-label="Copy JSON" title="Copy JSON">
+          ${jsonTransferIcon("copy")}
+        </button>
       </span>
       <span class="canvas-zoom-control-inner">
         <button type="button" data-canvas-zoom="out" aria-label="Zoom out">-</button>
@@ -6653,6 +6760,14 @@ function renderCanvasZoomControl() {
 
 function jsonTransferIcon(action) {
   const isUpload = action === "upload";
+  if (action === "copy") {
+    return `
+      <svg class="canvas-json-icon canvas-json-copy-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path class="canvas-json-icon-base" d="M8 7 H16 V15 H8 Z"></path>
+        <path class="canvas-json-icon-angle" d="M5 10 H13 V18 H5 Z"></path>
+      </svg>
+    `;
+  }
   return `
     <svg class="canvas-json-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path class="canvas-json-icon-angle" d="${isUpload ? "M5 12 L12 5 L19 12" : "M5 12 L12 19 L19 12"}"></path>
@@ -7649,6 +7764,29 @@ function inlineChartPath(values, minValue, maxValue, width, height, margin) {
   }).join(" ");
 }
 
+function inlineChartPathFromVisibleValues(values, minValue, maxValue, width, height, margin) {
+  const range = maxValue - minValue || 1;
+  return values.map((value, index) => {
+    const x = margin.left + (values.length === 1 ? 0 : (index / (values.length - 1)) * (width - margin.left - margin.right));
+    const y = margin.top + ((maxValue - Number(value || 0)) / range) * (height - margin.top - margin.bottom);
+    return `${index === 0 ? "M" : "L"} ${trimFixed(x, 2)} ${trimFixed(y, 2)}`;
+  }).join(" ");
+}
+
+function inlineChartAreaPathFromVisibleValues(values, minValue, maxValue, width, height, margin) {
+  const range = maxValue - minValue || 1;
+  const xFor = index => margin.left + (values.length === 1 ? 0 : (index / (values.length - 1)) * (width - margin.left - margin.right));
+  const yFor = value => margin.top + ((maxValue - Number(value || 0)) / range) * (height - margin.top - margin.bottom);
+  const baselineY = yFor(0);
+  const topPoints = values.map((value, index) => [xFor(index), yFor(value)]);
+  const bottomPoints = values.map((_value, index) => [xFor(index), baselineY]).reverse();
+  return [
+    ...topPoints.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${trimFixed(x, 2)} ${trimFixed(y, 2)}`),
+    ...bottomPoints.map(([x, y]) => `L ${trimFixed(x, 2)} ${trimFixed(y, 2)}`),
+    "Z",
+  ].join(" ");
+}
+
 function renderInlineMetricChart(definition, topDown, bottomUp = null) {
   const width = 220;
   const height = 84;
@@ -7688,6 +7826,18 @@ function renderInlineMetricChart(definition, topDown, bottomUp = null) {
       <div class="metric-node-chart-plot">
         <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
           <line x1="${margin.left}" y1="${trimFixed(zeroY, 2)}" x2="${width - margin.right}" y2="${trimFixed(zeroY, 2)}" class="metric-node-chart-axis"></line>
+          <g
+            class="metric-node-chart-highlight-layer"
+            data-node-chart-highlight-layer
+            data-chart-min-value="${escapeHtml(minValue)}"
+            data-chart-max-value="${escapeHtml(maxValue)}"
+            data-chart-width="${width}"
+            data-chart-height="${height}"
+            data-chart-margin-top="${margin.top}"
+            data-chart-margin-right="${margin.right}"
+            data-chart-margin-bottom="${margin.bottom}"
+            data-chart-margin-left="${margin.left}"
+          ></g>
           <path d="${topDownPath}" class="metric-node-chart-line top-down"></path>
           ${bottomUp ? `<path d="${bottomUpPath}" class="metric-node-chart-line bottom-up"></path>` : ""}
         </svg>
@@ -7995,9 +8145,12 @@ function applyCanvasAnchorValue(nodeKey, rawValue) {
   requestAnimationFrame(renderCanvasLines);
 }
 
-function renderNode(nodeKey) {
+function renderNode(nodeKey, options = {}) {
   const parsed = parseNodeKey(nodeKey);
   const definition = metricDefinitions()[parsed.metricId];
+  if (parsed.nodeType === "dimension") {
+    return renderDimensionNode(nodeKey, parsed, definition, options);
+  }
   const isMember = Boolean(parsed.memberId);
   const member = isMember
     ? dimensionMembers(parsed.dimensionId).find(item => item.id === parsed.memberId)
@@ -8006,7 +8159,8 @@ function renderNode(nodeKey) {
   const reconciliation = isMember
     ? metricMemberReconciliation(parsed.metricId, parsed.dimensionId, parsed.memberId)
     : metricReconciliation(parsed.metricId);
-  const isSelected = nodeKey === selectedNodeKey();
+  const isSelected = nodeKey === selectedNodeKey()
+    || (!isMember && state.selectedMetricId === parsed.metricId && Boolean(selectedDimensionContextForMetric(parsed.metricId)));
   const isExpanded = state.expandedNodeKey === nodeKey;
   const isFlipped = state.flippedNodeKey === nodeKey;
   const children = nodeChildKeys(nodeKey);
@@ -8064,6 +8218,268 @@ function renderNode(nodeKey) {
   `;
 }
 
+function renderDimensionNode(nodeKey, parsed, definition, options = {}) {
+  const dimensionId = parsed.dimensionId;
+  const members = dimensionMembers(dimensionId);
+  const isSelected = nodeKey === selectedNodeKey();
+  const isExpanded = state.expandedNodeKey === nodeKey;
+  const isFlipped = state.flippedNodeKey === nodeKey;
+  const context = selectedDimensionContextForMetric(definition.id);
+  const activeMemberIds = new Set(context?.coordinate?.[dimensionId] ? filterValueList(context.coordinate[dimensionId]) : []);
+  const index = anchorYearIndex();
+  const totalValue = Number(metricTopDownFilteredSeries(definition.id, {})[index] || 0);
+  const dimensionLabel = dimensionDefinitions()[dimensionId]?.label || dimensionId;
+  const dimensionLevel = Number.isFinite(options.dimensionLevel)
+    ? options.dimensionLevel
+    : Math.max(0, metricDimensionIds(definition.id).indexOf(dimensionId));
+  const isInActivePath = Boolean(options.dimensionInActivePath);
+  const canPreview = Boolean(options.dimensionCanPreview);
+  const chainStep = dimensionLevel + 1;
+  const tuckedStep = Math.max(1, Number(options.activeDimensionDepth || 0), chainStep - 1);
+  const tuckedOffset = Math.max(0, dimensionLevel - tuckedStep);
+  return `
+    <div
+      class="metric-node dimension-node ${isSelected ? "active" : ""} ${isExpanded ? "expanded" : ""} ${isFlipped ? "flipped" : ""} ${isInActivePath ? "in-active-path" : ""} ${canPreview ? "next-dimension-preview" : ""}"
+      data-node-key="${nodeKey}"
+      data-dimension-node-level="${dimensionLevel + 1}"
+      style="--dimension-node-level: ${dimensionLevel}; --dimension-node-x: ${-34 - (24 * dimensionLevel)}px; --dimension-node-y: ${-12 - (18 * dimensionLevel)}px; --dimension-node-preview-x: ${-70 - (24 * dimensionLevel)}px; --dimension-node-chain-x: calc(-${chainStep * 100}% - ${18 * chainStep}px); --dimension-node-chain-y: ${-8 - (18 * dimensionLevel)}px; --dimension-node-next-preview-x: calc(-${tuckedStep * 100}% - ${18 * tuckedStep + 42 + (8 * tuckedOffset)}px); --dimension-node-next-preview-y: ${-17 - (18 * (tuckedStep - 1)) - (7 * tuckedOffset)}px; --dimension-node-tucked-x: calc(-${tuckedStep * 100}% - ${18 * tuckedStep + 8 + (6 * tuckedOffset)}px); --dimension-node-tucked-y: ${-15 - (18 * (tuckedStep - 1)) - (5 * tuckedOffset)}px; --dimension-node-compact-x: ${-8 - (6 * dimensionLevel)}px; --dimension-node-compact-y: ${-7 - (5 * dimensionLevel)}px; --dimension-node-compact-width: ${54 + (10 * dimensionLevel)}px; --dimension-node-compact-height: ${46 + (6 * dimensionLevel)}px; --dimension-node-active-y: ${-8 - (18 * dimensionLevel)}px; --dimension-node-z: ${Math.max(0, 1 - dimensionLevel)}"
+      role="button"
+      tabindex="0"
+      aria-pressed="${isFlipped}"
+    >
+      <span class="metric-node-flipper">
+        <span class="metric-node-face metric-node-front">
+          <span class="dimension-tile-stack-heading">
+            <span>${escapeHtml(dimensionLabel)}</span>
+            <small>${members.length} ${members.length === 1 ? "slice" : "slices"}</small>
+          </span>
+          ${renderDimensionStackAreaChart(definition, dimensionId, members, {
+            activeDepth: Number(options.activeDimensionDepth || 0),
+            dimensionLevel,
+          })}
+        </span>
+        <span class="metric-node-face metric-node-back">
+          <span class="dimension-tile-stack-heading">
+            <span>${escapeHtml(dimensionLabel)}</span>
+            <small>${members.length} ${members.length === 1 ? "slice" : "slices"}</small>
+          </span>
+          <span class="dimension-tile-stack-members">
+            ${members.map(member => {
+              const series = metricTopDownFilteredSeries(definition.id, { [dimensionId]: member.id });
+              const value = Number(series[index] || 0);
+              const share = totalValue ? value / totalValue : null;
+              return `
+                <button
+                  type="button"
+                  class="dimension-tile-stack-member ${activeMemberIds.has(member.id) ? "active" : ""}"
+                  data-dimension-stack-member="${escapeHtml(memberNodeKey(definition.id, dimensionId, member.id))}"
+                >
+                  <span>${escapeHtml(member.label)}</span>
+                  <strong>${escapeHtml(formatMetricValue(definition, value))}</strong>
+                  ${share === null ? "" : `<small>${escapeHtml(trimFixed(share * 100, 1))}%</small>`}
+                </button>
+              `;
+            }).join("")}
+          </span>
+        </span>
+      </span>
+    </div>
+  `;
+}
+
+function renderDimensionStackAreaChart(definition, dimensionId, members, options = {}) {
+  const width = 220;
+  const height = 122;
+  const margin = { top: 10, right: 8, bottom: 10, left: 8 };
+  const indices = visibleYearIndices();
+  const metricDimensions = metricDimensionIds(definition.id);
+  const activeDepth = Math.max(0, Math.min(metricDimensions.length, Number(options.activeDepth || 0)));
+  const dimensionLevel = Number.isFinite(options.dimensionLevel)
+    ? options.dimensionLevel
+    : Math.max(0, metricDimensions.indexOf(dimensionId));
+  const areaDimensionIds = activeDepth > dimensionLevel
+    ? metricDimensions.slice(0, activeDepth)
+    : metricDimensions.filter(currentDimensionId => currentDimensionId === dimensionId);
+  const coordinateKeys = metricCoordinateKeys(definition.id);
+  const seriesByMember = members.map(member => {
+    const coordinateGroups = new Map();
+    coordinateKeys
+      .map(key => ({ key, coordinate: parseCoordinateKey(key) }))
+      .filter(({ coordinate }) => coordinate[dimensionId] === member.id)
+      .forEach(({ key, coordinate }) => {
+        const areaCoordinate = areaDimensionIds.reduce((result, currentDimensionId) => {
+          if (coordinate[currentDimensionId]) result[currentDimensionId] = coordinate[currentDimensionId];
+          return result;
+        }, {});
+        const areaKey = coordinateKey(areaCoordinate);
+        const existing = coordinateGroups.get(areaKey);
+        coordinateGroups.set(areaKey, {
+          key: areaKey,
+          coordinate: areaCoordinate,
+          seriesList: [
+            ...(existing?.seriesList || []),
+            metricTopDownCoordinateSeries(definition.id, key),
+          ],
+        });
+      });
+    const coordinates = Array.from(coordinateGroups.values())
+      .map(item => ({
+        ...item,
+        values: aggregateDimensionChartSeries(definition, item.seriesList)
+          .filter((_value, index) => indices.includes(index)),
+      }));
+    if (coordinates.length) return { member, coordinates };
+    return {
+      member,
+      coordinates: [{
+        key: coordinateKey({ [dimensionId]: member.id }),
+        coordinate: { [dimensionId]: member.id },
+        values: metricTopDownFilteredSeries(definition.id, { [dimensionId]: member.id })
+          .filter((_value, index) => indices.includes(index)),
+      }],
+    };
+  });
+  if (metricIsRate(definition)) {
+    return renderDimensionLineChart(definition, dimensionId, members, seriesByMember, indices, width, height, margin);
+  }
+  const pointCount = Math.max(1, indices.length);
+  const totals = Array.from({ length: pointCount }, (_item, index) => (
+    seriesByMember.reduce((sum, item) => (
+      sum + item.coordinates.reduce((coordinateSum, coordinate) => (
+        coordinateSum + Number(coordinate.values[index] || 0)
+      ), 0)
+    ), 0)
+  ));
+  const maxTotal = Math.max(1, ...totals.map(value => Math.abs(Number(value || 0))));
+  const xFor = index => {
+    if (pointCount <= 1) return margin.left + (width - margin.left - margin.right) / 2;
+    return margin.left + ((width - margin.left - margin.right) * index) / (pointCount - 1);
+  };
+  const yFor = value => height - margin.bottom - ((height - margin.top - margin.bottom) * Number(value || 0)) / maxTotal;
+  const cumulative = Array.from({ length: pointCount }, () => 0);
+  const areas = [];
+  seriesByMember.forEach(({ member, coordinates }) => {
+    coordinates.forEach(({ key, coordinate, values }) => {
+      const bottom = cumulative.map((value, index) => [xFor(index), yFor(value)]);
+      values.forEach((value, index) => {
+        cumulative[index] += Number(value || 0);
+      });
+      const top = cumulative.map((value, index) => [xFor(index), yFor(value)]);
+      const path = [
+        ...top.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`),
+        ...bottom.reverse().map(([x, y]) => `L ${x.toFixed(2)} ${y.toFixed(2)}`),
+        "Z",
+      ].join(" ");
+      const labelCoordinate = metricDimensions.reduce((result, currentDimensionId) => ({
+        ...result,
+        [currentDimensionId]: coordinate[currentDimensionId],
+      }), {});
+      const focusTokens = Object.entries(labelCoordinate)
+        .filter(([, memberId]) => memberId)
+        .map(([currentDimensionId, memberId]) => `${currentDimensionId}=${memberId}`)
+        .join("|");
+      areas.push({
+        member,
+        path,
+        key,
+        values,
+        focusTokens: `|${focusTokens}|`,
+        primaryFocusToken: `${dimensionId}=${member.id}`,
+        label: coordinateLabelForMetric(definition.id, coordinateKey(labelCoordinate)),
+      });
+    });
+  });
+  return `
+    <span class="dimension-stack-area-chart" aria-hidden="true">
+      <svg viewBox="0 0 ${width} ${height}" focusable="false">
+        <path class="dimension-stack-area-baseline" d="M ${margin.left} ${height - margin.bottom} H ${width - margin.right}"></path>
+        ${areas.map(({ member, path, key, values, focusTokens, primaryFocusToken, label }) => `
+          <path
+            class="dimension-stack-area-shape"
+            d="${path}"
+            fill="${escapeHtml(dimensionMemberColor(members, member.id))}"
+            data-dimension-area-coordinate-key="${escapeHtml(key)}"
+            data-dimension-area-values="${escapeHtml(JSON.stringify(values))}"
+            data-dimension-area-focus-keys="${escapeHtml(focusTokens)}"
+            data-dimension-area-primary-key="${escapeHtml(primaryFocusToken)}"
+            data-dimension-area-label="${escapeHtml(label)}"
+          ></path>
+        `).join("")}
+      </svg>
+      <span class="dimension-stack-area-tooltip" aria-hidden="true"></span>
+    </span>
+  `;
+}
+
+function aggregateDimensionChartSeries(definition, seriesList) {
+  const cleanSeries = Array.isArray(seriesList) ? seriesList.filter(Array.isArray) : [];
+  if (!cleanSeries.length) return defaultSeries();
+  if (!metricIsRate(definition)) {
+    return cleanSeries.reduce((total, series) => sumSeries(total, series), defaultSeries());
+  }
+  return YEARS.map((_year, index) => {
+    const values = cleanSeries.map(series => Number(series[index] || 0));
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  });
+}
+
+function renderDimensionLineChart(definition, dimensionId, members, seriesByMember, indices, width, height, margin) {
+  const pointCount = Math.max(1, indices.length);
+  const allValues = seriesByMember.flatMap(item => item.coordinates.flatMap(coordinate => coordinate.values));
+  const rawMin = Math.min(0, ...allValues.map(value => Number(value || 0)));
+  const rawMax = Math.max(1, ...allValues.map(value => Number(value || 0)));
+  const range = rawMax - rawMin || 1;
+  const metricDimensions = metricDimensionIds(definition.id);
+  const xFor = index => {
+    if (pointCount <= 1) return margin.left + (width - margin.left - margin.right) / 2;
+    return margin.left + ((width - margin.left - margin.right) * index) / (pointCount - 1);
+  };
+  const yFor = value => height - margin.bottom - ((height - margin.top - margin.bottom) * (Number(value || 0) - rawMin)) / range;
+  const lines = [];
+  seriesByMember.forEach(({ member, coordinates }) => {
+    coordinates.forEach(({ key, coordinate, values }) => {
+      const path = values.map((value, index) => `${index === 0 ? "M" : "L"} ${xFor(index).toFixed(2)} ${yFor(value).toFixed(2)}`).join(" ");
+      const labelCoordinate = metricDimensions.reduce((result, currentDimensionId) => ({
+        ...result,
+        [currentDimensionId]: coordinate[currentDimensionId],
+      }), {});
+      const focusTokens = Object.entries(labelCoordinate)
+        .filter(([, memberId]) => memberId)
+        .map(([currentDimensionId, memberId]) => `${currentDimensionId}=${memberId}`)
+        .join("|");
+      lines.push({
+        member,
+        path,
+        key,
+        values,
+        focusTokens: `|${focusTokens}|`,
+        primaryFocusToken: `${dimensionId}=${member.id}`,
+        label: coordinateLabelForMetric(definition.id, coordinateKey(labelCoordinate)),
+      });
+    });
+  });
+  return `
+    <span class="dimension-stack-area-chart dimension-stack-line-chart" aria-hidden="true">
+      <svg viewBox="0 0 ${width} ${height}" focusable="false">
+        <path class="dimension-stack-area-baseline" d="M ${margin.left} ${height - margin.bottom} H ${width - margin.right}"></path>
+        ${lines.map(({ member, path, key, values, focusTokens, primaryFocusToken, label }) => `
+          <path
+            class="dimension-stack-area-shape dimension-stack-line-shape"
+            d="${path}"
+            style="stroke: ${escapeHtml(dimensionMemberColor(members, member.id))}"
+            data-dimension-area-coordinate-key="${escapeHtml(key)}"
+            data-dimension-area-values="${escapeHtml(JSON.stringify(values))}"
+            data-dimension-area-focus-keys="${escapeHtml(focusTokens)}"
+            data-dimension-area-primary-key="${escapeHtml(primaryFocusToken)}"
+            data-dimension-area-label="${escapeHtml(label)}"
+          ></path>
+        `).join("")}
+      </svg>
+      <span class="dimension-stack-area-tooltip" aria-hidden="true"></span>
+    </span>
+  `;
+}
+
 function renderCanvasLines() {
   const canvas = document.getElementById("metric-canvas");
   const svg = document.getElementById("canvas-lines");
@@ -8092,7 +8508,8 @@ function renderCanvasLines() {
       const start = pointForNode(parentNode, "bottom");
       const end = pointForNode(childNode, "top");
       const midY = start.y + Math.max(28, (end.y - start.y) / 2);
-      paths.push(`<path d="M ${start.x} ${start.y} C ${start.x} ${midY}, ${end.x} ${midY}, ${end.x} ${end.y}" />`);
+      const childType = parseNodeKey(childKey).nodeType;
+      paths.push(`<path class="${childType === "dimension" ? "dimension-edge" : ""}" d="M ${start.x} ${start.y} C ${start.x} ${midY}, ${end.x} ${midY}, ${end.x} ${end.y}" />`);
     });
   });
 
@@ -9262,6 +9679,7 @@ function newBlankModel() {
   state.model = createBlankModel();
   state.selectedMetricId = null;
   state.selectedDimensionContext = null;
+  state.selectedDimensionNodeKey = null;
   state.selectedDimensionId = null;
   state.canvasFocusMode = true;
   state.topDownSheetExpandedKeys.clear();
@@ -9273,6 +9691,7 @@ function loadStarterModel() {
   state.model = createStarterModel();
   state.selectedMetricId = "profit";
   state.selectedDimensionContext = null;
+  state.selectedDimensionNodeKey = null;
   state.selectedDimensionId = Object.keys(dimensionDefinitions())[0] || null;
   state.canvasFocusMode = true;
   state.canvasViewMode = "chart";
@@ -9728,9 +10147,13 @@ function applyCohortMatrixInputs() {
 function applyCatalogSource(sourceId = "catalog-source", statusSetter = setSourceStatus) {
   const source = document.getElementById(sourceId);
   if (!source) return false;
+  return applyCatalogJsonText(source.value, statusSetter);
+}
+
+function applyCatalogJsonText(jsonText, statusSetter = setSourceStatus) {
   const previousYears = [...YEARS];
   try {
-    const parsed = JSON.parse(source.value);
+    const parsed = JSON.parse(jsonText);
     const imported = normalizeImportedModel(parsed);
     state.model = imported;
     const importedSelection = parsed.selectedMetricId;
@@ -9753,6 +10176,21 @@ function applyCatalogSource(sourceId = "catalog-source", statusSetter = setSourc
     statusSetter(error.message, "error");
     return false;
   }
+}
+
+function autoApplyPastedCanvasJson(event) {
+  const uploadButton = document.querySelector("[data-canvas-json-action='upload']:hover, [data-canvas-json-action='upload']:focus-visible");
+  if (!uploadButton) return;
+  const text = event.clipboardData?.getData("text/plain") || "";
+  if (!text.trim()) return;
+  const applied = applyCatalogJsonText(text, setSourceStatus);
+  if (!applied) return;
+  event.preventDefault();
+  state.homeJsonImportOpen = false;
+  state.activeScreen = "model";
+  state.canvasFocusMode = true;
+  setSourceStatus("Pasted and applied model JSON.", "success");
+  render();
 }
 
 async function copyCatalogSource() {
@@ -9782,6 +10220,7 @@ async function copyHomeJsonSnapshot() {
   const json = sourceSnapshot();
   try {
     await navigator.clipboard.writeText(json);
+    setSourceStatus("Copied model JSON.", "success");
   } catch (_error) {
     const textarea = document.createElement("textarea");
     textarea.value = json;
@@ -9792,6 +10231,7 @@ async function copyHomeJsonSnapshot() {
     textarea.select();
     document.execCommand("copy");
     textarea.remove();
+    setSourceStatus("Copied model JSON.", "success");
   }
 }
 
@@ -10027,6 +10467,10 @@ document.body.addEventListener("click", event => {
     }
     if (action === "download") {
       downloadHomeJsonSnapshot();
+      return;
+    }
+    if (action === "copy") {
+      copyHomeJsonSnapshot();
       return;
     }
   }
@@ -10339,7 +10783,12 @@ document.body.addEventListener("click", event => {
     && !event.target.closest(".canvas-mode-control")
     && !event.target.closest(".canvas-staged-drivers")
     && !event.target.closest("#canvas-lines");
-  if (blankCanvasClick && state.expandedNodeKey) {
+  if (blankCanvasClick && (state.expandedNodeKey || state.flippedNodeKey || state.selectedDimensionNodeKey)) {
+    const selectedParsed = parseNodeKey(selectedNodeKey());
+    if (selectedParsed.nodeType === "dimension") {
+      state.selectedDimensionNodeKey = null;
+      state.selectedDimensionContext = null;
+    }
     state.expandedNodeKey = null;
     state.flippedNodeKey = null;
     render();
@@ -10369,13 +10818,29 @@ document.body.addEventListener("click", event => {
     return;
   }
 
+  const dimensionStackMemberButton = event.target.closest("[data-dimension-stack-member]");
+  if (dimensionStackMemberButton) {
+    selectNodeKey(dimensionStackMemberButton.dataset.dimensionStackMember);
+    render();
+    return;
+  }
+
   const nodeButton = event.target.closest("[data-node-key]");
   if (nodeButton) {
     const nodeKey = nodeButton.dataset.nodeKey;
+    const parsedNode = parseNodeKey(nodeKey);
     if (commitCanvasStagedDriversToParent(nodeKey)) {
       return;
     }
-    if (selectedNodeKey() !== nodeKey) {
+    if (parsedNode.nodeType === "dimension") {
+      if (selectedNodeKey() !== nodeKey) {
+        selectNodeKey(nodeKey);
+        state.expandedNodeKey = null;
+        state.flippedNodeKey = null;
+      } else {
+        toggleCanvasNodeFlip(nodeKey);
+      }
+    } else if (selectedNodeKey() !== nodeKey) {
       selectNodeKey(nodeKey);
       state.expandedNodeKey = null;
       state.flippedNodeKey = null;
@@ -10610,6 +11075,155 @@ document.body.addEventListener("submit", event => {
     saveModelBriefFromForm();
   }
 });
+
+function clearDimensionAreaHighlights(scope = document) {
+  scope.querySelectorAll?.(".dimension-stack-area-shape.cross-highlight, .dimension-stack-area-shape.cross-dim").forEach(shape => {
+    shape.classList.remove("cross-highlight", "cross-dim");
+  });
+  document.querySelectorAll("[data-node-chart-highlight-layer]").forEach(layer => {
+    layer.replaceChildren();
+  });
+}
+
+function nodeElementForKey(nodeKey) {
+  return Array.from(document.querySelectorAll(".metric-node[data-node-key]"))
+    .find(node => node.dataset.nodeKey === nodeKey);
+}
+
+function drawNodeChartHighlight(nodeKey, visibleValues, variant = "root", color = null, mark = "line") {
+  const node = nodeElementForKey(nodeKey);
+  const layer = node?.querySelector("[data-node-chart-highlight-layer]");
+  if (!layer || !Array.isArray(visibleValues) || !visibleValues.length) return;
+  const minValue = Number(layer.dataset.chartMinValue || 0);
+  const maxValue = Number(layer.dataset.chartMaxValue || 1);
+  const width = Number(layer.dataset.chartWidth || 220);
+  const height = Number(layer.dataset.chartHeight || 84);
+  const margin = {
+    top: Number(layer.dataset.chartMarginTop || 10),
+    right: Number(layer.dataset.chartMarginRight || 8),
+    bottom: Number(layer.dataset.chartMarginBottom || 16),
+    left: Number(layer.dataset.chartMarginLeft || 8),
+  };
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const isArea = mark === "area";
+  path.setAttribute(
+    "d",
+    isArea
+      ? inlineChartAreaPathFromVisibleValues(visibleValues, minValue, maxValue, width, height, margin)
+      : inlineChartPathFromVisibleValues(visibleValues, minValue, maxValue, width, height, margin)
+  );
+  path.setAttribute("class", `${isArea ? "metric-node-chart-area" : "metric-node-chart-line"} slice-highlight ${variant}`);
+  if (color) {
+    if (isArea) {
+      path.style.fill = color;
+      path.style.stroke = color;
+    } else {
+      path.style.stroke = color;
+    }
+  }
+  layer.append(path);
+}
+
+function coordinateFromFocusToken(token) {
+  const [dimensionId, ...memberParts] = String(token || "").split("=");
+  const memberId = memberParts.join("=");
+  return dimensionId && memberId ? { [dimensionId]: memberId } : {};
+}
+
+function drawDimensionAreaMetricHighlights(area) {
+  let visibleValues = [];
+  try {
+    visibleValues = JSON.parse(area.dataset.dimensionAreaValues || "[]").map(value => Number(value || 0));
+  } catch (_error) {
+    visibleValues = [];
+  }
+  if (!visibleValues.length) return;
+  const dimensionNode = area.closest(".dimension-node[data-node-key]");
+  const parsed = parseNodeKey(dimensionNode?.dataset.nodeKey);
+  const metricId = parsed.metricId;
+  if (!metricDefinitions()[metricId]) return;
+  const computedStyle = window.getComputedStyle(area);
+  const highlightColor = computedStyle.fill && computedStyle.fill !== "none"
+    ? computedStyle.fill
+    : computedStyle.stroke;
+  const primaryCoordinate = coordinateFromFocusToken(area.dataset.dimensionAreaPrimaryKey);
+  const visibleIndices = visibleYearIndices();
+  const sourceCoordinate = parseCoordinateKey(area.dataset.dimensionAreaCoordinateKey || "");
+  const rootTotal = metricTopDownFilteredSeries(metricId, primaryCoordinate);
+  drawNodeChartHighlight(
+    metricId,
+    visibleIndices.map(index => Number(rootTotal[index] || 0)),
+    "root-total",
+    highlightColor,
+    "area"
+  );
+  drawNodeChartHighlight(metricId, visibleValues, "root-subsection", highlightColor, "area");
+  parentIds(metricId).forEach(parentId => {
+    const parentDefinition = metricDefinitions()[parentId];
+    if (metricFlowType(parentDefinition) !== "flow") return;
+    const parentTotal = formulaContributionSeries(parentId, metricId, primaryCoordinate);
+    const parentContribution = formulaContributionSeries(parentId, metricId, sourceCoordinate);
+    if (parentTotal) {
+      drawNodeChartHighlight(
+        parentId,
+        visibleIndices.map(index => Number(parentTotal[index] || 0)),
+        "parent-total",
+        highlightColor,
+        "area"
+      );
+    }
+    if (!parentContribution) return;
+    drawNodeChartHighlight(
+      parentId,
+      visibleIndices.map(index => Number(parentContribution[index] || 0)),
+      "parent-subsection",
+      highlightColor,
+      "area"
+    );
+  });
+}
+
+document.body.addEventListener("pointermove", event => {
+  const area = event.target.closest?.("[data-dimension-area-label]");
+  document.querySelectorAll(".dimension-stack-area-tooltip.visible").forEach(tooltip => {
+    if (!area || !tooltip.closest(".dimension-stack-area-chart")?.contains(area)) {
+      tooltip.classList.remove("visible");
+    }
+  });
+  if (!area) {
+    clearDimensionAreaHighlights();
+    return;
+  }
+  const container = area.closest(".dimension-stack-area-chart");
+  const tooltip = container?.querySelector(".dimension-stack-area-tooltip");
+  if (!container || !tooltip) return;
+  const cluster = area.closest(".canvas-node-cluster");
+  const focusToken = area.dataset.dimensionAreaPrimaryKey;
+  clearDimensionAreaHighlights(cluster || document);
+  if (cluster && focusToken) {
+    cluster.querySelectorAll(".dimension-stack-area-shape").forEach(shape => {
+      const focusKeys = shape.dataset.dimensionAreaFocusKeys || "";
+      const isMatch = focusKeys.includes(`|${focusToken}|`);
+      shape.classList.toggle("cross-highlight", isMatch);
+      shape.classList.toggle("cross-dim", !isMatch);
+    });
+  }
+  drawDimensionAreaMetricHighlights(area);
+  const rect = container.getBoundingClientRect();
+  tooltip.textContent = area.dataset.dimensionAreaLabel || "";
+  tooltip.style.left = `${event.clientX - rect.left}px`;
+  tooltip.style.top = `${event.clientY - rect.top}px`;
+  tooltip.classList.add("visible");
+});
+
+document.body.addEventListener("pointerleave", event => {
+  const chart = event.target.closest?.(".dimension-stack-area-chart");
+  if (!chart || chart.contains(event.relatedTarget)) return;
+  chart.querySelector(".dimension-stack-area-tooltip")?.classList.remove("visible");
+  clearDimensionAreaHighlights(chart.closest(".canvas-node-cluster") || document);
+}, true);
+
+document.addEventListener("paste", autoApplyPastedCanvasJson);
 
 document.getElementById("metric-create-form").addEventListener("submit", event => {
   event.preventDefault();

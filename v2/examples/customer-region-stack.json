@@ -1,0 +1,138 @@
+{
+  "name": "Customer Region Stack Example",
+  "years": [2026, 2027, 2028, 2029],
+  "viewWindow": {
+    "start": 2026,
+    "end": 2029
+  },
+  "selectedMetricId": "customers",
+  "selectedDimensionContext": null,
+  "activeScenarioId": "scenario-1",
+  "scenarioRoles": {
+    "working": "scenario-1",
+    "bau": null,
+    "target": null
+  },
+  "referenceScenarios": {
+    "bau": null,
+    "target": null
+  },
+  "dimensions": {
+    "customer-types": {
+      "id": "customer-types",
+      "label": "Customer Types",
+      "members": [
+        { "id": "big", "label": "Big" },
+        { "id": "small", "label": "Small" }
+      ]
+    },
+    "region": {
+      "id": "region",
+      "label": "Region",
+      "members": [
+        { "id": "us", "label": "US" },
+        { "id": "row", "label": "RoW" }
+      ]
+    }
+  },
+  "metricDefinitions": {
+    "profit": {
+      "id": "profit",
+      "label": "profit",
+      "unit": "currency",
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": {
+        "type": "arithmetic",
+        "inputs": ["revenue", "cost"],
+        "operators": ["-"]
+      },
+      "reconciliation": { "enabled": true, "tolerance": 1 },
+      "presentation": { "color": "#111827", "valueFormat": "currency" },
+      "dimensions": []
+    },
+    "revenue": {
+      "id": "revenue",
+      "label": "Revenue",
+      "unit": "currency",
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": {
+        "type": "arithmetic",
+        "inputs": ["customers", "rev-per-customer"],
+        "operators": ["*"]
+      },
+      "reconciliation": { "enabled": true, "tolerance": 1 },
+      "presentation": { "color": "#4f7fb8" },
+      "dimensions": []
+    },
+    "cost": {
+      "id": "cost",
+      "label": "Cost",
+      "unit": "currency",
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": null,
+      "reconciliation": { "enabled": false, "tolerance": 1 },
+      "presentation": { "color": "#6fa76b" },
+      "dimensions": []
+    },
+    "customers": {
+      "id": "customers",
+      "label": "customers",
+      "unit": "count",
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": null,
+      "reconciliation": { "enabled": false, "tolerance": 1 },
+      "presentation": { "color": "#4f7fb8", "valueFormat": "number" },
+      "dimensions": ["customer-types", "region"]
+    },
+    "rev-per-customer": {
+      "id": "rev-per-customer",
+      "label": "rev per customer",
+      "unit": "currency",
+      "topDown": { "type": "manualSeries", "editable": true },
+      "bottomUp": null,
+      "reconciliation": { "enabled": false, "tolerance": 1 },
+      "presentation": { "color": "#4f7fb8" },
+      "dimensions": []
+    }
+  },
+  "assumptions": [],
+  "scenarios": {
+    "scenario-1": {
+      "id": "scenario-1",
+      "name": "Scenario 1",
+      "metrics": {
+        "profit": {
+          "topDown": {
+            "": [0, 9000000, 22000000, 42000000]
+          }
+        },
+        "revenue": {
+          "topDown": {
+            "": [0, 12000000, 30000000, 56000000]
+          }
+        },
+        "cost": {
+          "topDown": {
+            "": [0, 3000000, 8000000, 14000000]
+          }
+        },
+        "customers": {
+          "topDown": {
+            "customer-types=big|region=us": [0, 18000, 22000, 26000],
+            "customer-types=big|region=row": [0, 6000, 9000, 12000],
+            "customer-types=small|region=us": [0, 26000, 32000, 38000],
+            "customer-types=small|region=row": [0, 10000, 17000, 24000]
+          },
+          "controlPoints": {
+            "": [[2026, 0], [2027, 60000], [2028, 80000], [2029, 100000]]
+          }
+        },
+        "rev-per-customer": {
+          "topDown": {
+            "": [0, 200, 375, 560]
+          }
+        }
+      }
+    }
+  }
+}
