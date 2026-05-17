@@ -288,9 +288,36 @@ h2 {
 
 .axis-button-row {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 6px;
   margin: 0;
+}
+
+.axis-target-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.axis-target-toggle button {
+  min-height: 22px;
+  padding: 3px 7px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.axis-target-toggle button.active {
+  color: #ffffff;
+  background: var(--text);
 }
 
 .home-chart-actions {
@@ -2030,6 +2057,7 @@ h2 {
   top: 10px;
   z-index: 5;
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
   height: 0;
   padding-right: 10px;
@@ -2178,7 +2206,8 @@ h2 {
   background: #f8fafc;
 }
 
-.canvas-zoom-control-inner {
+.canvas-zoom-control-inner,
+.canvas-json-control-inner {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2194,7 +2223,9 @@ h2 {
 }
 
 .canvas-zoom-control-inner:hover,
-.canvas-zoom-control-inner:focus-within {
+.canvas-zoom-control-inner:focus-within,
+.canvas-json-control-inner:hover,
+.canvas-json-control-inner:focus-within {
   opacity: 1;
   background: rgba(255, 255, 255, 0.96);
   border-color: var(--line);
@@ -2245,6 +2276,42 @@ h2 {
 
 .canvas-zoom-control button:hover {
   background: #f8fafc;
+}
+
+.canvas-json-control-inner {
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.canvas-json-control-inner button {
+  width: 28px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.canvas-json-control-inner button:first-child {
+  border-radius: 999px 0 0 999px;
+}
+
+.canvas-json-control-inner button:last-child {
+  border-radius: 0 999px 999px 0;
+}
+
+.canvas-json-icon {
+  width: 17px;
+  height: 17px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 2.4;
+}
+
+.canvas-json-icon-angle,
+.canvas-json-icon-stem,
+.canvas-json-icon-base {
+  vector-effect: non-scaling-stroke;
 }
 
 .workspace-drawer {
@@ -3159,6 +3226,11 @@ button.workspace-drawer-member-pill,
   padding: calc(12px * var(--canvas-zoom));
 }
 
+.metric-canvas.chart-mode .metric-node-front {
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+}
+
 .metric-node.expanded .metric-node-face {
   padding: calc(16px * var(--canvas-zoom));
 }
@@ -3448,7 +3520,8 @@ button.workspace-drawer-member-pill,
   pointer-events: none;
 }
 
-.metric-node.flipped .metric-node-anchor {
+.metric-node.flipped .metric-node-anchor-dot,
+.metric-node.flipped .metric-node-anchor-label {
   display: none;
 }
 
@@ -3753,58 +3826,46 @@ button.workspace-drawer-member-pill,
 
 .metric-node-chart {
   display: grid;
-  gap: calc(5px * var(--canvas-zoom));
-  margin-top: calc(9px * var(--canvas-zoom));
+  height: 100%;
+  min-height: 0;
+  margin-top: 0;
 }
 
 .metric-node-chart-plot {
   position: relative;
-  min-height: calc(94px * var(--canvas-zoom));
+  height: 100%;
+  min-height: 0;
 }
 
 .metric-node-chart svg {
   width: 100%;
-  height: calc(94px * var(--canvas-zoom));
+  height: 100%;
+  min-height: 0;
   overflow: visible;
 }
 
 .metric-node.expanded .metric-node-chart {
-  gap: 8px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
-.metric-node.expanded .metric-node-chart svg {
-  height: 156px;
-}
-
-.metric-node.expanded .metric-node-chart-plot {
-  min-height: 156px;
-}
-
-.metric-node-anchor {
+.metric-node-anchor-dot,
+.metric-node-anchor-label {
   position: absolute;
   z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transform: translate(-5px, -50%);
   pointer-events: none;
 }
 
-.metric-node-anchor.align-right {
-  transform: translate(calc(-100% + 5px), -50%);
-}
-
-.metric-node-anchor i {
+.metric-node-anchor-dot {
   width: 8px;
   height: 8px;
   background: #d92d20;
   border: 2px solid #ffffff;
   border-radius: 999px;
   box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.35);
+  transform: translate(-50%, -50%);
 }
 
-.metric-node-anchor b {
+.metric-node-anchor-label {
   padding: 2px 5px;
   color: #b42318;
   background: rgba(255, 255, 255, 0.92);
@@ -3814,6 +3875,15 @@ button.workspace-drawer-member-pill,
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 7px));
+}
+
+.metric-node-anchor-label.align-left {
+  transform: translate(-8px, calc(-100% - 7px));
+}
+
+.metric-node-anchor-label.align-right {
+  transform: translate(calc(-100% + 8px), calc(-100% - 7px));
 }
 
 .metric-node-chart-axis {
@@ -3834,35 +3904,6 @@ button.workspace-drawer-member-pill,
 .metric-node-chart-line.bottom-up {
   stroke: var(--blue);
   stroke-dasharray: 5 4;
-}
-
-.metric-node-chart-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.metric-node-chart-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-  font-size: inherit;
-}
-
-.legend-line {
-  display: inline-block;
-  width: 16px;
-  height: 0;
-  border-top: 2px solid #111827;
-}
-
-.legend-line.bottom-up {
-  border-top-color: var(--blue);
-  border-top-style: dashed;
 }
 
 .definition-grid {

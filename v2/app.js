@@ -55,7 +55,11 @@ const state = {
   drawerDimensionTableExpandedKeys: new Set(),
   canvasStagedDrivers: [],
   canvasZoom: 1,
+  homeNapkinYAxisTarget: "max",
+  drawerNapkinYAxisTarget: "max",
+  homeNapkinYMin: null,
   homeNapkinYMax: null,
+  drawerNapkinYMin: null,
   drawerNapkinYMax: null,
   homeEditableLine: "bau",
   homeDriverSetupOpen: false,
@@ -3097,6 +3101,26 @@ function napkinYMaxForValues(definition, values = []) {
   return snapSafeNapkinYMax(dataMax * 1.25);
 }
 
+function napkinYMinForValues(values = []) {
+  const dataMin = Math.min(0, ...values.map(value => Number(value || 0)));
+  if (!Number.isFinite(dataMin) || dataMin >= 0) return 0;
+  return -snapSafeNapkinYMax(Math.abs(dataMin) * 1.25);
+}
+
+function napkinYBoundsForValues(definition, values = [], customMin = null, customMax = null) {
+  const numericValues = values.map(value => Number(value || 0));
+  const dataMin = Math.min(0, ...numericValues);
+  const defaultMin = napkinYMinForValues(numericValues);
+  const defaultMax = napkinYMaxForValues(definition, numericValues);
+  const max = Number.isFinite(customMax) ? Math.max(customMax, defaultMax) : defaultMax;
+  let min = Number.isFinite(customMin) ? Math.min(customMin, dataMin, 0) : defaultMin;
+  if (min >= max) {
+    const fallbackRange = Math.max(1, Math.abs(max), defaultNapkinYMax(definition));
+    min = max - fallbackRange;
+  }
+  return { min, max, dataMin, defaultMin, defaultMax };
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -3745,42 +3769,100 @@ function stepYAxisLeadingDigit(value, direction) {
   return null;
 }
 
-function applyHomeNapkinYAxisMax(nextYMax) {
-  if (!homeNapkinChart?.baseOption?.yAxis || !Number.isFinite(nextYMax)) return;
-  const yMin = Number(homeNapkinChart.baseOption.yAxis.min ?? 0);
-  if (Number.isFinite(yMin) && nextYMax <= yMin) return;
+function chartVisibleLineValues(chart) {
+  return (chart?.lines || []).flatMap(line => visiblePointValues(line.data || []));
+}
+
+function minYAxisZeroSnapThreshold(currentMax, action) {
+  const ceiling = Math.max(1, Math.abs(Number(currentMax || 0)));
+  const ratio = action === "large-up" ? 0.2 : 0.04;
+  return ceiling * ratio;
+}
+
+function normalizeNextYAxisMin(nextMin, currentMax, action, dataMin) {
+  if (!Number.isFinite(nextMin)) return 0;
+  if (dataMin < 0) return Math.min(nextMin, dataMin);
+  if (nextMin >= 0) return 0;
+  return Math.abs(nextMin) <= minYAxisZeroSnapThreshold(currentMax, action) ? 0 : nextMin;
+}
+
+function nextYAxisMinForAction(currentMin, currentMax, action, dataMin) {
+  const ceiling = Math.max(1, Math.abs(Number(currentMax || 0)));
+  if (action === "large-down") {
+    return currentMin < 0 ? currentMin * 10 : -ceiling;
+  }
+  if (action === "small-down") {
+    return currentMin < 0 ? -stepYAxisLeadingDigit(Math.abs(currentMin), "up") : -(ceiling / 10);
+  }
+  if (action === "large-up") {
+    return normalizeNextYAxisMin(currentMin / 10, currentMax, action, dataMin);
+  }
+  if (action === "small-up") {
+    if (currentMin >= 0) return 0;
+    const nextMagnitude = stepYAxisLeadingDigit(Math.abs(currentMin), "down");
+    const nextMin = Number.isFinite(nextMagnitude) ? -nextMagnitude : currentMin / 2;
+    return normalizeNextYAxisMin(nextMin, currentMax, action, dataMin);
+  }
+  return currentMin;
+}
+
+function applyHomeNapkinYAxisBounds(nextYMin, nextYMax) {
+  if (!homeNapkinChart?.baseOption?.yAxis || !Number.isFinite(nextYMin) || !Number.isFinite(nextYMax) || nextYMax <= nextYMin) return;
+  state.homeNapkinYMin = nextYMin;
   state.homeNapkinYMax = nextYMax;
   homeNapkinIsSyncing = true;
+  homeNapkinChart.baseOption.yAxis.min = nextYMin;
   homeNapkinChart.baseOption.yAxis.max = nextYMax;
-  homeNapkinChart.chart.setOption({ yAxis: { max: nextYMax } }, false);
+  homeNapkinChart.chart.setOption({ yAxis: { min: nextYMin, max: nextYMax } }, false);
   homeNapkinChart._refreshChart();
   styleHomeReferenceLines(homeNapkinChart);
   homeNapkinIsSyncing = false;
 }
 
 function handleHomeNapkinYAxisAction(action) {
+  const yMin = Number(homeNapkinChart?.baseOption?.yAxis?.min ?? 0);
   const yMax = Number(homeNapkinChart?.baseOption?.yAxis?.max);
-  if (!Number.isFinite(yMax)) return;
-  if (action === "large-up") {
-    applyHomeNapkinYAxisMax(yMax * 10);
+  if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) return;
+  const values = chartVisibleLineValues(homeNapkinChart);
+  const dataMin = Math.min(0, ...values.map(value => Number(value || 0)));
+  if (state.homeNapkinYAxisTarget === "min") {
+    applyHomeNapkinYAxisBounds(nextYAxisMinForAction(yMin, yMax, action, dataMin), yMax);
+  } else if (action === "large-up") {
+    applyHomeNapkinYAxisBounds(yMin, yMax * 10);
   } else if (action === "large-down") {
-    applyHomeNapkinYAxisMax(yMax / 10);
+    applyHomeNapkinYAxisBounds(yMin, yMax / 10);
   } else if (action === "small-up") {
-    applyHomeNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "up"));
+    applyHomeNapkinYAxisBounds(yMin, stepYAxisLeadingDigit(yMax, "up"));
   } else if (action === "small-down") {
-    applyHomeNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "down"));
+    applyHomeNapkinYAxisBounds(yMin, stepYAxisLeadingDigit(yMax, "down"));
   }
 }
 
 function yAxisButtonRow(key, label) {
+  const target = key === "home" ? state.homeNapkinYAxisTarget : state.drawerNapkinYAxisTarget;
   return `
     <div class="axis-button-row" data-napkin-y-axis-controls="${escapeHtml(key)}" aria-label="${escapeHtml(label)}">
+      <span class="axis-target-toggle" aria-label="Y axis target">
+        ${["min", "max"].map(item => `
+          <button type="button" class="${target === item ? "active" : ""}" data-y-axis-target="${item}" aria-pressed="${target === item}">
+            ${item === "min" ? "MinY" : "MaxY"}
+          </button>
+        `).join("")}
+      </span>
       <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-up" aria-label="Increase Y axis by 10x" title="Increase Y axis by 10x"><span class="axis-triangle axis-triangle-up"></span></button>
       <button type="button" class="axis-triangle-btn axis-triangle-btn-lg" data-y-axis-action="large-down" aria-label="Decrease Y axis by 10x" title="Decrease Y axis by 10x"><span class="axis-triangle axis-triangle-down"></span></button>
       <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-up" aria-label="Increase Y axis one step" title="Increase Y axis one step"><span class="axis-triangle axis-triangle-up"></span></button>
       <button type="button" class="axis-triangle-btn axis-triangle-btn-sm" data-y-axis-action="small-down" aria-label="Decrease Y axis one step" title="Decrease Y axis one step"><span class="axis-triangle axis-triangle-down"></span></button>
     </div>
   `;
+}
+
+function updateYAxisTargetButtonState(controls, target) {
+  controls?.querySelectorAll("[data-y-axis-target]").forEach(button => {
+    const isActive = button.dataset.yAxisTarget === target;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
 }
 
 function disposeHomeNapkinChart() {
@@ -3866,9 +3948,10 @@ function syncHomeNapkinChart() {
   const points = homeMetricControlPoints(homeNapkinMetricId);
   homeNapkinIsSyncing = true;
   homeNapkinChart.lines = homeNapkinLines(definition, points, { simplify: false });
-  const yMax = homeNapkinYMaxForPoints(definition, points);
-  homeNapkinChart.baseOption.yAxis.max = yMax;
-  homeNapkinChart.chart.setOption({ yAxis: { max: yMax } }, false);
+  const yBounds = homeNapkinYBoundsForPoints(definition, points);
+  homeNapkinChart.baseOption.yAxis.min = yBounds.min;
+  homeNapkinChart.baseOption.yAxis.max = yBounds.max;
+  homeNapkinChart.chart.setOption({ yAxis: { min: yBounds.min, max: yBounds.max } }, false);
   configureHomeNapkinDomain(homeNapkinChart);
   homeNapkinChart._refreshChart();
   styleHomeReferenceLines(homeNapkinChart);
@@ -3882,11 +3965,9 @@ function configureHomeNapkinDomain(chart) {
   chart.windowEndX = visibleEndYear();
 }
 
-function homeNapkinYMaxForPoints(definition, points) {
-  const snappedYMax = napkinYMaxForValues(definition, visiblePointValues(points));
-  return Number.isFinite(state.homeNapkinYMax)
-    ? Math.max(state.homeNapkinYMax, snappedYMax)
-    : snappedYMax;
+function homeNapkinYBoundsForPoints(definition, points) {
+  const values = homeNapkinLines(definition, points, { simplify: false }).flatMap(line => visiblePointValues(line.data));
+  return napkinYBoundsForValues(definition, values, state.homeNapkinYMin, state.homeNapkinYMax);
 }
 
 function displayControlPoints(points) {
@@ -4033,7 +4114,7 @@ function renderHomeNapkinChart() {
   disposeHomeNapkinChart();
   container.innerHTML = "";
   const points = homeMetricControlPoints(metricId);
-  const yMax = homeNapkinYMaxForPoints(definition, points);
+  const yBounds = homeNapkinYBoundsForPoints(definition, points);
   homeNapkinMetricId = metricId;
   homeNapkinChart = new NapkinChart(
     "home-napkin-chart",
@@ -4042,7 +4123,7 @@ function renderHomeNapkinChart() {
     {
       animation: false,
       xAxis: visibleYearValueAxis(),
-      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
+      yAxis: { type: "value", min: yBounds.min, max: yBounds.max, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
       grid: { left: 12, right: 18, top: 18, bottom: 34, containLabel: true },
       tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
     },
@@ -4108,7 +4189,6 @@ function renderModelBriefScreen() {
         <button type="button" class="${activeHomeLine === "target" ? "active" : ""}" data-home-edit-line="target" aria-pressed="${activeHomeLine === "target"}"><i class="target"></i> Target</button>
       </div>
       <div class="home-next-actions">
-        <button type="button" class="secondary" data-home-json-import-action="open">Import JSON</button>
         <button type="button" data-home-action="toggle-drivers" ${hasMetric ? "" : "disabled"}>${state.homeDriverSetupOpen ? "Hide Drivers" : "Add Drivers"}</button>
       </div>
       ${state.homeDriverSetupOpen && definition ? driverSetupMarkup(definition) : ""}
@@ -4205,7 +4285,6 @@ function collapsiblePanelConfigs() {
     { id: "metric-workspace", selector: "#metric-workspace-panel", heading: ".metric-workspace-heading", host: ".metric-workspace-actions" },
     { id: "metric-catalog", selector: ".metric-sidebar", heading: ":scope > .panel-heading" },
     { id: "dimension-catalog", selector: ".dimension-catalog", heading: ":scope > .panel-heading" },
-    { id: "canvas", selector: ".canvas-panel", heading: ":scope > .panel-heading", host: ".canvas-panel-actions" },
     { id: "metric-detail", selector: ".detail-panel", heading: ":scope > .panel-heading" },
     { id: "catalog-source", selector: ".developer-panel", heading: ":scope > .panel-heading", host: ".source-actions" },
   ];
@@ -6408,6 +6487,10 @@ function renderCanvas() {
   `;
 }
 
+function renderCanvasPanelActions() {
+  document.querySelector(".canvas-panel-actions")?.replaceChildren();
+}
+
 function renderCanvasTopLeftControls() {
   return `
     <div class="canvas-top-left-controls">
@@ -6550,13 +6633,32 @@ function commitCanvasStagedDriversToParent(nodeKey) {
 function renderCanvasZoomControl() {
   const zoomPercent = Math.round(state.canvasZoom * 100);
   return `
-    <div class="canvas-zoom-control" aria-label="Canvas magnification">
+    <div class="canvas-zoom-control" aria-label="Canvas controls">
+      <span class="canvas-json-control-inner" aria-label="JSON controls">
+        <button type="button" data-canvas-json-action="upload" aria-label="Upload JSON" title="Upload JSON">
+          ${jsonTransferIcon("upload")}
+        </button>
+        <button type="button" data-canvas-json-action="download" aria-label="Download JSON" title="Download JSON">
+          ${jsonTransferIcon("download")}
+        </button>
+      </span>
       <span class="canvas-zoom-control-inner">
         <button type="button" data-canvas-zoom="out" aria-label="Zoom out">-</button>
         <span>${zoomPercent}%</span>
         <button type="button" data-canvas-zoom="in" aria-label="Zoom in">+</button>
       </span>
     </div>
+  `;
+}
+
+function jsonTransferIcon(action) {
+  const isUpload = action === "upload";
+  return `
+    <svg class="canvas-json-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path class="canvas-json-icon-angle" d="${isUpload ? "M5 12 L12 5 L19 12" : "M5 12 L12 19 L19 12"}"></path>
+      <path class="canvas-json-icon-stem" d="${isUpload ? "M12 6.5 V19" : "M12 5 V17.5"}"></path>
+      <path class="canvas-json-icon-base" d="${isUpload ? "M7 19 H17" : "M7 5 H17"}"></path>
+    </svg>
   `;
 }
 
@@ -7260,11 +7362,10 @@ function syncDrawerNapkinChart({ simplify = false } = {}) {
   drawerNapkinIsSyncing = true;
   drawerNapkinChart.lines = drawerNapkinLines(definition, chartMode, { simplify });
   const allValues = drawerNapkinChart.lines.flatMap(line => line.data.map(point => Number(point[1] || 0)));
-  const snappedYMax = napkinYMaxForValues(definition, allValues);
-  drawerNapkinChart.baseOption.yAxis.max = Number.isFinite(state.drawerNapkinYMax)
-    ? Math.max(state.drawerNapkinYMax, snappedYMax)
-    : snappedYMax;
-  drawerNapkinChart.chart.setOption({ yAxis: { max: drawerNapkinChart.baseOption.yAxis.max } }, false);
+  const yBounds = napkinYBoundsForValues(definition, allValues, state.drawerNapkinYMin, state.drawerNapkinYMax);
+  drawerNapkinChart.baseOption.yAxis.min = yBounds.min;
+  drawerNapkinChart.baseOption.yAxis.max = yBounds.max;
+  drawerNapkinChart.chart.setOption({ yAxis: { min: yBounds.min, max: yBounds.max } }, false);
   drawerNapkinChart.globalMaxX = visibleEndYear();
   drawerNapkinChart.windowStartX = visibleStartYear();
   drawerNapkinChart.windowEndX = visibleEndYear();
@@ -7273,30 +7374,35 @@ function syncDrawerNapkinChart({ simplify = false } = {}) {
   drawerNapkinIsSyncing = false;
 }
 
-function applyDrawerNapkinYAxisMax(nextYMax) {
-  if (!drawerNapkinChart?.baseOption?.yAxis || !Number.isFinite(nextYMax)) return;
-  const yMin = Number(drawerNapkinChart.baseOption.yAxis.min ?? 0);
-  if (Number.isFinite(yMin) && nextYMax <= yMin) return;
+function applyDrawerNapkinYAxisBounds(nextYMin, nextYMax) {
+  if (!drawerNapkinChart?.baseOption?.yAxis || !Number.isFinite(nextYMin) || !Number.isFinite(nextYMax) || nextYMax <= nextYMin) return;
+  state.drawerNapkinYMin = nextYMin;
   state.drawerNapkinYMax = nextYMax;
   drawerNapkinIsSyncing = true;
+  drawerNapkinChart.baseOption.yAxis.min = nextYMin;
   drawerNapkinChart.baseOption.yAxis.max = nextYMax;
-  drawerNapkinChart.chart.setOption({ yAxis: { max: nextYMax } }, false);
+  drawerNapkinChart.chart.setOption({ yAxis: { min: nextYMin, max: nextYMax } }, false);
   drawerNapkinChart._refreshChart();
   styleNapkinBottomUpReference(drawerNapkinChart);
   drawerNapkinIsSyncing = false;
 }
 
 function handleDrawerNapkinYAxisAction(action) {
+  const yMin = Number(drawerNapkinChart?.baseOption?.yAxis?.min ?? 0);
   const yMax = Number(drawerNapkinChart?.baseOption?.yAxis?.max);
-  if (!Number.isFinite(yMax)) return;
-  if (action === "large-up") {
-    applyDrawerNapkinYAxisMax(yMax * 10);
+  if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) return;
+  const values = chartVisibleLineValues(drawerNapkinChart);
+  const dataMin = Math.min(0, ...values.map(value => Number(value || 0)));
+  if (state.drawerNapkinYAxisTarget === "min") {
+    applyDrawerNapkinYAxisBounds(nextYAxisMinForAction(yMin, yMax, action, dataMin), yMax);
+  } else if (action === "large-up") {
+    applyDrawerNapkinYAxisBounds(yMin, yMax * 10);
   } else if (action === "large-down") {
-    applyDrawerNapkinYAxisMax(yMax / 10);
+    applyDrawerNapkinYAxisBounds(yMin, yMax / 10);
   } else if (action === "small-up") {
-    applyDrawerNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "up"));
+    applyDrawerNapkinYAxisBounds(yMin, stepYAxisLeadingDigit(yMax, "up"));
   } else if (action === "small-down") {
-    applyDrawerNapkinYAxisMax(stepYAxisLeadingDigit(yMax, "down"));
+    applyDrawerNapkinYAxisBounds(yMin, stepYAxisLeadingDigit(yMax, "down"));
   }
 }
 
@@ -7362,10 +7468,7 @@ function renderDrawerNapkinChart() {
   }
   const lines = drawerNapkinLines(definition, chartMode, { simplify: true });
   const allValues = lines.flatMap(line => visiblePointValues(line.data));
-  const snappedYMax = napkinYMaxForValues(definition, allValues);
-  const yMax = Number.isFinite(state.drawerNapkinYMax)
-    ? Math.max(state.drawerNapkinYMax, snappedYMax)
-    : snappedYMax;
+  const yBounds = napkinYBoundsForValues(definition, allValues, state.drawerNapkinYMin, state.drawerNapkinYMax);
   drawerNapkinMetricId = definition.id;
   drawerNapkinChartKey = chartKey;
   drawerNapkinChart = new NapkinChart(
@@ -7375,7 +7478,7 @@ function renderDrawerNapkinChart() {
     {
       animation: false,
       xAxis: visibleYearValueAxis(),
-      yAxis: { type: "value", min: 0, max: yMax, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
+      yAxis: { type: "value", min: yBounds.min, max: yBounds.max, axisLabel: { formatter: value => formatMetricValue(definition, value) } },
       grid: { left: 12, right: 18, top: 16, bottom: 30, containLabel: true },
       tooltip: { trigger: "axis", valueFormatter: value => formatMetricValue(definition, value, { precise: true }) },
     },
@@ -7574,9 +7677,9 @@ function renderInlineMetricChart(definition, topDown, bottomUp = null) {
     : null;
   const anchorMarkup = anchorX !== null && anchorY !== null
     ? `
-      <span class="metric-node-anchor ${anchorX > width * 0.72 ? "align-right" : ""}" style="left: ${(anchorX / width) * 100}%; top: ${(anchorY / height) * 100}%;">
-        <i></i>
-        <b>${escapeHtml(formatMetricValue(definition, anchorValue))}</b>
+      <span class="metric-node-anchor-dot" style="left: ${(anchorX / width) * 100}%; top: ${(anchorY / height) * 100}%;"></span>
+      <span class="metric-node-anchor-label ${anchorX > width * 0.78 ? "align-right" : anchorX < width * 0.22 ? "align-left" : ""}" style="left: ${(anchorX / width) * 100}%; top: ${(anchorY / height) * 100}%;">
+        ${escapeHtml(formatMetricValue(definition, anchorValue))}
       </span>
     `
     : "";
@@ -7589,10 +7692,6 @@ function renderInlineMetricChart(definition, topDown, bottomUp = null) {
           ${bottomUp ? `<path d="${bottomUpPath}" class="metric-node-chart-line bottom-up"></path>` : ""}
         </svg>
         ${anchorMarkup}
-      </div>
-      <div class="metric-node-chart-legend">
-        <span><i class="legend-line top-down"></i>Top</span>
-        ${bottomUp ? `<span><i class="legend-line bottom-up"></i>Bottom</span>` : ""}
       </div>
     </div>
   `;
@@ -9820,6 +9919,7 @@ function render() {
   renderScenarioControls();
   renderTimeRangeControls();
   renderModelBriefScreen();
+  renderCanvasPanelActions();
   setAppScreenVisibility();
   renderHomeJsonImportModal();
   if (state.activeScreen === "brief") {
@@ -9913,6 +10013,24 @@ document.body.addEventListener("click", event => {
     }
   }
 
+  const canvasJsonButton = event.target.closest("[data-canvas-json-action]");
+  if (canvasJsonButton) {
+    const action = canvasJsonButton.dataset.canvasJsonAction;
+    if (action === "upload") {
+      state.homeJsonImportOpen = true;
+      render();
+      window.requestAnimationFrame(() => {
+        const source = document.getElementById("home-json-import-source");
+        if (source) source.focus();
+      });
+      return;
+    }
+    if (action === "download") {
+      downloadHomeJsonSnapshot();
+      return;
+    }
+  }
+
   const homeYearStepButton = event.target.closest("[data-home-year-step]");
   if (homeYearStepButton) {
     stepHomeYear(homeYearStepButton.dataset.homeYearStep, homeYearStepButton.dataset.yearDelta);
@@ -9922,6 +10040,20 @@ document.body.addEventListener("click", event => {
   const homeEditLineButton = event.target.closest("[data-home-edit-line]");
   if (homeEditLineButton) {
     setHomeEditableLine(homeEditLineButton.dataset.homeEditLine);
+    return;
+  }
+
+  const yAxisTargetButton = event.target.closest("[data-napkin-y-axis-controls] [data-y-axis-target]");
+  if (yAxisTargetButton) {
+    const controls = yAxisTargetButton.closest("[data-napkin-y-axis-controls]");
+    const target = yAxisTargetButton.dataset.yAxisTarget === "min" ? "min" : "max";
+    if (controls?.dataset.napkinYAxisControls === "home") {
+      state.homeNapkinYAxisTarget = target;
+      updateYAxisTargetButtonState(controls, target);
+    } else if (controls?.dataset.napkinYAxisControls === "drawer-topdown") {
+      state.drawerNapkinYAxisTarget = target;
+      updateYAxisTargetButtonState(controls, target);
+    }
     return;
   }
 
